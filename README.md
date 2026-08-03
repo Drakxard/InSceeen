@@ -174,7 +174,7 @@ Para agregarlo, mantén presionado un espacio libre de la pantalla de inicio, ab
 
 ## Actualizaciones del APK
 
-En la página verde de conexión, el botón `↻` de la esquina superior derecha busca
+En la pestaña de Conexiones, el ícono verde de recarga de la esquina superior derecha busca
 la versión más reciente publicada en GitHub. Si hay una nueva, InScreen descarga
 `InScreenMic.apk` y abre el instalador de Android. La primera vez, Android puede pedir
 permiso para instalar aplicaciones desde InScreen; luego hay que confirmar cada

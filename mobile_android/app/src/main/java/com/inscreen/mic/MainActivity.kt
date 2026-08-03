@@ -63,7 +63,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var stateView: TextView
     private lateinit var connectButton: Button
     private lateinit var mediaControlButton: Button
-    private lateinit var updateButton: Button
+    private lateinit var updateButton: ImageButton
     private val webViews = mutableListOf<WebView>()
     private var scannerView: View? = null
     private var cameraProvider: ProcessCameraProvider? = null
@@ -319,12 +319,18 @@ class MainActivity : ComponentActivity() {
             rightMargin = 24
             bottomMargin = 24
         })
-        updateButton = backupButton("↻", "Buscar actualización") {
-            checkForAppUpdate()
-        }.apply { textSize = 27f }
-        page.addView(updateButton, FrameLayout.LayoutParams(64, 64, Gravity.TOP or Gravity.END).apply {
-            topMargin = 24
-            rightMargin = 24
+        updateButton = ImageButton(this).apply {
+            setImageResource(R.drawable.ic_refresh)
+            contentDescription = "Buscar actualización"
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            setColorFilter(Color.rgb(69, 255, 26))
+            setBackgroundColor(Color.TRANSPARENT)
+            elevation = dp(4).toFloat()
+            setOnClickListener { checkForAppUpdate() }
+        }
+        page.addView(updateButton, FrameLayout.LayoutParams(dp(56), dp(56), Gravity.TOP or Gravity.END).apply {
+            topMargin = dp(8)
+            rightMargin = dp(8)
         })
         return page
     }
@@ -467,8 +473,11 @@ class MainActivity : ComponentActivity() {
     private fun setUpdateBusy(busy: Boolean) {
         if (!::updateButton.isInitialized) return
         updateButton.isEnabled = !busy
-        updateButton.text = if (busy) "…" else "↻"
+        updateButton.alpha = if (busy) 0.45f else 1f
     }
+
+    private fun dp(value: Int): Int =
+        (value * resources.displayMetrics.density + 0.5f).toInt()
 
     private fun hasMediaControlAccess(): Boolean =
         NotificationManagerCompat.getEnabledListenerPackages(this).contains(packageName)
