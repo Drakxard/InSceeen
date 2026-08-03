@@ -1,0 +1,6 @@
+<resources>
+    <string name="app_name">InScreen Mic</string>
+    <string name="terminal_title">&gt;_ INSCREEN MIC</string>
+    <string name="privacy_summary">El micrófono permanece cerrado mientras espera la señal de la PC.</string>
+    <string name="widget_description">Materia actual de Apriori; tocá para romperla y avanzar</string>
+</resources>

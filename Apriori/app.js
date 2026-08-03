@@ -1,0 +1,1533 @@
+(function startApp() {
+  "use strict";
+
+  const Scheduler = window.StudyScheduler;
+  const folderStorage = window.AprioriFolderStorage.createFolderStorage();
+  const STORAGE_KEY = "study-ticket-queue:v1";
+  const STATE_VERSION = 1;
+  const DRAG_THRESHOLD = 64;
+  const CLICK_THRESHOLD = 6;
+  const DOCK_REORDER_THRESHOLD = 8;
+  const DOCK_AUTO_SCROLL_EDGE = 64;
+  const BLANK_DOUBLE_TAP_DELAY = 360;
+  const BLANK_DOUBLE_TAP_DISTANCE = 32;
+  const DOCK_ROW_CAPACITY = 4;
+  const MIN_DOCK_ROWS = 6;
+  const HOLD_DELAY = 150;
+  const HOLD_LIFT = 8;
+  const VIEW = new URLSearchParams(window.location.search).get("view") || "desktop";
+  const ANIMATION_MS = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 270;
+  const PALETTE = [
+    "#13a8e0",
+    "#b5eb16",
+    "#bf835f",
+    "#c5bee1",
+    "#ffca1a",
+  ];
+  const LEGACY_PALETTE = [
+    "#20a6d7",
+    "#b6eb20",
+    "#c3845e",
+    "#c7c0e4",
+    "#ffc928",
+    "#ef8fa1",
+    "#71c9b3",
+    "#f2a95d",
+  ];
+
+  const elements = {
+    queue: document.querySelector("#queue"),
+    subjectDock: document.querySelector("#subjectDock"),
+    subjectDockList: document.querySelector("#subjectDockList"),
+    addDialog: document.querySelector("#addDialog"),
+    addForm: document.querySelector("#addForm"),
+    newSubjectName: document.querySelector("#newSubjectName"),
+    addError: document.querySelector("#addError"),
+    detailDialog: document.querySelector("#detailDialog"),
+    detailForm: document.querySelector("#detailForm"),
+    detailId: document.querySelector("#detailId"),
+    detailName: document.querySelector("#detailName"),
+    detailClassDay: document.querySelector("#detailClassDay"),
+    detailExamDate: document.querySelector("#detailExamDate"),
+    detailColor: document.querySelector("#detailColor"),
+    detailAppearances: document.querySelector("#detailAppearances"),
+    detailNextTurn: document.querySelector("#detailNextTurn"),
+    colorButton: document.querySelector("#colorButton"),
+    colorPicker: document.querySelector("#colorPicker"),
+    colorHue: document.querySelector("#colorHue"),
+    colorSaturation: document.querySelector("#colorSaturation"),
+    colorLightness: document.querySelector("#colorLightness"),
+    colorHex: document.querySelector("#colorHex"),
+    colorInputError: document.querySelector("#colorInputError"),
+    detailError: document.querySelector("#detailError"),
+    calendarButton: document.querySelector("#calendarButton"),
+    deleteButton: document.querySelector("#deleteButton"),
+    storageDialog: document.querySelector("#storageDialog"),
+    storageMessage: document.querySelector("#storageMessage"),
+    storageError: document.querySelector("#storageError"),
+    storagePrimaryButton: document.querySelector("#storagePrimaryButton"),
+    storageSecondaryButton: document.querySelector("#storageSecondaryButton"),
+  };
+
+  let state = loadState();
+  let storageReady = false;
+  let storageGateMode = "select";
+  let drag = null;
+  let isAnimating = false;
+  let suppressClick = false;
+  let dockDraggedId = null;
+  let dockPointerDrag = null;
+  let dockAutoScrollFrame = null;
+  let dockAutoScrollDirection = 0;
+  let suppressDockClick = false;
+  let dayRefreshTimer = null;
+  let blankTapCandidate = null;
+  let previousBlankTap = null;
+  let blankTapTimer = null;
+
+  document.body.classList.add(`view-${VIEW}`);
+
+  bindEvents();
+  bootstrapStorage();
+
+  window.InScreenApplyState = (raw) => {
+    try {
+      state = normalizeState(typeof raw === "string" ? JSON.parse(raw) : raw);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      ensureFreshRing();
+      render();
+    } catch {}
+  };
+
+  function emptyState() {
+    return {
+      version: STATE_VERSION,
+      subjects: [],
+      ring: [],
+      weightSignature: "",
+      dockSplitIndex: 0,
+      dockRows: [],
+    };
+  }
+
+  function loadState() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return emptyState();
+      return normalizeState(JSON.parse(raw));
+    } catch {
+      return emptyState();
+    }
+  }
+
+  function normalizeState(saved) {
+    if (!saved || saved.version !== STATE_VERSION || !Array.isArray(saved.subjects)) {
+      return emptyState();
+    }
+
+    try {
+      const ids = new Set();
+      const subjects = saved.subjects
+        .map(normalizeSubject)
+        .filter((subject) => {
+          if (!subject || ids.has(subject.id)) return false;
+          ids.add(subject.id);
+          return true;
+        });
+      const validIds = new Set(subjects.map((subject) => subject.id));
+      const ring = Array.isArray(saved.ring)
+        ? saved.ring.filter((id) => typeof id === "string" && validIds.has(id))
+        : [];
+
+      const normalizedState = {
+        version: STATE_VERSION,
+        subjects,
+        ring,
+        weightSignature: typeof saved.weightSignature === "string" ? saved.weightSignature : "",
+        dockSplitIndex: Number.isInteger(saved.dockSplitIndex)
+          ? Math.max(0, Math.min(saved.dockSplitIndex, subjects.length))
+          : Math.min(5, subjects.length),
+        dockRows: normalizeDockRows(saved.dockRows, subjects),
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizedState));
+      return normalizedState;
+    } catch {
+      return emptyState();
+    }
+  }
+
+  function normalizeDockRows(savedRows, subjects) {
+    const validIds = new Set(subjects.map((subject) => subject.id));
+    const placedIds = new Set();
+    const rows = Array.isArray(savedRows)
+      ? savedRows.map((savedRow) => {
+          if (!Array.isArray(savedRow)) return [];
+          let accepted = 0;
+          return savedRow
+            .filter((id) => {
+              if (
+                accepted >= DOCK_ROW_CAPACITY ||
+                typeof id !== "string" ||
+                !validIds.has(id) ||
+                placedIds.has(id)
+              ) return false;
+              placedIds.add(id);
+              accepted += 1;
+              return true;
+            });
+        })
+      : [];
+
+    for (const subject of subjects) {
+      if (placedIds.has(subject.id)) continue;
+      let destination = rows.at(-1);
+      if (!destination || destination.length >= DOCK_ROW_CAPACITY) {
+        destination = [];
+        rows.push(destination);
+      }
+      destination.push(subject.id);
+      placedIds.add(subject.id);
+    }
+    while (rows.length && rows.at(-1).length === 0) rows.pop();
+    return rows;
+  }
+
+  async function bootstrapStorage() {
+    const result = await folderStorage.initialize(state);
+    await applyStorageResult(result);
+  }
+
+  async function applyStorageResult(result) {
+    if (!result || result.status === "cancelled") return;
+    if (result.status !== "ready") {
+      storageReady = false;
+      showStorageGate(result);
+      return;
+    }
+
+    state = normalizeState(result.state);
+    storageReady = true;
+    document.body.classList.remove("storage-blocked");
+    if (elements.storageDialog.open) elements.storageDialog.close();
+    ensureFreshRing();
+    render();
+    saveState();
+    scheduleDayRefresh();
+  }
+
+  function showStorageGate(result) {
+    document.body.classList.add("storage-blocked");
+    elements.storageError.textContent = "";
+    elements.storagePrimaryButton.hidden = false;
+    elements.storageSecondaryButton.hidden = true;
+
+    if (result.status === "needs-selection") {
+      storageGateMode = "select";
+      elements.storageMessage.textContent = "Elegí una carpeta para guardar la cola.";
+      elements.storagePrimaryButton.textContent = "Elegir carpeta";
+    } else if (result.status === "needs-permission") {
+      storageGateMode = "authorize";
+      const folder = result.directoryName ? ` “${result.directoryName}”` : "";
+      elements.storageMessage.textContent = `La carpeta${folder} necesita acceso.`;
+      elements.storagePrimaryButton.textContent = "Dar acceso";
+      elements.storageSecondaryButton.hidden = false;
+    } else if (result.status === "invalid-file") {
+      storageGateMode = "authorize";
+      elements.storageMessage.textContent = "No se pudo leer apriori.json.";
+      elements.storageError.textContent = "El archivo no será reemplazado. Corregilo y reintentá, o elegí otra carpeta.";
+      elements.storagePrimaryButton.textContent = "Reintentar";
+      elements.storageSecondaryButton.hidden = false;
+    } else if (result.status === "unsupported") {
+      storageGateMode = "unsupported";
+      elements.storageMessage.textContent = "Este navegador no permite guardar directamente en una carpeta.";
+      elements.storageError.textContent = "Abrí la app con una versión reciente de Edge o Chrome.";
+      elements.storagePrimaryButton.hidden = true;
+    } else {
+      storageGateMode = result.directoryName ? "authorize" : "retry";
+      elements.storageMessage.textContent = "No se pudo acceder a la carpeta.";
+      elements.storageError.textContent = result.message || "Reintentá el acceso o elegí otra carpeta.";
+      elements.storagePrimaryButton.textContent = "Reintentar";
+      elements.storageSecondaryButton.hidden = !result.directoryName;
+    }
+
+    setStorageBusy(false);
+    if (!elements.storageDialog.open) elements.storageDialog.showModal();
+  }
+
+  function setStorageBusy(busy) {
+    elements.storagePrimaryButton.disabled = busy;
+    elements.storageSecondaryButton.disabled = busy;
+  }
+
+  async function runStorageAction(action) {
+    setStorageBusy(true);
+    elements.storageError.textContent = "";
+    let result;
+    if (action === "select") result = await folderStorage.selectDirectory(state);
+    else if (action === "retry") result = await folderStorage.initialize(state);
+    else result = await folderStorage.authorize(state);
+    setStorageBusy(false);
+    await applyStorageResult(result);
+  }
+
+  function normalizeSubject(subject, index) {
+    if (!subject || typeof subject !== "object") return null;
+    const name = normalizeName(subject.name);
+    if (!name) return null;
+
+    const createdAt = new Date(subject.createdAt);
+    return {
+      id: typeof subject.id === "string" && subject.id ? subject.id : createId(),
+      name,
+      classDay:
+        Number.isInteger(subject.classDay) && subject.classDay >= 0 && subject.classDay <= 6
+          ? subject.classDay
+          : null,
+      examDate: Scheduler.parseLocalDate(subject.examDate) ? subject.examDate : null,
+      createdAt: Number.isNaN(createdAt.getTime()) ? new Date().toISOString() : createdAt.toISOString(),
+      color: normalizeColor(subject.color, index),
+    };
+  }
+
+  function normalizeColor(color, index) {
+    const normalized = typeof color === "string" ? color.toLowerCase() : "";
+    if (/^#[0-9a-f]{6}$/.test(normalized)) {
+      const legacyIndex = LEGACY_PALETTE.findIndex((item) => item.toLowerCase() === normalized);
+      return legacyIndex >= 0 ? PALETTE[legacyIndex % PALETTE.length] : normalized;
+    }
+    const currentIndex = PALETTE.findIndex((item) => item.toLowerCase() === normalized);
+    if (currentIndex >= 0) return PALETTE[currentIndex];
+    return PALETTE[index % PALETTE.length];
+  }
+
+  function saveState() {
+    if (!storageReady) return;
+    folderStorage.save(state).catch((error) => {
+      if (!storageReady) return;
+      storageReady = false;
+      showStorageGate({
+        status: "storage-error",
+        directoryName: folderStorage.directoryName,
+        message: error?.message || "No se pudo escribir apriori.json.",
+      });
+    });
+  }
+
+  function uniqueOrder(ids) {
+    return ids.filter((id, index) => ids.indexOf(id) === index);
+  }
+
+  function ringMatchesWeights(ring, subjects) {
+    if (!subjects.length) return ring.length === 0;
+    const desired = new Map(
+      subjects.map((subject) => [subject.id, Scheduler.calculateWeight(subject).tickets]),
+    );
+    const actual = new Map();
+    for (const id of ring) actual.set(id, (actual.get(id) || 0) + 1);
+    if (actual.size !== desired.size) return false;
+    return Array.from(desired).every(([id, count]) => actual.get(id) === count);
+  }
+
+  function ensureFreshRing(force = false) {
+    const signature = Scheduler.weightSignature(state.subjects);
+    const shouldRebuild =
+      force ||
+      signature !== state.weightSignature ||
+      !ringMatchesWeights(state.ring, state.subjects);
+
+    if (!shouldRebuild) return false;
+
+    const preferredHead = state.ring[0] || state.subjects[0]?.id || null;
+    state.ring = Scheduler.buildRing(state.subjects, new Date(), {
+      preferredHead,
+      preferredOrder: uniqueOrder(state.ring),
+    });
+    state.weightSignature = signature;
+    saveState();
+    return true;
+  }
+
+  function rebuildRing() {
+    state.weightSignature = "";
+    ensureFreshRing(true);
+  }
+
+  function render() {
+    ensureFreshRing();
+    elements.queue.replaceChildren();
+    renderSubjectDock();
+    if (elements.detailDialog.open) renderDetailMetrics();
+
+    if (!state.ring.length) return;
+
+    const subjectMap = new Map(state.subjects.map((subject) => [subject.id, subject]));
+
+    for (let index = 0; index < 5; index += 1) {
+      const id = state.ring[index % state.ring.length];
+      const subject = subjectMap.get(id);
+      if (!subject) continue;
+
+      const card = document.createElement("button");
+      card.type = "button";
+      card.className = "queue-card";
+      card.dataset.position = String(index);
+      card.dataset.subjectId = subject.id;
+      card.style.setProperty("--card-color", subject.color);
+      card.setAttribute(
+        "aria-label",
+        `${subject.name}, posición ${index + 1} de 5`,
+      );
+
+      const label = document.createElement("span");
+      label.className = "card-label";
+      label.textContent = Scheduler.acronym(subject.name);
+      card.append(label);
+
+      elements.queue.append(card);
+    }
+  }
+
+  function renderSubjectDock() {
+    elements.subjectDockList.replaceChildren();
+    if (state.subjects.length === 0) document.body.classList.remove("dock-visible");
+    if (VIEW === "dock") {
+      renderDockRows();
+      return;
+    }
+    for (const [index, subject] of state.subjects.entries()) {
+      const card = createDockCard(subject);
+      if (index === state.dockSplitIndex) card.classList.add("starts-right-group");
+      card.dataset.dockSide = index < state.dockSplitIndex ? "left" : "right";
+      elements.subjectDockList.append(card);
+    }
+  }
+
+  function renderDockRows() {
+    const subjectMap = new Map(state.subjects.map((subject) => [subject.id, subject]));
+    const visibleRowCount = Math.max(
+      MIN_DOCK_ROWS,
+      state.dockRows.length + 1,
+      Math.ceil(window.innerHeight / 72),
+    );
+    for (let rowIndex = 0; rowIndex < visibleRowCount; rowIndex += 1) {
+      const row = document.createElement("div");
+      row.className = "subject-dock-layout-row";
+      row.dataset.rowIndex = String(rowIndex);
+      row.setAttribute("aria-label", `Fila ${rowIndex + 1}`);
+      for (const id of state.dockRows[rowIndex] || []) {
+        const subject = subjectMap.get(id);
+        if (subject) row.append(createDockCard(subject));
+      }
+      elements.subjectDockList.append(row);
+    }
+  }
+
+  function createDockCard(subject) {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "subject-dock-card";
+    card.draggable = VIEW !== "dock";
+    card.dataset.subjectId = subject.id;
+    card.style.setProperty("--card-color", subject.color);
+    card.textContent = Scheduler.acronym(subject.name);
+    card.setAttribute("aria-label", `Ver detalles de ${subject.name}`);
+    return card;
+  }
+
+  function handleDockProximity(event) {
+    if (!storageReady || state.subjects.length === 0) return;
+    if (window.innerHeight - event.clientY <= 90) showSubjectDock();
+    else if (!elements.subjectDock.matches(":hover")) hideSubjectDock();
+  }
+
+  function showSubjectDock() {
+    if (storageReady && state.subjects.length > 0) document.body.classList.add("dock-visible");
+  }
+
+  function hideSubjectDock() {
+    if (!elements.subjectDock.matches(":hover") && !elements.subjectDock.matches(":focus-within")) {
+      document.body.classList.remove("dock-visible");
+    }
+  }
+
+  function handleDockClick(event) {
+    const card = event.target.closest(".subject-dock-card[data-subject-id]");
+    if (!card || suppressDockClick) return;
+    openDetails(card.dataset.subjectId);
+  }
+
+  function handleDockDragStart(event) {
+    if (VIEW === "dock") {
+      event.preventDefault();
+      return;
+    }
+    const card = event.target.closest(".subject-dock-card[data-subject-id]");
+    if (!card) return;
+    dockDraggedId = card.dataset.subjectId;
+    suppressDockClick = true;
+    card.classList.add("is-reordering");
+    event.dataTransfer?.setData("text/plain", dockDraggedId);
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+  }
+
+  function handleDockDragOver(event) {
+    if (!dockDraggedId) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  }
+
+  function handleDockDrop(event) {
+    if (!dockDraggedId) return;
+    event.preventDefault();
+
+    const sourceIndex = state.subjects.findIndex((subject) => subject.id === dockDraggedId);
+    if (sourceIndex < 0) return;
+
+    let splitIndex = Math.max(0, Math.min(state.dockSplitIndex, state.subjects.length));
+    const sourceWasLeft = sourceIndex < splitIndex;
+    const target = event.target.closest(".subject-dock-card[data-subject-id]");
+    const targetId = target?.dataset.subjectId === dockDraggedId
+      ? null
+      : target?.dataset.subjectId;
+    const placeAfter = target
+      ? event.clientX >= target.getBoundingClientRect().left + target.offsetWidth / 2
+      : false;
+    const [moved] = state.subjects.splice(sourceIndex, 1);
+    if (sourceWasLeft) splitIndex -= 1;
+
+    let insertionIndex;
+    let destinationIsLeft;
+    const targetIndex = targetId
+      ? state.subjects.findIndex((subject) => subject.id === targetId)
+      : -1;
+    if (targetIndex >= 0) {
+      destinationIsLeft = targetIndex < splitIndex;
+      insertionIndex = targetIndex + (placeAfter ? 1 : 0);
+    } else {
+      const bounds = elements.subjectDockList.getBoundingClientRect();
+      destinationIsLeft = event.clientX < bounds.left + bounds.width / 2;
+      insertionIndex = destinationIsLeft ? splitIndex : state.subjects.length;
+    }
+
+    state.subjects.splice(insertionIndex, 0, moved);
+    if (destinationIsLeft) splitIndex += 1;
+    state.dockSplitIndex = splitIndex;
+    state.dockRows = normalizeDockRows([], state.subjects);
+    saveState();
+    renderSubjectDock();
+    finishDockDrag();
+  }
+
+  function handleDockDragEnd() {
+    finishDockDrag();
+  }
+
+  function finishDockDrag() {
+    dockDraggedId = null;
+    elements.subjectDockList.querySelector(".is-reordering")?.classList.remove("is-reordering");
+    window.setTimeout(() => {
+      suppressDockClick = false;
+    }, 0);
+  }
+
+  function handleDockPointerDown(event) {
+    if (VIEW !== "dock" || !storageReady || dockPointerDrag || event.button !== 0) return;
+    const card = event.target.closest(".subject-dock-card[data-subject-id]");
+    if (!card) return;
+    const bounds = card.getBoundingClientRect();
+    dockPointerDrag = {
+      pointerId: event.pointerId,
+      card,
+      startX: event.clientX,
+      startY: event.clientY,
+      currentX: event.clientX,
+      currentY: event.clientY,
+      moved: false,
+      finishing: false,
+      origin: { left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height },
+      placeholder: null,
+      originalSubjects: state.subjects.slice(),
+      originalRows: state.dockRows.map((row) => row.slice()),
+    };
+    card.setPointerCapture(event.pointerId);
+  }
+
+  function handleDockPointerMove(event) {
+    if (!dockPointerDrag || dockPointerDrag.pointerId !== event.pointerId || dockPointerDrag.finishing) return;
+    dockPointerDrag.currentX = event.clientX;
+    dockPointerDrag.currentY = event.clientY;
+    if (!dockPointerDrag.moved) {
+      const distance = Math.hypot(
+        event.clientX - dockPointerDrag.startX,
+        event.clientY - dockPointerDrag.startY,
+      );
+      if (distance <= DOCK_REORDER_THRESHOLD) return;
+      beginFloatingDockDrag();
+    }
+    event.preventDefault();
+    positionFloatingDockCard(event.clientX, event.clientY);
+    moveDockPlaceholder(event.clientX, event.clientY);
+    updateDockAutoScroll(event.clientY);
+  }
+
+  function beginFloatingDockDrag() {
+    if (!dockPointerDrag || dockPointerDrag.moved) return;
+    const { card, origin } = dockPointerDrag;
+    const placeholder = document.createElement("div");
+    placeholder.className = "subject-dock-placeholder";
+    placeholder.setAttribute("aria-hidden", "true");
+    card.after(placeholder);
+    dockPointerDrag.placeholder = placeholder;
+    dockPointerDrag.moved = true;
+    suppressDockClick = true;
+    card.classList.add("is-reordering");
+    Object.assign(card.style, {
+      position: "fixed",
+      left: `${origin.left}px`,
+      top: `${origin.top}px`,
+      width: `${origin.width}px`,
+      height: `${origin.height}px`,
+      margin: "0",
+      zIndex: "20",
+      pointerEvents: "none",
+    });
+    document.body.append(card);
+  }
+
+  function positionFloatingDockCard(clientX, clientY) {
+    if (!dockPointerDrag?.moved) return;
+    const deltaX = clientX - dockPointerDrag.startX;
+    const deltaY = clientY - dockPointerDrag.startY - 8;
+    const tilt = Math.max(-3, Math.min(3, deltaX / 55));
+    dockPointerDrag.card.style.transform =
+      `translate3d(${deltaX}px, ${deltaY}px, 0) rotate(${tilt}deg) scale(1.06)`;
+  }
+
+  function moveDockPlaceholder(clientX, clientY) {
+    if (!dockPointerDrag?.moved) return;
+    const rows = Array.from(elements.subjectDockList.querySelectorAll(".subject-dock-layout-row"));
+    if (!rows.length) return;
+    let row = document.elementFromPoint(clientX, clientY)?.closest?.(".subject-dock-layout-row");
+    if (!row) {
+      row = rows
+        .map((candidate) => {
+          const bounds = candidate.getBoundingClientRect();
+          return {
+            row: candidate,
+            distance: Math.abs(clientY - (bounds.top + bounds.height / 2)),
+          };
+        })
+        .sort((left, right) => left.distance - right.distance)[0]?.row;
+    }
+    if (!row) return;
+
+    const cards = Array.from(row.querySelectorAll(".subject-dock-card[data-subject-id]"));
+    const reference = cards.find((candidate) => {
+      const bounds = candidate.getBoundingClientRect();
+      return clientX < bounds.left + bounds.width / 2;
+    }) || null;
+    const placeholder = dockPointerDrag.placeholder;
+    if (!placeholder) return;
+    if (reference === placeholder || (reference === null && row.lastElementChild === placeholder)) return;
+    const priorRow = placeholder.parentElement;
+    if (row !== priorRow && cards.length >= DOCK_ROW_CAPACITY) {
+      const displaced = reference || cards.at(-1);
+      const priorReference = placeholder.nextElementSibling;
+      animateDockLayoutChange(() => {
+        row.insertBefore(placeholder, displaced);
+        priorRow.insertBefore(displaced, priorReference);
+      });
+      return;
+    }
+    animateDockLayoutChange(() => row.insertBefore(placeholder, reference));
+  }
+
+  function animateDockLayoutChange(change) {
+    const cards = Array.from(elements.subjectDockList.querySelectorAll(".subject-dock-card"));
+    const before = new Map(cards.map((card) => [card, card.getBoundingClientRect()]));
+    change();
+    for (const card of cards) {
+      const prior = before.get(card);
+      const next = card.getBoundingClientRect();
+      const deltaX = prior.left - next.left;
+      const deltaY = prior.top - next.top;
+      if (Math.abs(deltaX) < 1 && Math.abs(deltaY) < 1) continue;
+      card.animate(
+        [
+          { transform: `translate(${deltaX}px, ${deltaY}px)` },
+          { transform: "translate(0, 0)" },
+        ],
+        { duration: 150, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" },
+      );
+    }
+  }
+
+  function syncDockStateFromRows() {
+    const subjectsById = new Map(state.subjects.map((subject) => [subject.id, subject]));
+    const rows = Array.from(elements.subjectDockList.querySelectorAll(".subject-dock-layout-row"))
+      .map((row) => Array.from(
+        row.querySelectorAll(".subject-dock-card[data-subject-id]"),
+        (card) => card.dataset.subjectId,
+      ));
+    while (rows.length && rows.at(-1).length === 0) rows.pop();
+    state.dockRows = rows;
+    state.subjects = rows.flat().map((id) => subjectsById.get(id)).filter(Boolean);
+  }
+
+  function updateDockAutoScroll(clientY) {
+    const bounds = elements.subjectDockList.getBoundingClientRect();
+    dockAutoScrollDirection = clientY < bounds.top + DOCK_AUTO_SCROLL_EDGE
+      ? -1
+      : clientY > bounds.bottom - DOCK_AUTO_SCROLL_EDGE
+        ? 1
+        : 0;
+    if (dockAutoScrollDirection === 0) {
+      stopDockAutoScroll();
+      return;
+    }
+    if (dockAutoScrollFrame !== null) return;
+
+    const step = () => {
+      if (!dockPointerDrag?.moved || dockAutoScrollDirection === 0) {
+        dockAutoScrollFrame = null;
+        return;
+      }
+      elements.subjectDockList.scrollTop += dockAutoScrollDirection * 10;
+      moveDockPlaceholder(dockPointerDrag.currentX, dockPointerDrag.currentY);
+      dockAutoScrollFrame = window.requestAnimationFrame(step);
+    };
+    dockAutoScrollFrame = window.requestAnimationFrame(step);
+  }
+
+  function stopDockAutoScroll() {
+    dockAutoScrollDirection = 0;
+    if (dockAutoScrollFrame !== null) window.cancelAnimationFrame(dockAutoScrollFrame);
+    dockAutoScrollFrame = null;
+  }
+
+  function handleDockPointerUp(event) {
+    if (!dockPointerDrag || dockPointerDrag.pointerId !== event.pointerId) return;
+    finishDockPointerDrag(true);
+  }
+
+  function handleDockPointerCancel(event) {
+    if (!dockPointerDrag || dockPointerDrag.pointerId !== event.pointerId) return;
+    finishDockPointerDrag(false);
+  }
+
+  function finishDockPointerDrag(commit) {
+    const currentDrag = dockPointerDrag;
+    if (!currentDrag || currentDrag.finishing) return;
+    stopDockAutoScroll();
+    if (currentDrag.card.hasPointerCapture(currentDrag.pointerId)) {
+      currentDrag.card.releasePointerCapture(currentDrag.pointerId);
+    }
+    if (!currentDrag.moved) {
+      dockPointerDrag = null;
+      return;
+    }
+    currentDrag.finishing = true;
+    const destination = commit && currentDrag.placeholder
+      ? currentDrag.placeholder.getBoundingClientRect()
+      : currentDrag.origin;
+    const finalX = destination.left - currentDrag.origin.left;
+    const finalY = destination.top - currentDrag.origin.top;
+    const animation = currentDrag.card.animate(
+      [
+        { transform: currentDrag.card.style.transform },
+        { transform: `translate3d(${finalX}px, ${finalY}px, 0) rotate(0deg) scale(1)` },
+      ],
+      { duration: 180, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)", fill: "forwards" },
+    );
+    animation.finished.catch(() => undefined).then(() => {
+      if (commit && currentDrag.placeholder?.isConnected) {
+        currentDrag.placeholder.before(currentDrag.card);
+        currentDrag.placeholder.remove();
+        clearFloatingDockCard(currentDrag.card);
+        syncDockStateFromRows();
+        saveState();
+      } else {
+        state.subjects = currentDrag.originalSubjects;
+        state.dockRows = currentDrag.originalRows;
+        currentDrag.placeholder?.remove();
+        clearFloatingDockCard(currentDrag.card);
+        renderSubjectDock();
+      }
+      dockPointerDrag = null;
+      window.setTimeout(() => {
+        suppressDockClick = false;
+      }, 0);
+    });
+  }
+
+  function clearFloatingDockCard(card) {
+    card.classList.remove("is-reordering");
+    for (const property of [
+      "position", "left", "top", "width", "height", "margin", "z-index", "pointer-events", "transform",
+    ]) card.style.removeProperty(property);
+  }
+
+  function bindEvents() {
+    elements.storagePrimaryButton.addEventListener("click", () => runStorageAction(storageGateMode));
+    elements.storageSecondaryButton.addEventListener("click", () => runStorageAction("select"));
+    elements.storageDialog.addEventListener("cancel", (event) => event.preventDefault());
+    elements.addForm.addEventListener("submit", addSubject);
+    elements.newSubjectName.addEventListener("keydown", handleAddKeydown);
+    elements.detailForm.addEventListener("submit", saveSubjectDetails);
+    elements.detailName.addEventListener("blur", saveSubjectDetails);
+    elements.detailName.addEventListener("keydown", handleDetailNameKeydown);
+    elements.deleteButton.addEventListener("click", deleteSelectedSubject);
+    elements.calendarButton.addEventListener("click", openDatePicker);
+    elements.detailClassDay.addEventListener("change", saveSubjectDetails);
+    elements.detailExamDate.addEventListener("change", saveSubjectDetails);
+    elements.detailColor.addEventListener("change", commitColorPickerValue);
+    elements.colorButton.addEventListener("click", toggleColorPicker);
+    elements.colorPicker.addEventListener("input", handleColorPickerInput);
+    elements.colorHex.addEventListener("change", handleColorHexChange);
+    elements.queue.addEventListener("click", handleCardClick);
+    elements.queue.addEventListener("pointerdown", handlePointerDown);
+    elements.queue.addEventListener("pointermove", handlePointerMove);
+    elements.queue.addEventListener("pointerup", handlePointerUp);
+    elements.queue.addEventListener("pointercancel", cancelDrag);
+    elements.queue.addEventListener("keydown", handleQueueKeydown);
+    elements.subjectDockList.addEventListener("click", handleDockClick);
+    elements.subjectDockList.addEventListener("dragstart", handleDockDragStart);
+    elements.subjectDockList.addEventListener("dragover", handleDockDragOver);
+    elements.subjectDockList.addEventListener("drop", handleDockDrop);
+    elements.subjectDockList.addEventListener("dragend", handleDockDragEnd);
+    elements.subjectDockList.addEventListener("pointerdown", handleDockPointerDown);
+    document.addEventListener("pointermove", handleDockPointerMove);
+    document.addEventListener("pointerup", handleDockPointerUp);
+    document.addEventListener("pointercancel", handleDockPointerCancel);
+    elements.subjectDock.addEventListener("pointerenter", showSubjectDock);
+    elements.subjectDock.addEventListener("pointerleave", hideSubjectDock);
+    document.addEventListener("pointermove", handleDockProximity);
+    document.addEventListener("pointerleave", hideSubjectDock);
+    document.addEventListener("pointerdown", closeColorPickerOnOutsidePress);
+    document.addEventListener("keydown", handleGlobalKeydown);
+    document.addEventListener("visibilitychange", refreshAfterVisibilityChange);
+    document.querySelector(".app-shell").addEventListener("pointerdown", handleBlankTapStart);
+    document.querySelector(".app-shell").addEventListener("pointermove", handleBlankTapMove);
+    document.querySelector(".app-shell").addEventListener("pointerup", finishBlankTap);
+    document.querySelector(".app-shell").addEventListener("pointercancel", cancelBlankTapCandidate);
+
+    elements.addDialog.addEventListener("click", closeOnBackdrop);
+    elements.detailDialog.addEventListener("click", closeOnBackdrop);
+    elements.addDialog.addEventListener("close", () => {
+      elements.addError.textContent = "";
+      elements.addForm.reset();
+    });
+    elements.detailDialog.addEventListener("close", () => {
+      closeColorPicker();
+      elements.detailError.textContent = "";
+    });
+  }
+
+  function handleBlankTapStart(event) {
+    if (
+      VIEW !== "queue" ||
+      event.button !== 0 ||
+      event.target.closest(".queue-card") ||
+      !storageReady
+    ) {
+      cancelBlankTapSequence();
+      return;
+    }
+    blankTapCandidate = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+    };
+  }
+
+  function handleBlankTapMove(event) {
+    if (!blankTapCandidate || blankTapCandidate.pointerId !== event.pointerId) return;
+    if (Math.hypot(event.clientX - blankTapCandidate.x, event.clientY - blankTapCandidate.y) > 10) {
+      cancelBlankTapCandidate();
+    }
+  }
+
+  function cancelBlankTapCandidate() {
+    blankTapCandidate = null;
+  }
+
+  function cancelBlankTapSequence() {
+    cancelBlankTapCandidate();
+    previousBlankTap = null;
+    window.clearTimeout(blankTapTimer);
+    blankTapTimer = null;
+  }
+
+  function finishBlankTap(event) {
+    if (!blankTapCandidate || blankTapCandidate.pointerId !== event.pointerId) return;
+    const tap = { x: event.clientX, y: event.clientY, time: performance.now() };
+    blankTapCandidate = null;
+    const isDoubleTap =
+      previousBlankTap &&
+      tap.time - previousBlankTap.time <= BLANK_DOUBLE_TAP_DELAY &&
+      Math.hypot(tap.x - previousBlankTap.x, tap.y - previousBlankTap.y) <=
+        BLANK_DOUBLE_TAP_DISTANCE;
+
+    if (!isDoubleTap) {
+      previousBlankTap = tap;
+      window.clearTimeout(blankTapTimer);
+      blankTapTimer = window.setTimeout(() => {
+        previousBlankTap = null;
+        blankTapTimer = null;
+      }, BLANK_DOUBLE_TAP_DELAY);
+      return;
+    }
+
+    cancelBlankTapSequence();
+    event.preventDefault();
+    event.stopPropagation();
+    window.requestAnimationFrame(openAddDialog);
+  }
+
+  function closeOnBackdrop(event) {
+    if (event.target === event.currentTarget) event.currentTarget.close();
+  }
+
+  function openAddDialog() {
+    if (elements.addDialog.open || elements.detailDialog.open) return;
+    elements.addError.textContent = "";
+    elements.addDialog.showModal();
+    requestAnimationFrame(() => elements.newSubjectName.focus());
+  }
+
+  function handleAddKeydown(event) {
+    if (event.key !== "Enter" || event.isComposing) return;
+    event.preventDefault();
+    elements.addForm.requestSubmit();
+  }
+
+  function normalizeName(name) {
+    return String(name || "").trim().replace(/\s+/g, " ");
+  }
+
+  function isDuplicateName(name, ignoredId = null) {
+    const target = name.toLocaleLowerCase("es");
+    return state.subjects.some(
+      (subject) =>
+        subject.id !== ignoredId && subject.name.toLocaleLowerCase("es") === target,
+    );
+  }
+
+  function addSubject(event) {
+    event.preventDefault();
+    const name = normalizeName(elements.newSubjectName.value);
+    if (!name) {
+      elements.addError.textContent = "Escribí un nombre para continuar.";
+      elements.newSubjectName.focus();
+      return;
+    }
+    if (isDuplicateName(name)) {
+      elements.addError.textContent = "Esa materia ya está en la cola.";
+      elements.newSubjectName.select();
+      return;
+    }
+
+    const subject = {
+      id: createId(),
+      name,
+      classDay: null,
+      examDate: null,
+      createdAt: new Date().toISOString(),
+      color: nextColor(),
+    };
+    const priorHead = state.ring[0] || null;
+    const extendLeftGroup =
+      state.subjects.length < 5 && state.dockSplitIndex === state.subjects.length;
+    state.subjects.push(subject);
+    state.dockRows = normalizeDockRows(state.dockRows, state.subjects);
+    if (extendLeftGroup) state.dockSplitIndex += 1;
+    state.ring.push(subject.id);
+    state.weightSignature = Scheduler.weightSignature(state.subjects);
+
+    if (!ringMatchesWeights(state.ring, state.subjects)) {
+      state.ring = Scheduler.buildRing(state.subjects, new Date(), {
+        preferredHead: priorHead,
+        preferredOrder: uniqueOrder(state.ring),
+      });
+    }
+
+    // A newly created base ticket should visibly enter at the bottom while the old head stays first.
+    if (priorHead && state.ring[0] === priorHead) {
+      const newIndex = state.ring.indexOf(subject.id);
+      if (newIndex >= 0 && newIndex !== state.ring.length - 1) {
+        state.ring.splice(newIndex, 1);
+        state.ring.push(subject.id);
+      }
+    }
+
+    saveState();
+    elements.addDialog.close();
+    render();
+  }
+
+  function createId() {
+    if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+    return `subject-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+
+  function nextColor() {
+    const usage = new Map(PALETTE.map((color) => [color, 0]));
+    state.subjects.forEach((subject) => usage.set(subject.color, (usage.get(subject.color) || 0) + 1));
+    return PALETTE.slice().sort((left, right) => usage.get(left) - usage.get(right))[0];
+  }
+
+  function subjectById(id) {
+    return state.subjects.find((subject) => subject.id === id) || null;
+  }
+
+  function handleCardClick(event) {
+    const card = event.target.closest(".queue-card[data-subject-id]");
+    if (!card || suppressClick || isAnimating) return;
+    openDetails(card.dataset.subjectId);
+  }
+
+  function openDetails(id) {
+    const subject = subjectById(id);
+    if (!subject || elements.detailDialog.open) return;
+    elements.detailId.value = subject.id;
+    elements.detailName.value = subject.name;
+    elements.detailClassDay.value = subject.classDay === null ? "" : String(subject.classDay);
+    elements.detailExamDate.value = subject.examDate || "";
+    elements.detailColor.value = subject.color;
+    updateColorButton(subject.color);
+    renderDetailMetrics(subject);
+    elements.detailError.textContent = "";
+    elements.detailDialog.showModal();
+  }
+
+  function renderDetailMetrics(selectedSubject = null) {
+    const subject = selectedSubject || subjectById(elements.detailId.value);
+    if (!subject) {
+      elements.detailAppearances.textContent = "—";
+      elements.detailNextTurn.textContent = "—";
+      return;
+    }
+
+    const appearances = state.ring.reduce(
+      (total, id) => total + (id === subject.id ? 1 : 0),
+      0,
+    );
+    const distance = Scheduler.nextOccurrenceDistance(state.ring, subject.id);
+    elements.detailAppearances.textContent = `${appearances} ${
+      appearances === 1 ? "aparición" : "apariciones"
+    }`;
+    elements.detailNextTurn.textContent = Number.isInteger(distance)
+      ? `${distance} ${distance === 1 ? "turno" : "turnos"}`
+      : "—";
+  }
+
+  function toggleColorPicker() {
+    if (elements.colorPicker.hidden) openColorPicker();
+    else closeColorPicker();
+  }
+
+  function openColorPicker() {
+    syncColorPicker(elements.detailColor.value);
+    elements.colorPicker.hidden = false;
+    elements.colorButton.setAttribute("aria-expanded", "true");
+    requestAnimationFrame(() => elements.colorHue.focus());
+  }
+
+  function closeColorPicker(commit = true) {
+    if (elements.colorPicker.hidden) return;
+    if (commit) commitColorPickerValue();
+    elements.colorPicker.hidden = true;
+    elements.colorButton.setAttribute("aria-expanded", "false");
+  }
+
+  function closeColorPickerOnOutsidePress(event) {
+    if (
+      elements.colorPicker.hidden ||
+      elements.colorPicker.contains(event.target) ||
+      elements.colorButton.contains(event.target)
+    ) {
+      return;
+    }
+    closeColorPicker();
+  }
+
+  function handleColorPickerInput(event) {
+    if (event.target === elements.colorHex) {
+      const value = parseColorInput(elements.colorHex.value);
+      if (!value) return;
+      elements.detailColor.value = value;
+      updateColorButton(value);
+      syncColorSliders(value);
+      setColorInputValidity(true);
+      return;
+    }
+
+    if (
+      event.target !== elements.colorHue &&
+      event.target !== elements.colorSaturation &&
+      event.target !== elements.colorLightness
+    ) {
+      return;
+    }
+
+    const color = hslToHex(
+      Number(elements.colorHue.value),
+      Number(elements.colorSaturation.value),
+      Number(elements.colorLightness.value),
+    );
+    elements.detailColor.value = color;
+    elements.colorHex.value = color.toUpperCase();
+    setColorInputValidity(true);
+    updateColorButton(color);
+    updateColorSliderBackgrounds();
+  }
+
+  function handleColorHexChange() {
+    const value = parseColorInput(elements.colorHex.value);
+    if (!value) {
+      setColorInputValidity(false);
+      return;
+    }
+    elements.detailColor.value = value;
+    elements.colorHex.value = value.toUpperCase();
+    setColorInputValidity(true);
+    updateColorButton(value);
+    syncColorSliders(value);
+    commitColorPickerValue();
+  }
+
+  function commitColorPickerValue() {
+    const subject = subjectById(elements.detailId.value);
+    const color = parseColorInput(elements.detailColor.value);
+    if (!subject || !color || subject.color === color) return;
+    subject.color = color;
+    saveState();
+    render();
+  }
+
+  function syncColorPicker(color) {
+    const normalized = parseColorInput(color) || PALETTE[0];
+    elements.detailColor.value = normalized;
+    elements.colorHex.value = normalized.toUpperCase();
+    setColorInputValidity(true);
+    updateColorButton(normalized);
+    syncColorSliders(normalized);
+  }
+
+  function syncColorSliders(color) {
+    const { hue, saturation, lightness } = hexToHsl(color);
+    elements.colorHue.value = String(Math.round(hue));
+    elements.colorSaturation.value = String(Math.round(saturation));
+    elements.colorLightness.value = String(Math.round(lightness));
+    updateColorSliderBackgrounds();
+  }
+
+  function updateColorButton(color) {
+    elements.colorButton.style.setProperty("--selected-color", color);
+  }
+
+  function updateColorSliderBackgrounds() {
+    elements.colorPicker.style.setProperty("--picker-hue", elements.colorHue.value);
+    elements.colorPicker.style.setProperty(
+      "--picker-saturation",
+      `${elements.colorSaturation.value}%`,
+    );
+  }
+
+  function setColorInputValidity(valid) {
+    elements.colorHex.setAttribute("aria-invalid", valid ? "false" : "true");
+    elements.colorInputError.textContent = valid
+      ? ""
+      : "Usá #RRGGBB o R, G, B.";
+  }
+
+  function parseColorInput(value) {
+    const normalized = String(value || "").trim();
+    if (normalized.startsWith("#")) {
+      if (/^#[0-9a-f]{6}$/i.test(normalized)) return normalized.toLowerCase();
+      if (/^#[0-9a-f]{3}$/i.test(normalized)) {
+        return `#${normalized
+          .slice(1)
+          .split("")
+          .map((digit) => digit.repeat(2))
+          .join("")}`.toLowerCase();
+      }
+      return null;
+    }
+
+    if (!normalized.includes(",")) return null;
+    const channels = normalized.split(",").map((channel) => channel.trim());
+    if (
+      channels.length !== 3 ||
+      channels.some((channel) => !/^\d{1,3}$/.test(channel) || Number(channel) > 255)
+    ) {
+      return null;
+    }
+    return `#${channels
+      .map((channel) => Number(channel).toString(16).padStart(2, "0"))
+      .join("")}`;
+  }
+
+  function hexToHsl(color) {
+    const red = parseInt(color.slice(1, 3), 16) / 255;
+    const green = parseInt(color.slice(3, 5), 16) / 255;
+    const blue = parseInt(color.slice(5, 7), 16) / 255;
+    const maximum = Math.max(red, green, blue);
+    const minimum = Math.min(red, green, blue);
+    const lightness = (maximum + minimum) / 2;
+    const delta = maximum - minimum;
+    if (delta === 0) return { hue: 0, saturation: 0, lightness: lightness * 100 };
+
+    const saturation = delta / (1 - Math.abs(2 * lightness - 1));
+    let hue;
+    if (maximum === red) hue = 60 * (((green - blue) / delta) % 6);
+    else if (maximum === green) hue = 60 * ((blue - red) / delta + 2);
+    else hue = 60 * ((red - green) / delta + 4);
+    if (hue < 0) hue += 360;
+    return { hue, saturation: saturation * 100, lightness: lightness * 100 };
+  }
+
+  function hslToHex(hue, saturation, lightness) {
+    const normalizedSaturation = saturation / 100;
+    const normalizedLightness = lightness / 100;
+    const chroma = (1 - Math.abs(2 * normalizedLightness - 1)) * normalizedSaturation;
+    const section = hue / 60;
+    const intermediate = chroma * (1 - Math.abs((section % 2) - 1));
+    let red = 0;
+    let green = 0;
+    let blue = 0;
+    if (section < 1) [red, green] = [chroma, intermediate];
+    else if (section < 2) [red, green] = [intermediate, chroma];
+    else if (section < 3) [green, blue] = [chroma, intermediate];
+    else if (section < 4) [green, blue] = [intermediate, chroma];
+    else if (section < 5) [red, blue] = [intermediate, chroma];
+    else [red, blue] = [chroma, intermediate];
+    const match = normalizedLightness - chroma / 2;
+    return `#${[red, green, blue]
+      .map((component) => Math.round((component + match) * 255).toString(16).padStart(2, "0"))
+      .join("")}`;
+  }
+
+  function handleDetailNameKeydown(event) {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    if (saveSubjectDetails()) elements.detailName.blur();
+  }
+
+  function saveSubjectDetails(event) {
+    event?.preventDefault();
+    const subject = subjectById(elements.detailId.value);
+    if (!subject) {
+      elements.detailDialog.close();
+      return false;
+    }
+
+    const name = normalizeName(elements.detailName.value);
+    if (!name) {
+      elements.detailError.textContent = "El nombre no puede quedar vacío.";
+      elements.detailName.focus();
+      return false;
+    }
+    if (isDuplicateName(name, subject.id)) {
+      elements.detailError.textContent = "Ya existe otra materia con ese nombre.";
+      elements.detailName.select();
+      return false;
+    }
+
+    const nextClassDay = elements.detailClassDay.value === "" ? null : Number(elements.detailClassDay.value);
+    const nextExamDate = elements.detailExamDate.value || null;
+    const nextColor = normalizeColor(elements.detailColor.value, 0);
+    const scheduleChanged = subject.classDay !== nextClassDay || subject.examDate !== nextExamDate;
+    subject.name = name;
+    subject.classDay = nextClassDay;
+    subject.examDate = nextExamDate;
+    subject.color = nextColor;
+    elements.detailError.textContent = "";
+    if (scheduleChanged) rebuildRing();
+    else saveState();
+    render();
+    return true;
+  }
+
+  function deleteSelectedSubject() {
+    const subject = subjectById(elements.detailId.value);
+    if (!subject) return;
+    if (!window.confirm(`¿Eliminar “${subject.name}” de la cola?`)) return;
+
+    const subjectIndex = state.subjects.findIndex((item) => item.id === subject.id);
+    if (subjectIndex >= 0 && subjectIndex < state.dockSplitIndex) {
+      state.dockSplitIndex -= 1;
+    }
+    state.subjects = state.subjects.filter((item) => item.id !== subject.id);
+    state.dockRows = normalizeDockRows(state.dockRows, state.subjects);
+    state.ring = state.ring.filter((id) => id !== subject.id);
+    rebuildRing();
+    elements.detailDialog.close();
+    render();
+  }
+
+  function openDatePicker() {
+    try {
+      if (typeof elements.detailExamDate.showPicker === "function") {
+        elements.detailExamDate.showPicker();
+      } else {
+        elements.detailExamDate.focus();
+        elements.detailExamDate.click();
+      }
+    } catch {
+      elements.detailExamDate.focus();
+    }
+  }
+
+  function handlePointerDown(event) {
+    const card = event.target.closest('.queue-card[data-position="0"]');
+    if (!card || event.button !== 0 || isAnimating) return;
+    drag = {
+      pointerId: event.pointerId,
+      card,
+      startX: event.clientX,
+      startY: event.clientY,
+      currentX: event.clientX,
+      currentY: event.clientY,
+      deltaX: 0,
+      deltaY: 0,
+      moved: false,
+      held: false,
+      samples: [{ x: event.clientX, y: event.clientY, time: performance.now() }],
+      holdTimer: window.setTimeout(() => activateHold(event.pointerId), HOLD_DELAY),
+    };
+    card.setPointerCapture(event.pointerId);
+  }
+
+  function activateHold(pointerId) {
+    if (!drag || drag.pointerId !== pointerId || drag.held) return;
+    drag.held = true;
+    suppressClick = true;
+    drag.card.classList.add("is-held");
+  }
+
+  function handlePointerMove(event) {
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const deltaX = event.clientX - drag.startX;
+    const rawDeltaY = event.clientY - drag.startY;
+    drag.currentX = event.clientX;
+    drag.currentY = event.clientY;
+    drag.deltaX = deltaX;
+    drag.deltaY = rawDeltaY;
+    recordPointerSample(drag, event.clientX, event.clientY);
+    if (!drag.moved && Math.hypot(deltaX, rawDeltaY) > CLICK_THRESHOLD) {
+      drag.moved = true;
+      activateHold(event.pointerId);
+      drag.card.classList.add("is-dragging");
+    }
+    if (!drag.moved) return;
+
+    const progress = Math.min(1, Math.hypot(drag.deltaX, drag.deltaY) / DRAG_THRESHOLD);
+    const tilt = Math.max(-3, Math.min(3, deltaX / 45));
+    drag.card.style.transform = `translate(${drag.deltaX}px, ${drag.deltaY - HOLD_LIFT}px) rotate(${tilt}deg) scale(1.012)`;
+    drag.card.style.opacity = String(1 - progress * 0.12);
+  }
+
+  function recordPointerSample(activeDrag, x, y) {
+    const now = performance.now();
+    activeDrag.samples.push({ x, y, time: now });
+    activeDrag.samples = activeDrag.samples.filter((sample) => now - sample.time <= 120);
+  }
+
+  function releaseVelocity(activeDrag, x, y) {
+    recordPointerSample(activeDrag, x, y);
+    const latest = activeDrag.samples.at(-1);
+    const earliest = activeDrag.samples.find((sample) => latest.time - sample.time >= 24) || activeDrag.samples[0];
+    const elapsed = Math.max(16, latest.time - earliest.time);
+    return {
+      x: (latest.x - earliest.x) / elapsed,
+      y: (latest.y - earliest.y) / elapsed,
+    };
+  }
+
+  function handlePointerUp(event) {
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const currentDrag = drag;
+    drag = null;
+    window.clearTimeout(currentDrag.holdTimer);
+    currentDrag.deltaX = event.clientX - currentDrag.startX;
+    currentDrag.deltaY = event.clientY - currentDrag.startY;
+    const velocity = releaseVelocity(currentDrag, event.clientX, event.clientY);
+
+    if (currentDrag.card.hasPointerCapture(event.pointerId)) {
+      currentDrag.card.releasePointerCapture(event.pointerId);
+    }
+    currentDrag.card.classList.remove("is-dragging", "is-held");
+
+    const upwardThrow = currentDrag.deltaY <= -DRAG_THRESHOLD || velocity.y <= -0.45;
+    const sidewaysThrow =
+      Math.abs(currentDrag.deltaX) >= 24 && Math.abs(velocity.x) >= 0.65 && velocity.y <= 0.2;
+
+    if (currentDrag.moved && (upwardThrow || sidewaysThrow)) {
+      flingQueue(currentDrag, velocity);
+    } else if (currentDrag.moved || currentDrag.held) {
+      returnCard(
+        currentDrag.card,
+        currentDrag.deltaX,
+        currentDrag.deltaY - HOLD_LIFT,
+        Math.max(-3, Math.min(3, currentDrag.deltaX / 45)),
+      );
+    }
+
+    window.setTimeout(() => {
+      suppressClick = false;
+    }, 0);
+  }
+
+  function cancelDrag(event) {
+    if (!drag || (event.pointerId !== undefined && drag.pointerId !== event.pointerId)) return;
+    const currentDrag = drag;
+    drag = null;
+    window.clearTimeout(currentDrag.holdTimer);
+    currentDrag.card.classList.remove("is-dragging", "is-held");
+    returnCard(
+      currentDrag.card,
+      currentDrag.deltaX,
+      currentDrag.deltaY - (currentDrag.held ? HOLD_LIFT : 0),
+      Math.max(-3, Math.min(3, currentDrag.deltaX / 45)),
+    );
+    window.setTimeout(() => {
+      suppressClick = false;
+    }, 0);
+  }
+
+  function returnCard(card, fromX, fromY, rotation = 0) {
+    card.style.removeProperty("transform");
+    card.style.removeProperty("opacity");
+    card.style.setProperty("--return-x", `${fromX}px`);
+    card.style.setProperty("--return-y", `${fromY}px`);
+    card.style.setProperty("--return-rotation", `${rotation}deg`);
+    card.classList.add("is-returning");
+    window.setTimeout(() => card.classList.remove("is-returning"), 290);
+  }
+
+  function flingQueue(activeDrag, velocity) {
+    if (isAnimating || state.ring.length === 0) return;
+    isAnimating = true;
+    if (ANIMATION_MS === 0) {
+      completeAdvance();
+      return;
+    }
+
+    const card = activeDrag.card;
+    const speed = Math.hypot(velocity.x, velocity.y);
+    let directionX = speed > 0.18 ? velocity.x / speed : activeDrag.deltaX;
+    let directionY = speed > 0.18 ? velocity.y / speed : activeDrag.deltaY;
+    const directionLength = Math.hypot(directionX, directionY) || 1;
+    directionX /= directionLength;
+    directionY /= directionLength;
+    const travel = Math.max(window.innerWidth, window.innerHeight) * 1.35;
+    const duration = Math.round(Math.max(280, Math.min(480, 440 - speed * 90)));
+    const startX = activeDrag.deltaX;
+    const startY = activeDrag.deltaY - HOLD_LIFT;
+    const endX = startX + directionX * travel;
+    const endY = startY + directionY * travel + 36;
+    const initialRotation = Math.max(-3, Math.min(3, activeDrag.deltaX / 45));
+    const rotationDirection = Math.sign(velocity.x || activeDrag.deltaX || 1);
+
+    elements.queue.classList.add("is-flinging");
+    const animation = card.animate(
+      [
+        {
+          transform: `translate(${startX}px, ${startY}px) rotate(${initialRotation}deg) scale(1.012)`,
+          opacity: 0.88,
+        },
+        {
+          transform: `translate(${startX + directionX * travel * 0.58}px, ${startY + directionY * travel * 0.58 + 10}px) rotate(${initialRotation + rotationDirection * 7}deg) scale(1.012)`,
+          opacity: 0.72,
+          offset: 0.58,
+        },
+        {
+          transform: `translate(${endX}px, ${endY}px) rotate(${initialRotation + rotationDirection * 14}deg) scale(1.012)`,
+          opacity: 0,
+        },
+      ],
+      {
+        duration,
+        easing: "cubic-bezier(0.16, 0.72, 0.25, 1)",
+        fill: "forwards",
+      },
+    );
+
+    animation.addEventListener("finish", completeAdvance, { once: true });
+    animation.addEventListener("cancel", completeAdvance, { once: true });
+  }
+
+  function completeAdvance() {
+    if (!isAnimating) return;
+    if (state.ring.length) state.ring.push(state.ring.shift());
+    saveState();
+    elements.queue.classList.remove("is-advancing", "is-flinging");
+    isAnimating = false;
+    render();
+    elements.queue.querySelector('.queue-card[data-position="0"]')?.focus({ preventScroll: true });
+  }
+
+  function advanceQueue() {
+    if (isAnimating || state.ring.length === 0) return;
+    isAnimating = true;
+    const headCard = elements.queue.querySelector('.queue-card[data-position="0"]');
+    headCard?.style.removeProperty("transform");
+    headCard?.style.removeProperty("opacity");
+    elements.queue.classList.add("is-advancing");
+
+    window.setTimeout(() => {
+      completeAdvance();
+    }, ANIMATION_MS);
+  }
+
+  function handleQueueKeydown(event) {
+    const card = event.target.closest('.queue-card[data-position="0"]');
+    if (!card || event.key !== "ArrowUp") return;
+    event.preventDefault();
+    advanceQueue();
+  }
+
+  function handleGlobalKeydown(event) {
+    if (!storageReady) return;
+    if (event.key === "Escape" && !elements.colorPicker.hidden) {
+      event.preventDefault();
+      event.stopPropagation();
+      closeColorPicker();
+      elements.colorButton.focus();
+      return;
+    }
+    if (event.key !== "+" || event.ctrlKey || event.metaKey || event.altKey) return;
+    const target = event.target;
+    const isTyping =
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLSelectElement ||
+      target instanceof HTMLTextAreaElement ||
+      target?.isContentEditable;
+    if (isTyping || elements.addDialog.open || elements.detailDialog.open) return;
+    event.preventDefault();
+    openAddDialog();
+  }
+
+  function refreshAfterVisibilityChange() {
+    if (document.visibilityState !== "visible") return;
+    if (!storageReady) {
+      folderStorage.initialize(state).then(applyStorageResult);
+      return;
+    }
+    if (ensureFreshRing()) render();
+    scheduleDayRefresh();
+  }
+
+  function scheduleDayRefresh() {
+    window.clearTimeout(dayRefreshTimer);
+    const now = new Date();
+    const nextDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 50);
+    dayRefreshTimer = window.setTimeout(() => {
+      ensureFreshRing(true);
+      render();
+      scheduleDayRefresh();
+    }, nextDay.getTime() - now.getTime());
+  }
+
+})();

@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <FrameLayout
+        android:id="@+id/widget_back_card"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_margin="4dp"
+        android:background="#000000"
+        android:padding="4dp">
+
+        <TextView
+            android:id="@+id/widget_back_label"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#31c127"
+            android:fontFamily="sans-serif"
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:text="E0"
+            android:textColor="#000000"
+            android:textSize="40sp"
+            android:textStyle="normal" />
+    </FrameLayout>
+
+    <FrameLayout
+        android:id="@+id/widget_front_static_card"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_margin="4dp"
+        android:background="#000000"
+        android:padding="4dp">
+
+        <TextView
+            android:id="@+id/widget_front_static_label"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#31c127"
+            android:fontFamily="sans-serif"
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:text="E0"
+            android:textColor="#000000"
+            android:textSize="40sp"
+            android:textStyle="normal" />
+    </FrameLayout>
+
+    <FrameLayout
+        android:id="@+id/widget_front_animation"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone">
+
+        <ImageView
+            android:id="@+id/widget_front_fill"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_margin="8dp"
+            android:contentDescription="@null"
+            android:scaleType="fitXY" />
+
+        <ImageView
+            android:id="@+id/widget_front_border"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_margin="4dp"
+            android:contentDescription="@null"
+            android:scaleType="fitXY" />
+
+        <ViewFlipper
+            android:id="@+id/widget_front_label_flipper"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_margin="8dp"
+            android:outAnimation="@anim/widget_label_destroy">
+
+            <TextView
+                android:id="@+id/widget_front_animated_label"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:fontFamily="sans-serif"
+                android:gravity="center"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:text="E0"
+                android:textColor="#000000"
+                android:textSize="40sp"
+                android:textStyle="normal" />
+
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
+        </ViewFlipper>
+
+        <ImageView
+            android:id="@+id/widget_front_texture"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_margin="4dp"
+            android:contentDescription="@null"
+            android:scaleType="fitXY" />
+    </FrameLayout>
+</FrameLayout>

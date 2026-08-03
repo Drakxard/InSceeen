@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ViewFlipper xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:inAnimation="@anim/widget_materialize"
+    android:outAnimation="@anim/widget_destroy">
+
+    <FrameLayout
+        android:id="@+id/widget_card_0"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_margin="4dp"
+        android:background="#000000"
+        android:contentDescription="@string/widget_description"
+        android:padding="4dp">
+
+        <TextView
+            android:id="@+id/widget_label_0"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#31c127"
+            android:fontFamily="sans-serif"
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:text="E0"
+            android:textColor="#000000"
+            android:textSize="40sp"
+            android:textStyle="normal" />
+    </FrameLayout>
+
+    <FrameLayout
+        android:id="@+id/widget_card_1"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_margin="4dp"
+        android:background="#000000"
+        android:contentDescription="@string/widget_description"
+        android:padding="4dp">
+
+        <TextView
+            android:id="@+id/widget_label_1"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#31c127"
+            android:fontFamily="sans-serif"
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:text="E0"
+            android:textColor="#000000"
+            android:textSize="40sp"
+            android:textStyle="normal" />
+    </FrameLayout>
+</ViewFlipper>

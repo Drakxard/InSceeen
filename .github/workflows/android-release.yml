@@ -1,0 +1,53 @@
+name: Android release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile_android
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Restore release signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.INSCREEN_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.INSCREEN_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.INSCREEN_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.INSCREEN_KEY_PASSWORD }}
+        run: |
+          mkdir -p .signing
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > .signing/inscreen-release.jks
+          printf 'storeFile=.signing/inscreen-release.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+            "$STORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD" > .signing/keystore.properties
+
+      - name: Test and build signed APK
+        run: ./gradlew --no-daemon testDebugUnitTest lintDebug assembleRelease
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk InScreenMic.apk
+          gh release create "$GITHUB_REF_NAME" InScreenMic.apk \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "InScreen $GITHUB_REF_NAME" \
+            --generate-notes

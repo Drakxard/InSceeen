@@ -1,0 +1,15 @@
+{
+  "audio_model": "whisper-large-v3-turbo",
+  "hotkey": "-",
+  "language": "es",
+  "font_size": 18,
+  "prompt": null,
+  "setup_port": 8764,
+  "https_port": 8765,
+  "lan_host": null,
+  "max_recording_seconds": 300,
+  "vision_wait_seconds": 8.0,
+  "pause_media_during_recording": true,
+  "overlay_width_ratio": 0.76,
+  "send_image": true
+}
