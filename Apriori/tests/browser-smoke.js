@@ -779,6 +779,37 @@ async function main() {
     throw new Error(`La pestaña Cola no quedó aislada: ${JSON.stringify(queueView)}`);
   }
 
+  const queueDoubleTap = await evaluate(`(() => {
+    const background = document.querySelector('.queue-section');
+    const tap = () => background.dispatchEvent(new PointerEvent('pointerup', {
+      bubbles: true,
+      pointerType: 'touch',
+      isPrimary: true,
+      clientX: 12,
+      clientY: 12
+    }));
+    tap();
+    const singleTapOpened = document.querySelector('#addDialog').open;
+    tap();
+    const doubleTapOpened = document.querySelector('#addDialog').open;
+    document.querySelector('#addDialog').close();
+    document.querySelector('.queue-card').dispatchEvent(new PointerEvent('pointerup', {
+      bubbles: true,
+      pointerType: 'touch',
+      isPrimary: true,
+      clientX: 12,
+      clientY: 12
+    }));
+    return {
+      singleTapOpened,
+      doubleTapOpened,
+      cardTapOpened: document.querySelector('#addDialog').open
+    };
+  })()`);
+  if (queueDoubleTap.singleTapOpened || !queueDoubleTap.doubleTapOpened || queueDoubleTap.cardTapOpened) {
+    throw new Error(`El doble toque de fondo no se aisló correctamente: ${JSON.stringify(queueDoubleTap)}`);
+  }
+
   console.log("Smoke test minimalista: OK");
   console.log(
     JSON.stringify(
@@ -797,6 +828,7 @@ async function main() {
         folderReopenedWithoutPrompt: true,
         dockView,
         queueView,
+        queueDoubleTap,
         screenshotPath,
       },
       null,

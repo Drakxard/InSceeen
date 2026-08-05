@@ -5,10 +5,7 @@
   const folderStorage = window.AprioriFolderStorage.createFolderStorage();
   const STORAGE_KEY = "study-ticket-queue:v1";
   const STATE_VERSION = 3;
-<<<<<<< HEAD
   const VIEW = new URLSearchParams(window.location.search).get("view") || "desktop";
-=======
->>>>>>> 624f2939b9e1f38c1572ba21494f16ae705083be
   const MODULE_CATALOG_URL = "https://raw.githubusercontent.com/Drakxard/InSceeen/main/modules/index.json";
   const MODULE_RAW_BASE_URL = "https://raw.githubusercontent.com/Drakxard/InSceeen/main/";
   const DRAG_THRESHOLD = 64;
@@ -16,6 +13,8 @@
   const HOLD_DELAY = 150;
   const HOLD_LIFT = 8;
   const DOCK_ACTIVATION_HEIGHT = 90;
+  const DOUBLE_TAP_DELAY = 350;
+  const DOUBLE_TAP_DISTANCE = 24;
   const ANIMATION_MS = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 270;
   const PALETTE = [
     "#13a8e0",
@@ -94,12 +93,10 @@
   let dayRefreshTimer = null;
   let moduleCatalog = null;
   let moduleSearchSubjectId = null;
-<<<<<<< HEAD
   let dockPointerDrag = null;
+  let backgroundTap = null;
 
   document.body.classList.add(`view-${VIEW}`);
-=======
->>>>>>> 624f2939b9e1f38c1572ba21494f16ae705083be
 
   bindEvents();
   bootstrapStorage();
@@ -111,10 +108,7 @@
       ring: [],
       weightSignature: "",
       dockSplitIndex: 0,
-<<<<<<< HEAD
       dockRows: [],
-=======
->>>>>>> 624f2939b9e1f38c1572ba21494f16ae705083be
       settings: { ...Scheduler.DEFAULT_SETTINGS },
     };
   }
@@ -156,10 +150,7 @@
         dockSplitIndex: Number.isInteger(saved.dockSplitIndex)
           ? Math.max(0, Math.min(saved.dockSplitIndex, subjects.length))
           : Math.min(5, subjects.length),
-<<<<<<< HEAD
         dockRows: normalizeDockRows(saved.dockRows, subjects),
-=======
->>>>>>> 624f2939b9e1f38c1572ba21494f16ae705083be
         settings: Scheduler.normalizeSettings(saved.settings),
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizedState));
@@ -419,7 +410,6 @@
   function renderSubjectDock() {
     elements.subjectDockList.replaceChildren();
     if (state.subjects.length === 0) document.body.classList.remove("dock-visible");
-<<<<<<< HEAD
     if (VIEW === "dock") {
       state.dockRows = normalizeDockRows(state.dockRows, state.subjects);
       for (const ids of state.dockRows) {
@@ -432,21 +422,6 @@
         elements.subjectDockList.append(row);
       }
       return;
-=======
-    for (const [index, subject] of state.subjects.entries()) {
-      const card = document.createElement("button");
-      card.type = "button";
-      card.className = "subject-dock-card";
-      if (!subject.active) card.classList.add("is-inactive");
-      if (index === state.dockSplitIndex) card.classList.add("starts-right-group");
-      card.draggable = true;
-      card.dataset.subjectId = subject.id;
-      card.dataset.dockSide = index < state.dockSplitIndex ? "left" : "right";
-      card.style.setProperty("--card-color", subject.color);
-      card.textContent = Scheduler.acronym(subject.name);
-      card.setAttribute("aria-label", `Ver detalles de ${subject.name}`);
-      elements.subjectDockList.append(card);
->>>>>>> 624f2939b9e1f38c1572ba21494f16ae705083be
     }
     for (const [index, subject] of state.subjects.entries()) {
       elements.subjectDockList.append(createDockCard(subject, index));
@@ -647,6 +622,8 @@
     elements.subjectDockList.addEventListener("dblclick", (event) => {
       if (VIEW === "dock" && !event.target.closest(".subject-dock-card")) openAddDialog();
     });
+    document.addEventListener("pointerup", handleBackgroundPointerUp);
+    document.addEventListener("dblclick", handleBackgroundDoubleClick);
     elements.subjectDock.addEventListener("pointerenter", showSubjectDock);
     elements.subjectDock.addEventListener("pointerleave", hideSubjectDock);
     document.addEventListener("pointermove", handleDockProximity);
@@ -678,6 +655,35 @@
 
   function closeOnBackdrop(event) {
     if (event.target === event.currentTarget) event.currentTarget.close();
+  }
+
+  function isQueueBackground(target) {
+    if (VIEW !== "queue" || !(target instanceof Element)) return false;
+    if (!target.closest(".app-shell")) return false;
+    return !target.closest(
+      "button, input, select, textarea, a, dialog, [contenteditable], .queue-card",
+    );
+  }
+
+  function handleBackgroundPointerUp(event) {
+    if (event.pointerType !== "touch" || !event.isPrimary || !isQueueBackground(event.target)) {
+      backgroundTap = null;
+      return;
+    }
+    const now = performance.now();
+    const previous = backgroundTap;
+    backgroundTap = { time: now, x: event.clientX, y: event.clientY };
+    if (!previous || now - previous.time > DOUBLE_TAP_DELAY) return;
+    if (Math.hypot(event.clientX - previous.x, event.clientY - previous.y) > DOUBLE_TAP_DISTANCE) return;
+    backgroundTap = null;
+    event.preventDefault();
+    openAddDialog();
+  }
+
+  function handleBackgroundDoubleClick(event) {
+    if (event.pointerType === "touch" || !isQueueBackground(event.target)) return;
+    event.preventDefault();
+    openAddDialog();
   }
 
   function openAddDialog() {
@@ -779,13 +785,10 @@
     if (!card || suppressClick || isAnimating) return;
     const subject = subjectById(card.dataset.subjectId);
     if (!subject) return;
-<<<<<<< HEAD
     if (VIEW === "queue" && window.InScreenApriori?.openModule) {
       window.InScreenApriori.openModule(subject.id);
       return;
     }
-=======
->>>>>>> 624f2939b9e1f38c1572ba21494f16ae705083be
     if (subject.module) openAssignedModule(subject);
     else openModuleSearch(subject.id);
   }

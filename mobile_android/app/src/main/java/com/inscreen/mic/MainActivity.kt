@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.graphics.Rect
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -71,6 +72,7 @@ class MainActivity : ComponentActivity() {
     private var pairingInProgress = false
     private var lastState = "SIN CONEXIÓN"
     private var updateReceiverRegistered = false
+    private var edgeGesture: EdgeGesture? = null
 
     private val updatePreferences by lazy {
         getSharedPreferences(UPDATE_PREFERENCES, Context.MODE_PRIVATE)
@@ -172,15 +174,31 @@ class MainActivity : ComponentActivity() {
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     val edgeWidth = EDGE_SWIPE_DP * resources.displayMetrics.density
-                    pager.isUserInputEnabled =
+                    edgeGesture = if (
                         scannerView == null &&
                         exitDialog?.isShowing != true &&
                         PagerGesturePolicy.beginsAtHorizontalEdge(event.x, root.width.toFloat(), edgeWidth)
+                    ) EdgeGesture(event.x, event.y) else null
+                    if (edgeGesture != null) return true
                 }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    val handled = super.dispatchTouchEvent(event)
-                    pager.isUserInputEnabled = false
-                    return handled
+                MotionEvent.ACTION_MOVE -> if (edgeGesture != null) return true
+                MotionEvent.ACTION_UP -> edgeGesture?.let { gesture ->
+                    val threshold = EDGE_SWIPE_THRESHOLD_DP * resources.displayMetrics.density
+                    PagerGesturePolicy.targetPage(
+                        pager.currentItem,
+                        pager.adapter?.itemCount ?: 0,
+                        gesture.x,
+                        gesture.y,
+                        event.x,
+                        event.y,
+                        threshold,
+                    )?.let { pager.setCurrentItem(it, true) }
+                    edgeGesture = null
+                    return true
+                }
+                MotionEvent.ACTION_CANCEL -> if (edgeGesture != null) {
+                    edgeGesture = null
+                    return true
                 }
             }
         }
@@ -189,6 +207,15 @@ class MainActivity : ComponentActivity() {
 
     private fun buildUi() {
         root = FrameLayout(this).apply { setBackgroundColor(Color.WHITE) }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            root.addOnLayoutChangeListener { view, _, _, _, _, _, _, _, _ ->
+                val edgeWidth = (EDGE_SWIPE_DP * resources.displayMetrics.density).toInt()
+                view.systemGestureExclusionRects = listOf(
+                    Rect(0, 0, edgeWidth, view.height),
+                    Rect(view.width - edgeWidth, 0, view.width, view.height),
+                )
+            }
+        }
         pager = ViewPager2(this).apply {
             adapter = PagesAdapter()
             offscreenPageLimit = 2
@@ -787,6 +814,7 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         private const val EDGE_SWIPE_DP = 20f
+        private const val EDGE_SWIPE_THRESHOLD_DP = 48f
         private const val REQUEST_PERMISSIONS = 100
         private const val REQUEST_CAMERA = 101
         private const val UPDATE_PREFERENCES = "github_update"
@@ -796,9 +824,28 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private data class EdgeGesture(val x: Float, val y: Float)
+
 internal object PagerGesturePolicy {
     fun beginsAtHorizontalEdge(x: Float, width: Float, edgeWidth: Float): Boolean {
         if (width <= 0f || edgeWidth <= 0f) return false
         return x >= 0f && (x <= edgeWidth || x >= width - edgeWidth)
+    }
+
+    fun targetPage(
+        currentPage: Int,
+        pageCount: Int,
+        startX: Float,
+        startY: Float,
+        endX: Float,
+        endY: Float,
+        threshold: Float,
+    ): Int? {
+        if (pageCount <= 0 || currentPage !in 0 until pageCount || threshold <= 0f) return null
+        val deltaX = endX - startX
+        val deltaY = endY - startY
+        if (kotlin.math.abs(deltaX) < threshold || kotlin.math.abs(deltaX) <= kotlin.math.abs(deltaY)) return null
+        val target = if (deltaX < 0f) currentPage + 1 else currentPage - 1
+        return target.takeIf { it in 0 until pageCount }
     }
 }
