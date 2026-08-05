@@ -9,12 +9,22 @@ object AprioriStore {
 
     private const val PREFS = "apriori_private"
     private const val KEY_STATE = "state"
+    private const val KEY_MODULE_DEFAULTS_MIGRATED = "module_defaults_migrated_v1"
     const val EMPTY_STATE = """{"version":1,"subjects":[],"ring":[],"weightSignature":"","dockSplitIndex":0,"dockRows":[]}"""
 
     @Synchronized
-    fun load(context: Context): String =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_STATE, EMPTY_STATE) ?: EMPTY_STATE
+    fun load(context: Context): String {
+        val preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val raw = preferences.getString(KEY_STATE, EMPTY_STATE) ?: EMPTY_STATE
+        if (preferences.getBoolean(KEY_MODULE_DEFAULTS_MIGRATED, false)) return raw
+
+        val migrated = runCatching { clearModuleAssignments(raw) }.getOrNull() ?: return raw
+        preferences.edit()
+            .putString(KEY_STATE, migrated)
+            .putBoolean(KEY_MODULE_DEFAULTS_MIGRATED, true)
+            .commit()
+        return migrated
+    }
 
     @Synchronized
     fun save(context: Context, raw: String): String {
@@ -41,6 +51,19 @@ object AprioriStore {
         }
         parsed.optJSONArray("dockRows")?.let { rows -> validateDockRows(rows, subjectIds) }
         return parsed.toString()
+    }
+
+    internal fun clearModuleAssignments(raw: String): String {
+        val state = JSONObject(raw)
+        val subjects = state.optJSONArray("subjects") ?: return raw
+        for (index in 0 until subjects.length()) {
+            subjects.optJSONObject(index)?.apply {
+                remove("moduleId")
+                remove("moduleName")
+                remove("moduleEntry")
+            }
+        }
+        return state.toString()
     }
 
     private fun validateDockRows(rows: JSONArray, subjectIds: Set<String>) {

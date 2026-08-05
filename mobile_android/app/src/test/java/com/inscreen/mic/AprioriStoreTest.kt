@@ -91,6 +91,28 @@ class AprioriStoreTest {
     }
 
     @Test
+    fun clearsAllLegacyModuleAssignments() {
+        val raw = """{
+            "version":1,
+            "subjects":[
+                {"id":"a","name":"Álgebra","moduleId":"old","moduleName":"Viejo","moduleEntry":"modules/old/index.html"},
+                {"id":"b","name":"Física","moduleId":"partial","moduleEntry":"modules/partial/index.html"},
+                {"id":"c","name":"Química"}
+            ],
+            "ring":["a","b","c"]
+        }""".trimIndent()
+
+        val cleared = JSONObject(AprioriStore.clearModuleAssignments(raw))
+        val subjects = cleared.getJSONArray("subjects")
+        for (index in 0 until subjects.length()) {
+            val subject = subjects.getJSONObject(index)
+            assertEquals(false, subject.has("moduleId"))
+            assertEquals(false, subject.has("moduleName"))
+            assertEquals(false, subject.has("moduleEntry"))
+        }
+    }
+
+    @Test
     fun rejectsBackupWithUnknownOrDuplicatedSubjects() {
         val unknown = """{
             "version":1,

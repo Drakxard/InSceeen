@@ -21,4 +21,19 @@ class ModuleCatalogTest {
             )
         }
     }
+
+    @Test fun acceptsAnEmptyPublicModuleIndex() {
+        assertEquals(emptyList<ModuleCatalog.Module>(), ModuleCatalog.parse("""{"modules":[]}"""))
+    }
+
+    @Test fun rejectsDuplicatedModuleIds() {
+        assertThrows(IllegalArgumentException::class.java) {
+            ModuleCatalog.parse(
+                """{"modules":[
+                    {"id":"same","nombre":"Uno","entry":"modules/uno/index.html"},
+                    {"id":"same","nombre":"Dos","entry":"modules/dos/index.html"}
+                ]}""",
+            )
+        }
+    }
 }

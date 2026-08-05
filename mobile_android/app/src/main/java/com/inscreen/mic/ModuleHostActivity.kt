@@ -66,15 +66,18 @@ class ModuleHostActivity : Activity() {
                 fun render(query: String = "") {
                     val matching = modules.filter { it.name.contains(query, true) || it.id.contains(query, true) }
                     results.removeAllViews()
-                    status.text = if (matching.isEmpty()) "No se encontraron módulos." else "${matching.size} módulo(s)"
+                    status.text = when {
+                        modules.isEmpty() -> "No hay módulos disponibles en GitHub."
+                        matching.isEmpty() -> "No se encontraron módulos."
+                        else -> "${matching.size} módulo(s)"
+                    }
                     matching.forEach { module ->
                         val item = TextView(this).apply {
                             text = "${module.name}\nUSAR"
                             textSize = 17f
                             setPadding(18, 22, 18, 22)
                             setOnClickListener {
-                                AprioriStore.assignModule(this@ModuleHostActivity, subjectId, module)
-                                showModule(module)
+                                showModule(module, persistAssignment = true)
                             }
                         }
                         results.addView(item)
@@ -88,7 +91,7 @@ class ModuleHostActivity : Activity() {
     }
 
     @SuppressLint("SetJavaScriptEnabled", "AddJavascriptInterface")
-    private fun showModule(module: ModuleCatalog.Module) {
+    private fun showModule(module: ModuleCatalog.Module, persistAssignment: Boolean = false) {
         setContentView(TextView(this).apply {
             text = "Abriendo módulo…"
             textSize = 17f
@@ -96,9 +99,14 @@ class ModuleHostActivity : Activity() {
         })
         ModuleCatalog.loadHtml(module) { loaded -> runOnUiThread {
             loaded.fold(
-                onSuccess = { html -> showModuleHtml(module, html) },
+                onSuccess = { html ->
+                    if (persistAssignment) {
+                        AprioriStore.assignModule(this@ModuleHostActivity, subjectId, module)
+                    }
+                    showModuleHtml(module, html)
+                },
                 onFailure = { error ->
-                    showPicker("No se pudo cargar el módulo. Elegí otro o quitá la asignación.")
+                    showPicker("No se pudo cargar el módulo desde GitHub. Elegí otro módulo.")
                 },
             )
         }}
