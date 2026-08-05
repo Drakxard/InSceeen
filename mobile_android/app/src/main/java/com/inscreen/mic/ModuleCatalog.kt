@@ -6,9 +6,11 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import java.util.Base64
 
 internal object ModuleCatalog {
-    const val INDEX_URL = "https://raw.githubusercontent.com/Drakxard/InSceeen/main/modules/index.json"
+    private const val CONTENTS_BASE = "https://api.github.com/repos/Drakxard/InSceeen/contents/"
+    const val INDEX_URL = "${CONTENTS_BASE}modules/index.json?ref=main"
     private const val RAW_BASE = "https://raw.githubusercontent.com/Drakxard/InSceeen/main/"
     private val client = OkHttpClient.Builder().callTimeout(15, TimeUnit.SECONDS).build()
 
@@ -24,11 +26,37 @@ internal object ModuleCatalog {
                 response.use { result ->
                     callback(runCatching {
                         if (!result.isSuccessful) error("GitHub respondió ${result.code}")
-                        parse(result.body?.string().orEmpty())
+                        parse(content(result.body?.string().orEmpty()))
                     })
                 }
             }
         })
+    }
+
+    fun loadHtml(module: Module, callback: (Result<String>) -> Unit) {
+        val request = Request.Builder()
+            .url("${CONTENTS_BASE}${module.entry}?ref=main")
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "InScreenMic")
+            .build()
+        client.newCall(request).enqueue(object : okhttp3.Callback {
+            override fun onFailure(call: okhttp3.Call, error: IOException) = callback(Result.failure(error))
+            override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                response.use { result ->
+                    callback(runCatching {
+                        if (!result.isSuccessful) error("GitHub respondió ${result.code}")
+                        content(result.body?.string().orEmpty())
+                    })
+                }
+            }
+        })
+    }
+
+    private fun content(raw: String): String {
+        val payload = JSONObject(raw)
+        require(payload.optString("encoding") == "base64") { "Contenido GitHub inválido" }
+        return Base64.getDecoder().decode(payload.getString("content").replace(Regex("\\s"), ""))
+            .toString(Charsets.UTF_8)
     }
 
     internal fun parse(raw: String): List<Module> {

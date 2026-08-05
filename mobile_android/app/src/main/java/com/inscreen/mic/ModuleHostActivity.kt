@@ -17,7 +17,6 @@ import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import org.json.JSONObject
-import java.io.ByteArrayInputStream
 
 class ModuleHostActivity : Activity() {
     private lateinit var subjectId: String
@@ -79,47 +78,52 @@ class ModuleHostActivity : Activity() {
 
     @SuppressLint("SetJavaScriptEnabled", "AddJavascriptInterface")
     private fun showModule(module: ModuleCatalog.Module) {
+        val loading = ProgressBar(this).apply { isIndeterminate = true }
+        setContentView(loading)
+        ModuleCatalog.loadHtml(module) { loaded -> runOnUiThread {
+            loaded.fold(
+                onSuccess = { html -> showModuleHtml(module, html) },
+                onFailure = { error -> showModuleError("No se pudo cargar el módulo: ${error.message ?: "error"}") },
+            )
+        }}
+    }
+
+    @SuppressLint("SetJavaScriptEnabled", "AddJavascriptInterface")
+    private fun showModuleHtml(module: ModuleCatalog.Module, html: String) {
+        val bootstrap = """
+          <script>(function(){
+            const native=window.InScreenModuleNative;
+            const unavailable=(day)=>Promise.resolve(JSON.parse(native.providerNotConfigured(day)));
+            window.InScreen={module:{
+              context:()=>JSON.parse(native.context()),
+              respyPreg:unavailable,paginasLeidas:unavailable,traduccion:unavailable
+            }};
+            delete window.InScreenModuleNative;
+          })();</script>
+        """.trimIndent()
+        val head = Regex("(?i)<head[^>]*>").find(html)
+        val bootstrapped = if (head == null) bootstrap + html else
+            html.substring(0, head.range.last + 1) + bootstrap + html.substring(head.range.last + 1)
         val view = WebView(this).apply {
             setBackgroundColor(Color.WHITE)
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.allowFileAccess = false
             settings.allowContentAccess = false
-            webViewClient = object : WebViewClient() {
-                override fun shouldInterceptRequest(view: WebView, url: String): android.webkit.WebResourceResponse? {
-                    if (url != module.url()) return null
-                    return runCatching {
-                        val connection = java.net.URL(url).openConnection().apply {
-                            connectTimeout = 15_000
-                            readTimeout = 15_000
-                        }
-                        val html = connection.getInputStream().bufferedReader().use { it.readText() }
-                        val bootstrap = """
-                          <script>(function(){
-                            const native=window.InScreenModuleNative;
-                            const unavailable=(day)=>Promise.resolve(JSON.parse(native.providerNotConfigured(day)));
-                            window.InScreen={module:{
-                              context:()=>JSON.parse(native.context()),
-                              respyPreg:unavailable,paginasLeidas:unavailable,traduccion:unavailable
-                            }};
-                            delete window.InScreenModuleNative;
-                          })();</script>
-                        """.trimIndent()
-                        val head = Regex("(?i)<head[^>]*>").find(html)
-                        val bootstrapped = if (head == null) bootstrap + html else
-                            html.substring(0, head.range.last + 1) + bootstrap + html.substring(head.range.last + 1)
-                        android.webkit.WebResourceResponse(
-                            "text/html", "utf-8", ByteArrayInputStream(
-                                bootstrapped.toByteArray(Charsets.UTF_8),
-                            ),
-                        )
-                    }.getOrNull()
-                }
-            }
+            webViewClient = WebViewClient()
             addJavascriptInterface(ModuleBridge(subjectId, subjectName), "InScreenModuleNative")
-            loadUrl(module.url())
+            loadDataWithBaseURL(module.url(), bootstrapped, "text/html", "utf-8", null)
         }
         setContentView(view)
+    }
+
+    private fun showModuleError(message: String) {
+        setContentView(TextView(this).apply {
+            text = message
+            textSize = 17f
+            gravity = Gravity.CENTER
+            setPadding(28, 28, 28, 28)
+        })
     }
 
     private class ModuleBridge(private val id: String, private val name: String) {
