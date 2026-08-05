@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="es">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vocabulario de Inglés</title>
+  <style>
+    body { margin: 0; padding: 24px; font-family: sans-serif; background: #101010; color: white; }
+    button { padding: 12px; border: 2px solid #55ff22; background: transparent; color: #55ff22; }
+    pre { white-space: pre-wrap; color: #55ff22; }
+  </style>
+  <h1>Vocabulario de Inglés</h1>
+  <p id="subject"></p>
+  <button id="test">Probar proveedor</button>
+  <pre id="result"></pre>
+  <script>
+    const moduleApi = window.InScreen && window.InScreen.module;
+    document.querySelector('#subject').textContent = moduleApi
+      ? `Materia: ${moduleApi.context().nombre}`
+      : 'Este módulo debe abrirse desde InScreen Mic.';
+    document.querySelector('#test').onclick = async () => {
+      const result = await moduleApi.respyPreg(6);
+      document.querySelector('#result').textContent = JSON.stringify(result, null, 2);
+    };
+  </script>
+</html>

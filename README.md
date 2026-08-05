@@ -161,16 +161,31 @@ una pausa intencional.
 
 ## Widget Apriori
 
-El APK 1.6 incluye un widget de pantalla de inicio de tamaño objetivo 4×1. Replica la
-tarjeta grande de la primera materia de la cola, con su sigla y color. En Android 9 o
-posterior, al tocarlo las grietas y los fragmentos revelan la siguiente tarjeta que ya
-está dibujada debajo; Android 8 usa una transición equivalente de contracción. La
-animación dura 650 ms y sincroniza el cambio con la app, el
-servicio conectado y la PC. Los toques repetidos se bloquean durante la animación.
-Con la cola vacía muestra **Sin materias** y abre la app al tocarlo.
+El APK incluye un widget de pantalla de inicio de tamaño objetivo 4×1. Replica la
+tarjeta grande de la primera materia de la cola, con su sigla y color. Al tocarlo abre
+el módulo de esa materia; si todavía no tiene módulo, abre el buscador. Con la cola
+vacía muestra **Sin materias** y abre la app al tocarlo.
 
 Para agregarlo, mantén presionado un espacio libre de la pantalla de inicio, abre
 **Widgets**, busca **InScreen Mic** y arrastra el widget Apriori.
+
+## Módulos de estudio
+
+Los módulos se publican en el mismo repositorio, dentro de `modules/`. El catálogo
+`modules/index.json` lista cada `id`, `nombre` y `entry`; cada entrada apunta a un
+`modules/<id>/index.html` público. Al tocar una materia de la segunda pestaña (o el
+widget), InScreen permite elegir un módulo si todavía no tiene uno asignado.
+
+El HTML se desarrolla de forma independiente y recibe solamente `window.InScreen.module`:
+
+```js
+const materia = InScreen.module.context();
+const resultado = await InScreen.module.respyPreg(6);
+```
+
+También están disponibles `paginasLeidas(dia)` y `traduccion(dia)`. Por ahora las tres
+funciones devuelven `{ ok: false, error: "provider_not_configured", day }`; el futuro
+proveedor Vercel conservará este contrato y no requiere credenciales en el APK.
 
 ## Actualizaciones del APK
 

@@ -1,0 +1,139 @@
+package com.inscreen.mic
+
+import android.annotation.SuppressLint
+import android.app.Activity
+import android.content.Context
+import android.content.Intent
+import android.graphics.Color
+import android.os.Bundle
+import android.view.Gravity
+import android.view.View
+import android.webkit.JavascriptInterface
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.ProgressBar
+import android.widget.ScrollView
+import android.widget.TextView
+import org.json.JSONObject
+import java.io.ByteArrayInputStream
+
+class ModuleHostActivity : Activity() {
+    private lateinit var subjectId: String
+    private var subjectName = ""
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        subjectId = intent.getStringExtra(EXTRA_SUBJECT_ID).orEmpty()
+        val subject = AprioriStore.subject(AprioriStore.load(this), subjectId)
+        if (subject == null) {
+            finish()
+            return
+        }
+        subjectName = subject.optString("name")
+        val entry = subject.optString("moduleEntry")
+        if (entry.isBlank()) showPicker() else showModule(ModuleCatalog.Module(
+            subject.optString("moduleId"), subject.optString("moduleName"), entry,
+        ))
+    }
+
+    private fun showPicker() {
+        val page = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(28, 36, 28, 28)
+            setBackgroundColor(Color.WHITE)
+        }
+        val title = TextView(this).apply { text = "Buscar módulo para $subjectName"; textSize = 21f }
+        val search = EditText(this).apply { hint = "Buscar"; isSingleLine = true }
+        val status = TextView(this).apply { text = "Cargando módulos…"; setPadding(0, 18, 0, 8) }
+        val results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        page.addView(title); page.addView(search); page.addView(status)
+        page.addView(ScrollView(this).apply { addView(results) }, LinearLayout.LayoutParams(-1, 0, 1f))
+        setContentView(page)
+        ModuleCatalog.load { loaded -> runOnUiThread {
+            loaded.fold(onSuccess = { modules ->
+                fun render(query: String = "") {
+                    val matching = modules.filter { it.name.contains(query, true) || it.id.contains(query, true) }
+                    results.removeAllViews()
+                    status.text = if (matching.isEmpty()) "No se encontraron módulos." else "${matching.size} módulo(s)"
+                    matching.forEach { module ->
+                        val item = TextView(this).apply {
+                            text = "${module.name}\nUSAR"
+                            textSize = 17f
+                            setPadding(18, 22, 18, 22)
+                            setOnClickListener {
+                                AprioriStore.assignModule(this@ModuleHostActivity, subjectId, module)
+                                showModule(module)
+                            }
+                        }
+                        results.addView(item)
+                    }
+                }
+                search.setOnEditorActionListener { _, _, _ -> render(search.text.toString()); true }
+                search.addTextChangedListener(SimpleTextWatcher { render(it) })
+                render()
+            }, onFailure = { error -> status.text = "No se pudo cargar el catálogo: ${error.message ?: "error"}" })
+        }}
+    }
+
+    @SuppressLint("SetJavaScriptEnabled", "AddJavascriptInterface")
+    private fun showModule(module: ModuleCatalog.Module) {
+        val view = WebView(this).apply {
+            setBackgroundColor(Color.WHITE)
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.allowFileAccess = false
+            settings.allowContentAccess = false
+            webViewClient = object : WebViewClient() {
+                override fun shouldInterceptRequest(view: WebView, url: String): android.webkit.WebResourceResponse? {
+                    if (url != module.url()) return null
+                    return runCatching {
+                        val connection = java.net.URL(url).openConnection().apply {
+                            connectTimeout = 15_000
+                            readTimeout = 15_000
+                        }
+                        val html = connection.getInputStream().bufferedReader().use { it.readText() }
+                        val bootstrap = """
+                          <script>(function(){
+                            const native=window.InScreenModuleNative;
+                            const unavailable=(day)=>Promise.resolve(JSON.parse(native.providerNotConfigured(day)));
+                            window.InScreen={module:{
+                              context:()=>JSON.parse(native.context()),
+                              respyPreg:unavailable,paginasLeidas:unavailable,traduccion:unavailable
+                            }};
+                            delete window.InScreenModuleNative;
+                          })();</script>
+                        """.trimIndent()
+                        val head = Regex("(?i)<head[^>]*>").find(html)
+                        val bootstrapped = if (head == null) bootstrap + html else
+                            html.substring(0, head.range.last + 1) + bootstrap + html.substring(head.range.last + 1)
+                        android.webkit.WebResourceResponse(
+                            "text/html", "utf-8", ByteArrayInputStream(
+                                bootstrapped.toByteArray(Charsets.UTF_8),
+                            ),
+                        )
+                    }.getOrNull()
+                }
+            }
+            addJavascriptInterface(ModuleBridge(subjectId, subjectName), "InScreenModuleNative")
+            loadUrl(module.url())
+        }
+        setContentView(view)
+    }
+
+    private class ModuleBridge(private val id: String, private val name: String) {
+        @JavascriptInterface fun context(): String = JSONObject().put("id", id).put("nombre", name).toString()
+        @JavascriptInterface fun providerNotConfigured(day: Int): String = JSONObject()
+            .put("ok", false).put("error", "provider_not_configured").put("day", day).toString()
+    }
+
+    companion object {
+        private const val EXTRA_SUBJECT_ID = "subject_id"
+        fun open(context: Context, subjectId: String) = context.startActivity(
+            Intent(context, ModuleHostActivity::class.java)
+                .putExtra(EXTRA_SUBJECT_ID, subjectId)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+    }
+}

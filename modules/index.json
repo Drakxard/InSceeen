@@ -1,0 +1,9 @@
+{
+  "modules": [
+    {
+      "id": "ingles-vocabulario",
+      "nombre": "Vocabulario de Inglés",
+      "entry": "modules/ingles-vocabulario/index.html"
+    }
+  ]
+}

@@ -247,6 +247,10 @@ class MainActivity : ComponentActivity() {
                 runOnUiThread { AprioriUpdates.publish(this@MainActivity, saved) }
             } catch (_: Exception) { }
         }
+
+        @JavascriptInterface fun openModule(subjectId: String) {
+            runOnUiThread { ModuleHostActivity.open(this@MainActivity, subjectId) }
+        }
     }
 
     private fun createConnectionPage(): View {

@@ -8,12 +8,10 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
-import android.os.SystemClock
 import android.util.TypedValue
 import android.view.View
 import android.widget.RemoteViews
+import org.json.JSONObject
 
 class AprioriWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
@@ -29,48 +27,8 @@ class AprioriWidgetProvider : AppWidgetProvider() {
         update(context, manager, appWidgetId)
     }
 
-    override fun onReceive(context: Context, intent: Intent) {
-        super.onReceive(context, intent)
-        if (intent.action != ACTION_CONSUME) return
-        val preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val now = SystemClock.elapsedRealtime()
-        val currentHead = AprioriStore.queueHead(context)
-        if (!canConsume(now, preferences.getLong(KEY_LOCK_UNTIL, 0L), currentHead != null)) return
-        currentHead ?: return
-        preferences.edit().putLong(KEY_LOCK_UNTIL, now + ANIMATION_LOCK_MS).apply()
-
-        val pending = goAsync()
-        try {
-            val manager = AppWidgetManager.getInstance(context)
-            val ids = manager.getAppWidgetIds(ComponentName(context, AprioriWidgetProvider::class.java))
-            val state = AprioriStore.consumeHead(context)
-            AprioriUpdates.publish(context, state, refreshWidgets = false)
-            val nextHead = AprioriStore.queueHead(state)
-            ids.forEach { id ->
-                if (supportsFractureAnimation()) {
-                    animateFracture(context, manager, id, currentHead, nextHead)
-                } else {
-                    animateLegacy(context, manager, id, nextHead)
-                }
-            }
-            Handler(Looper.getMainLooper()).postDelayed({
-                if (supportsFractureAnimation()) {
-                    ids.forEach { id -> settleFracture(context, manager, id) }
-                }
-                pending.finish()
-            }, SETTLE_DELAY_MS)
-        } catch (error: Throwable) {
-            pending.finish()
-            throw error
-        }
-    }
-
     companion object {
-        private const val ACTION_CONSUME = "com.inscreen.mic.widget.CONSUME"
         private const val PREFS = "apriori_widget"
-        private const val KEY_LOCK_UNTIL = "animation_lock_until"
-        private const val ANIMATION_LOCK_MS = 700L
-        private const val SETTLE_DELAY_MS = 660L
 
         internal fun canConsume(now: Long, lockedUntil: Long, hasHead: Boolean): Boolean =
             hasHead && now >= lockedUntil
@@ -119,27 +77,13 @@ class AprioriWidgetProvider : AppWidgetProvider() {
         }
 
         private fun bindTap(context: Context, views: RemoteViews, id: Int, canConsume: Boolean) {
-            val pendingIntent = if (!canConsume) {
-                val open = Intent(context, MainActivity::class.java)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                PendingIntent.getActivity(
-                    context,
-                    id,
-                    open,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-                )
-            } else {
-                val consume = Intent(context, AprioriWidgetProvider::class.java)
-                    .setAction(ACTION_CONSUME)
-                    .addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-                    .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
-                PendingIntent.getBroadcast(
-                    context,
-                    id,
-                    consume,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-                )
-            }
+            val subjectId = JSONObject(AprioriStore.load(context)).optJSONArray("ring")?.optString(0).orEmpty()
+            val open = if (subjectId.isBlank()) Intent(context, MainActivity::class.java)
+            else Intent(context, ModuleHostActivity::class.java).putExtra("subject_id", subjectId)
+            open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            val pendingIntent = PendingIntent.getActivity(
+                context, id, open, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
             views.setOnClickPendingIntent(R.id.widget_root, pendingIntent)
         }
 
@@ -250,7 +194,7 @@ class AprioriWidgetProvider : AppWidgetProvider() {
         }
 
         private fun description(head: AprioriStore.QueueHead?): String = head?.let {
-            "Materia actual: ${it.name}, ${it.ticketCount} fichas en la cola. Tocar para destruir y avanzar."
+            "Materia actual: ${it.name}, ${it.ticketCount} fichas en la cola. Tocar para abrir su módulo."
         } ?: "Sin materias. Tocar para abrir InScreen."
     }
 }

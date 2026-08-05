@@ -37,6 +37,9 @@
                 <data android:scheme="inscreen" android:host="pair" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".ModuleHostActivity"
+            android:exported="false" />
 
         <service
             android:name=".InScreenService"

@@ -74,6 +74,33 @@ object AprioriStore {
 
     fun activeSubject(context: Context): String = activeSubject(load(context))
 
+    fun subject(raw: String, id: String): JSONObject? {
+        return try {
+            val subjects = JSONObject(raw).optJSONArray("subjects") ?: return null
+            (0 until subjects.length())
+                .asSequence()
+                .mapNotNull { subjects.optJSONObject(it) }
+                .firstOrNull { it.optString("id") == id }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    internal fun assignModule(context: Context, subjectId: String, module: ModuleCatalog.Module?) {
+        val state = JSONObject(load(context))
+        val subject = subject(state.toString(), subjectId) ?: return
+        if (module == null) {
+            subject.remove("moduleId")
+            subject.remove("moduleName")
+            subject.remove("moduleEntry")
+        } else {
+            subject.put("moduleId", module.id)
+            subject.put("moduleName", module.name)
+            subject.put("moduleEntry", module.entry)
+        }
+        AprioriUpdates.publish(context, save(context, state.toString()))
+    }
+
     fun queueHead(raw: String): QueueHead? {
         return try {
             val state = JSONObject(raw)

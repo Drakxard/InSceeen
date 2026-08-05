@@ -78,6 +78,19 @@ class AprioriStoreTest {
     }
 
     @Test
+    fun preservesModuleAssignmentInTheAprioriState() {
+        val raw = """{
+            "version":1,
+            "subjects":[{"id":"a","name":"Álgebra","moduleId":"algebra-vf","moduleName":"V o F","moduleEntry":"modules/algebra-vf/index.html"}],
+            "ring":["a"]
+        }""".trimIndent()
+
+        val subject = AprioriStore.subject(AprioriStore.validateAndNormalize(raw), "a")
+        assertEquals("algebra-vf", subject?.optString("moduleId"))
+        assertEquals("V o F", subject?.optString("moduleName"))
+    }
+
+    @Test
     fun rejectsBackupWithUnknownOrDuplicatedSubjects() {
         val unknown = """{
             "version":1,

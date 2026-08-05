@@ -670,6 +670,35 @@ dialog::backdrop {
   font-size: 13px;
 }
 
+.module-assignment {
+  min-height: 36px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 30px;
+  align-items: center;
+  gap: 8px;
+  border: 2px solid #000000;
+  padding: 0 4px 0 9px;
+  font-size: 13px;
+}
+
+.module-assignment output {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.module-assignment button {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #8d0000;
+  cursor: pointer;
+  font-size: 25px;
+  line-height: 1;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;

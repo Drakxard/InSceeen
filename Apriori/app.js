@@ -52,6 +52,9 @@
     detailColor: document.querySelector("#detailColor"),
     detailAppearances: document.querySelector("#detailAppearances"),
     detailNextTurn: document.querySelector("#detailNextTurn"),
+    moduleAssignment: document.querySelector("#moduleAssignment"),
+    detailModuleName: document.querySelector("#detailModuleName"),
+    clearModuleButton: document.querySelector("#clearModuleButton"),
     colorButton: document.querySelector("#colorButton"),
     colorPicker: document.querySelector("#colorPicker"),
     colorHue: document.querySelector("#colorHue"),
@@ -286,6 +289,9 @@
       examDate: Scheduler.parseLocalDate(subject.examDate) ? subject.examDate : null,
       createdAt: Number.isNaN(createdAt.getTime()) ? new Date().toISOString() : createdAt.toISOString(),
       color: normalizeColor(subject.color, index),
+      moduleId: typeof subject.moduleId === "string" && subject.moduleId ? subject.moduleId : null,
+      moduleName: typeof subject.moduleName === "string" && subject.moduleName ? subject.moduleName : null,
+      moduleEntry: typeof subject.moduleEntry === "string" && subject.moduleEntry ? subject.moduleEntry : null,
     };
   }
 
@@ -777,6 +783,7 @@
     elements.detailName.addEventListener("blur", saveSubjectDetails);
     elements.detailName.addEventListener("keydown", handleDetailNameKeydown);
     elements.deleteButton.addEventListener("click", deleteSelectedSubject);
+    elements.clearModuleButton.addEventListener("click", clearSelectedModule);
     elements.calendarButton.addEventListener("click", openDatePicker);
     elements.detailClassDay.addEventListener("change", saveSubjectDetails);
     elements.detailExamDate.addEventListener("change", saveSubjectDetails);
@@ -983,7 +990,11 @@
   function handleCardClick(event) {
     const card = event.target.closest(".queue-card[data-subject-id]");
     if (!card || suppressClick || isAnimating) return;
-    openDetails(card.dataset.subjectId);
+    if (VIEW === "queue" && window.InScreenApriori?.openModule) {
+      window.InScreenApriori.openModule(card.dataset.subjectId);
+    } else {
+      openDetails(card.dataset.subjectId);
+    }
   }
 
   function openDetails(id) {
@@ -994,6 +1005,8 @@
     elements.detailClassDay.value = subject.classDay === null ? "" : String(subject.classDay);
     elements.detailExamDate.value = subject.examDate || "";
     elements.detailColor.value = subject.color;
+    elements.moduleAssignment.hidden = !subject.moduleId;
+    elements.detailModuleName.textContent = subject.moduleName || subject.moduleId || "";
     updateColorButton(subject.color);
     renderDetailMetrics(subject);
     elements.detailError.textContent = "";
@@ -1264,6 +1277,17 @@
     rebuildRing();
     elements.detailDialog.close();
     render();
+  }
+
+  function clearSelectedModule() {
+    const subject = subjectById(elements.detailId.value);
+    if (!subject || !subject.moduleId) return;
+    if (!window.confirm(`¿Quitar el módulo “${subject.moduleName || subject.moduleId}”?`)) return;
+    subject.moduleId = null;
+    subject.moduleName = null;
+    subject.moduleEntry = null;
+    saveState();
+    elements.moduleAssignment.hidden = true;
   }
 
   function openDatePicker() {
