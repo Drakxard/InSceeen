@@ -15,6 +15,7 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Button
 import org.json.JSONObject
 
 class ModuleHostActivity : Activity() {
@@ -36,7 +37,7 @@ class ModuleHostActivity : Activity() {
         ))
     }
 
-    private fun showPicker() {
+    private fun showPicker(notice: String? = null) {
         val page = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(28, 36, 28, 28)
@@ -44,9 +45,20 @@ class ModuleHostActivity : Activity() {
         }
         val title = TextView(this).apply { text = "Buscar módulo para $subjectName"; textSize = 21f }
         val search = EditText(this).apply { hint = "Buscar"; isSingleLine = true }
-        val status = TextView(this).apply { text = "Cargando módulos…"; setPadding(0, 18, 0, 8) }
+        val status = TextView(this).apply { text = notice ?: "Cargando módulos…"; setPadding(0, 18, 0, 8) }
         val results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         page.addView(title); page.addView(search); page.addView(status)
+        val assigned = AprioriStore.subject(AprioriStore.load(this), subjectId)?.optString("moduleId").orEmpty()
+        if (assigned.isNotBlank()) {
+            page.addView(Button(this).apply {
+                text = "Quitar módulo"
+                setOnClickListener {
+                    AprioriStore.assignModule(this@ModuleHostActivity, subjectId, null)
+                    text = "Módulo quitado"
+                    isEnabled = false
+                }
+            })
+        }
         page.addView(ScrollView(this).apply { addView(results) }, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(page)
         ModuleCatalog.load { loaded -> runOnUiThread {
@@ -85,7 +97,9 @@ class ModuleHostActivity : Activity() {
         ModuleCatalog.loadHtml(module) { loaded -> runOnUiThread {
             loaded.fold(
                 onSuccess = { html -> showModuleHtml(module, html) },
-                onFailure = { error -> showModuleError("No se pudo cargar el módulo: ${error.message ?: "error"}") },
+                onFailure = { error ->
+                    showPicker("No se pudo cargar el módulo. Elegí otro o quitá la asignación.")
+                },
             )
         }}
     }
@@ -117,15 +131,6 @@ class ModuleHostActivity : Activity() {
             loadDataWithBaseURL(module.url(), bootstrapped, "text/html", "utf-8", null)
         }
         setContentView(view)
-    }
-
-    private fun showModuleError(message: String) {
-        setContentView(TextView(this).apply {
-            text = message
-            textSize = 17f
-            gravity = Gravity.CENTER
-            setPadding(28, 28, 28, 28)
-        })
     }
 
     private class ModuleBridge(private val id: String, private val name: String) {
