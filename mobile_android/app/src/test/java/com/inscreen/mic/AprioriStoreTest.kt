@@ -9,7 +9,7 @@ class AprioriStoreTest {
     @Test
     fun readsQueueHeadWithNameAndColor() {
         val raw = """{
-            "version":1,
+            "version":3,"settings":{"cycleSize":20,"urgencyK":14},
             "subjects":[{"id":"a","name":"Álgebra","color":"#123456"}],
             "ring":["a","a"]
         }""".trimIndent()
@@ -23,7 +23,7 @@ class AprioriStoreTest {
     @Test
     fun consumesExactlyOneQueueAppearance() {
         val raw = """{
-            "version":1,
+            "version":3,"settings":{"cycleSize":20,"urgencyK":14},
             "subjects":[{"id":"a","name":"Álgebra"},{"id":"b","name":"Física"}],
             "ring":["a","b","a"]
         }""".trimIndent()
@@ -37,7 +37,7 @@ class AprioriStoreTest {
     @Test
     fun peeksNextQueueHeadWithoutChangingTheState() {
         val raw = """{
-            "version":1,
+            "version":3,"settings":{"cycleSize":20,"urgencyK":14},
             "subjects":[
                 {"id":"a","name":"Álgebra","color":"#123456"},
                 {"id":"b","name":"Física","color":"#abcdef"}
@@ -55,7 +55,7 @@ class AprioriStoreTest {
     @Test
     fun nextQueueHeadHandlesSingleSubjectAndEmptyQueue() {
         val single = """{
-            "version":1,
+            "version":3,"settings":{"cycleSize":20,"urgencyK":14},
             "subjects":[{"id":"a","name":"Álgebra","color":"#123456"}],
             "ring":["a"]
         }""".trimIndent()
@@ -67,7 +67,7 @@ class AprioriStoreTest {
     @Test
     fun acceptsBackupWithSeparatedRows() {
         val raw = """{
-            "version":1,
+            "version":3,"settings":{"cycleSize":20,"urgencyK":14},
             "subjects":[{"id":"a","name":"Álgebra"},{"id":"b","name":"Física"}],
             "ring":["a","b"],
             "dockRows":[["a"],[],["b"]]
@@ -80,20 +80,20 @@ class AprioriStoreTest {
     @Test
     fun preservesModuleAssignmentInTheAprioriState() {
         val raw = """{
-            "version":1,
-            "subjects":[{"id":"a","name":"Álgebra","moduleId":"algebra-vf","moduleName":"V o F","moduleEntry":"modules/algebra-vf/index.html"}],
+            "version":3,"settings":{"cycleSize":20,"urgencyK":14},
+            "subjects":[{"id":"a","name":"Álgebra","module":{"id":"algebra-vf","nombre":"V o F","entry":"modules/algebra-vf/index.html"}}],
             "ring":["a"]
         }""".trimIndent()
 
         val subject = AprioriStore.subject(AprioriStore.validateAndNormalize(raw), "a")
-        assertEquals("algebra-vf", subject?.optString("moduleId"))
-        assertEquals("V o F", subject?.optString("moduleName"))
+        assertEquals("algebra-vf", subject?.optJSONObject("module")?.optString("id"))
+        assertEquals("V o F", subject?.optJSONObject("module")?.optString("nombre"))
     }
 
     @Test
     fun clearsAllLegacyModuleAssignments() {
         val raw = """{
-            "version":1,
+            "version":3,"settings":{"cycleSize":20,"urgencyK":14},
             "subjects":[
                 {"id":"a","name":"Álgebra","moduleId":"old","moduleName":"Viejo","moduleEntry":"modules/old/index.html"},
                 {"id":"b","name":"Física","moduleId":"partial","moduleEntry":"modules/partial/index.html"},
@@ -109,18 +109,27 @@ class AprioriStoreTest {
             assertEquals(false, subject.has("moduleId"))
             assertEquals(false, subject.has("moduleName"))
             assertEquals(false, subject.has("moduleEntry"))
+            assertEquals(false, subject.has("module"))
+        }
+    }
+
+    @Test
+    fun rejectsLegacyStateInsteadOfMigratingIt() {
+        val legacy = """{"version":1,"subjects":[],"ring":[]}"""
+        assertThrows(IllegalArgumentException::class.java) {
+            AprioriStore.validateAndNormalize(legacy)
         }
     }
 
     @Test
     fun rejectsBackupWithUnknownOrDuplicatedSubjects() {
         val unknown = """{
-            "version":1,
+            "version":3,"settings":{"cycleSize":20,"urgencyK":14},
             "subjects":[{"id":"a","name":"Álgebra"}],
             "ring":["missing"]
         }""".trimIndent()
         val duplicated = """{
-            "version":1,
+            "version":3,"settings":{"cycleSize":20,"urgencyK":14},
             "subjects":[{"id":"a","name":"Álgebra"}],
             "ring":["a"],
             "dockRows":[["a"],[],["a"]]

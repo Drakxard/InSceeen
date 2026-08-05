@@ -41,6 +41,7 @@ function notFoundError() {
 
 function createDirectory(options = {}) {
   const files = new Map(Object.entries(options.files || {}));
+  const directories = new Map();
   const writes = [];
   const handle = {
     name: options.name || "Estudio",
@@ -81,7 +82,13 @@ function createDirectory(options = {}) {
         },
       };
     },
+    async getDirectoryHandle(name, settings = {}) {
+      if (!directories.has(name) && !settings.create) throw notFoundError();
+      if (!directories.has(name)) directories.set(name, createDirectory({ name }));
+      return directories.get(name);
+    },
   };
+  handle.directories = directories;
   return handle;
 }
 
@@ -137,6 +144,20 @@ test("el archivo existente prevalece sobre el espejo del navegador", async () =>
   const result = await storage.selectDirectory(localState);
   assert.deepEqual(result.state, folderState);
   assert.deepEqual(JSON.parse(local.getItem(MIRROR_KEY)), folderState);
+});
+
+test("acepta el estado v2 del planificador genérico", async () => {
+  const value = {
+    version: 2,
+    settings: { cycleSize: 20, urgencyK: 14 },
+    subjects: [{ id: "A", name: "Genérica", active: true, baseWeight: 1, classDays: [1, 3], evaluations: [] }],
+    ring: Array(20).fill("A"),
+    weightSignature: "",
+  };
+  const directory = createDirectory({ files: { [FILE_NAME]: documentFor(value) } });
+  const result = await makeStorage({ directory }).initialize(state());
+  assert.equal(result.status, "ready");
+  assert.deepEqual(result.state, value);
 });
 
 test("reutiliza automáticamente un handle con permiso concedido", async () => {
@@ -257,4 +278,41 @@ test("mantiene dirty cuando una escritura falla", async () => {
   await assert.rejects(storage.save(state("Cambio")), { name: "NotAllowedError" });
   assert.equal(JSON.parse(local.getItem(SYNC_KEY)).dirty, true);
   assert.deepEqual(JSON.parse(local.getItem(MIRROR_KEY)), state("Cambio"));
+});
+
+test("guarda y recupera la copia HTML de un módulo", async () => {
+  const directory = createDirectory();
+  const storage = makeStorage({ directory });
+  assert.equal((await storage.initialize(state())).status, "ready");
+  await storage.saveModule("ingles-vocabulario", "<!doctype html><title>Inglés</title>");
+  assert.equal(
+    await storage.readModule("ingles-vocabulario"),
+    "<!doctype html><title>Inglés</title>",
+  );
+  await assert.rejects(storage.saveModule("../inseguro", "x"), TypeError);
+});
+
+test("guarda los modulos en una subcarpeta y actualiza la copia del mismo id", async () => {
+  const directory = createDirectory();
+  const storage = makeStorage({ directory });
+  await storage.initialize(state());
+
+  await storage.saveModule("ingles-vocabulario", "primera copia");
+  await storage.saveModule("ingles-vocabulario", "copia actualizada");
+
+  const modules = directory.directories.get("modulos");
+  assert.ok(modules);
+  assert.equal(directory.files.has("apriori-module-ingles-vocabulario.html"), false);
+  assert.equal(modules.files.get("apriori-module-ingles-vocabulario.html"), "copia actualizada");
+  assert.equal(await storage.readModule("ingles-vocabulario"), "copia actualizada");
+});
+
+test("recupera modulos guardados previamente en la carpeta raiz", async () => {
+  const directory = createDirectory({
+    files: { "apriori-module-ingles-vocabulario.html": "copia anterior" },
+  });
+  const storage = makeStorage({ directory });
+  await storage.initialize(state());
+
+  assert.equal(await storage.readModule("ingles-vocabulario"), "copia anterior");
 });

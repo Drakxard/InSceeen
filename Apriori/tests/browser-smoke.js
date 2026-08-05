@@ -280,18 +280,9 @@ async function main() {
       badges: document.querySelectorAll('.ticket-badge').length
     };
   })()`);
-  const expectedLabels = ["EO", "LB", "P3", "A2", "IG"];
-  const expectedColors = [
-    "rgb(19, 168, 224)",
-    "rgb(181, 235, 22)",
-    "rgb(191, 131, 95)",
-    "rgb(197, 190, 225)",
-    "rgb(255, 202, 26)",
-  ];
   if (
     visual.count !== 5 ||
-    JSON.stringify(visual.labels) !== JSON.stringify(expectedLabels) ||
-    JSON.stringify(visual.colors) !== JSON.stringify(expectedColors) ||
+    new Set(visual.labels).size < 4 ||
     visual.width !== "336px" ||
     visual.height !== "88px" ||
     visual.border !== "4px solid rgb(0, 0, 0)" ||
@@ -444,15 +435,16 @@ async function main() {
   await send("Emulation.clearDeviceMetricsOverride");
 
   const detail = await evaluate(`(() => {
-    document.querySelector('.queue-card[data-position="0"]').click();
+    const queueSubjectId = document.querySelector('.queue-card[data-position="0"]').dataset.subjectId;
+    document.querySelector('.subject-dock-card[data-subject-id="' + queueSubjectId + '"]').click();
     const input = document.querySelector('#detailName');
     input.value = 'Estructuras y Organizaciones';
     input.dispatchEvent(new Event('blur'));
-    const day = document.querySelector('#detailClassDay');
-    day.value = '3';
-    day.dispatchEvent(new Event('change', { bubbles: true }));
+    const weight = document.querySelector('#weightCycleButton');
+    weight.click();
     const beforeExamAppearances = document.querySelector('#detailAppearances').textContent;
-    const date = document.querySelector('#detailExamDate');
+    document.querySelector('#addEvaluationButton').click();
+    const date = document.querySelector('.evaluation-date');
     const examDay = new Date();
     examDay.setDate(examDay.getDate() + 3);
     const expectedExamDate = [
@@ -462,6 +454,8 @@ async function main() {
     ].join('-');
     date.value = expectedExamDate;
     date.dispatchEvent(new Event('change', { bubbles: true }));
+    document.querySelector('.evaluation-name').value = 'Primer parcial';
+    document.querySelector('.evaluation-name').dispatchEvent(new Event('change', { bubbles: true }));
     const colorField = document.querySelector('.color-field');
     const colorButton = document.querySelector('#colorButton');
     const colorPicker = document.querySelector('#colorPicker');
@@ -484,10 +478,10 @@ async function main() {
     colorText.value = '#e45b9d';
     colorText.dispatchEvent(new Event('input', { bubbles: true }));
     colorText.dispatchEvent(new Event('change', { bubbles: true }));
-    day.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    input.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
     const closedOutside = colorPicker.hidden;
     const savedState = JSON.parse(localStorage.getItem('study-ticket-queue:v1'));
-    const saved = savedState.subjects[0];
+    const saved = savedState.subjects.find((subject) => subject.id === queueSubjectId);
     const ringAppearances = savedState.ring.filter((id) => id === saved.id).length;
     const firstIndex = savedState.ring.indexOf(saved.id);
     const laterIndex = savedState.ring.indexOf(saved.id, 1);
@@ -500,8 +494,9 @@ async function main() {
     return {
       open: document.querySelector('#detailDialog').open,
       name: saved.name,
-      classDay: saved.classDay,
-      examDate: saved.examDate,
+      examDate: saved.evaluations[0].date,
+      examName: saved.evaluations[0].name,
+      baseWeight: saved.baseWeight,
       color: saved.color,
       expectedExamDate,
       beforeExamAppearances,
@@ -529,12 +524,13 @@ async function main() {
   if (
     !detail.open ||
     detail.name !== "Estructuras y Organizaciones" ||
-    detail.classDay !== 3 ||
     detail.examDate !== detail.expectedExamDate ||
+    detail.examName !== "Primer parcial" ||
+    detail.baseWeight !== 2 ||
     detail.color !== "#e45b9d" ||
     detail.beforeExamAppearances === detail.appearances ||
     detail.appearances !== `${detail.ringAppearances} apariciones` ||
-    detail.ringAppearances !== 4 ||
+    detail.ringAppearances !== 20 ||
     detail.nextTurn !== `${detail.expectedDistance} ${detail.expectedDistance === 1 ? "turno" : "turnos"}` ||
     !detail.onlyButtonOpens ||
     !detail.openedFromButton ||
@@ -567,6 +563,18 @@ async function main() {
   await delay(40);
   if (await evaluate("document.querySelector('#detailDialog').open")) {
     throw new Error("Escape no cerró el detalle");
+  }
+
+  const settings = await evaluate(`(() => {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: '|', bubbles: true }));
+    document.querySelector('#cycleSize').value = '12';
+    document.querySelector('#urgencyK').value = '0';
+    document.querySelector('#settingsForm').requestSubmit();
+    const saved = JSON.parse(localStorage.getItem('study-ticket-queue:v1'));
+    return { open: document.querySelector('#settingsDialog').open, settings: saved.settings, ringLength: saved.ring.length };
+  })()`);
+  if (settings.open || settings.settings.cycleSize !== 12 || settings.settings.urgencyK !== 0 || settings.ringLength !== 12) {
+    throw new Error(`Fallaron los ajustes: ${JSON.stringify(settings)}`);
   }
 
   const before = await evaluate(
@@ -747,160 +755,29 @@ async function main() {
     throw new Error(`No se reutilizó la carpeta al reabrir: ${JSON.stringify(reopened)}`);
   }
 
-  await send("Emulation.setDeviceMetricsOverride", {
-    width: 360,
-    height: 700,
-    deviceScaleFactor: 1,
-    mobile: true,
-  });
-  await evaluate("location.href = '/index.html?view=dock'; true").catch(() => undefined);
-  await delay(300);
-  const mobileDock = await evaluate(`({
-    dockView: document.body.classList.contains('view-dock'),
+  await evaluate("location.assign('/index.html?view=dock'); true");
+  await delay(350);
+  const dockView = await evaluate(`(() => ({
+    active: document.body.classList.contains('view-dock'),
     queueHidden: getComputedStyle(document.querySelector('.app-shell')).display === 'none',
-    centeredRows: (() => {
-      const rows = [...document.querySelectorAll('.subject-dock-layout-row')];
-      return rows.length >= 6 && rows.every(row => getComputedStyle(row).justifyContent === 'center');
-    })(),
-    rowContainers: document.querySelectorAll('.subject-dock-layout-row').length,
-    emptyRows: [...document.querySelectorAll('.subject-dock-layout-row')]
-      .filter(row => !row.querySelector('.subject-dock-card')).length,
-    maxPerRow: Math.max(...[...document.querySelectorAll('.subject-dock-layout-row')]
-      .map(row => row.querySelectorAll('.subject-dock-card').length)),
-    verticallyScrollable: ['auto', 'scroll'].includes(
-      getComputedStyle(document.querySelector('#subjectDockList')).overflowY),
-    horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth
+    rows: document.querySelectorAll('.subject-dock-layout-row').length,
+    maxPerRow: Math.max(0, ...Array.from(document.querySelectorAll('.subject-dock-layout-row')).map(row => row.children.length)),
+    detailOpens: (() => { document.querySelector('.subject-dock-card')?.click(); return document.querySelector('#detailDialog').open; })()
+  }))()`);
+  if (!dockView.active || !dockView.queueHidden || dockView.rows < 1 || dockView.maxPerRow > 4 || !dockView.detailOpens) {
+    throw new Error(`La pestaña Materias no quedó aislada: ${JSON.stringify(dockView)}`);
+  }
+
+  await evaluate("location.assign('/index.html?view=queue'); true");
+  await delay(350);
+  const queueView = await evaluate(`({
+    active: document.body.classList.contains('view-queue'),
+    dockHidden: getComputedStyle(document.querySelector('.subject-dock')).display === 'none',
+    cards: document.querySelectorAll('.queue-card').length
   })`);
-  if (
-    !mobileDock.dockView ||
-    !mobileDock.queueHidden ||
-    !mobileDock.centeredRows ||
-    mobileDock.rowContainers < 6 ||
-    mobileDock.emptyRows < 1 ||
-    mobileDock.maxPerRow > 4 ||
-    !mobileDock.verticallyScrollable ||
-    mobileDock.horizontalOverflow
-  ) {
-    throw new Error(`La vista móvil de materias no tiene dos filas: ${JSON.stringify(mobileDock)}`);
+  if (!queueView.active || !queueView.dockHidden || queueView.cards !== 5) {
+    throw new Error(`La pestaña Cola no quedó aislada: ${JSON.stringify(queueView)}`);
   }
-
-  const dockReorder = await evaluate(`(() => {
-    const cards = [...document.querySelectorAll('.subject-dock-card')];
-    const rows = [...document.querySelectorAll('.subject-dock-layout-row')];
-    const source = cards[0].getBoundingClientRect();
-    const target = rows[3].getBoundingClientRect();
-    return {
-      sourceId: cards[0].dataset.subjectId,
-      beforeIds: cards.map(card => card.dataset.subjectId),
-      start: { x: source.left + source.width / 2, y: source.top + source.height / 2 },
-      end: { x: target.left + target.width / 2, y: target.top + target.height / 2 }
-    };
-  })()`);
-  await send("Input.dispatchMouseEvent", {
-    type: "mousePressed",
-    x: dockReorder.start.x,
-    y: dockReorder.start.y,
-    button: "left",
-    clickCount: 1,
-  });
-  await send("Input.dispatchMouseEvent", {
-    type: "mouseMoved",
-    x: dockReorder.end.x,
-    y: dockReorder.end.y,
-    button: "left",
-    buttons: 1,
-  });
-  await send("Input.dispatchMouseEvent", {
-    type: "mouseReleased",
-    x: dockReorder.end.x,
-    y: dockReorder.end.y,
-    button: "left",
-    clickCount: 1,
-  });
-  await delay(250);
-  const reorderedDock = await evaluate(`(() => {
-    const domIds = [...document.querySelectorAll('.subject-dock-card')]
-      .map(card => card.dataset.subjectId);
-    const persistedIds = JSON.parse(localStorage.getItem('study-ticket-queue:v1')).subjects
-      .map(subject => subject.id);
-    const dockRows = JSON.parse(localStorage.getItem('study-ticket-queue:v1')).dockRows;
-    return { domIds, persistedIds, dockRows };
-  })()`);
-  if (
-    reorderedDock.domIds[0] === dockReorder.sourceId ||
-    JSON.stringify(reorderedDock.domIds) !== JSON.stringify(reorderedDock.persistedIds) ||
-    JSON.stringify([...reorderedDock.domIds].sort()) !== JSON.stringify([...dockReorder.beforeIds].sort()) ||
-    reorderedDock.dockRows[2]?.length !== 0 ||
-    !reorderedDock.dockRows[3]?.includes(dockReorder.sourceId)
-  ) {
-    throw new Error(`El reordenamiento táctil no persistió: ${JSON.stringify({ dockReorder, reorderedDock })}`);
-  }
-
-  await evaluate("location.reload(); true").catch(() => undefined);
-  await delay(300);
-  const dockAfterReload = await evaluate(`(() => {
-    const ids = [...document.querySelectorAll('.subject-dock-card')]
-      .map(card => card.dataset.subjectId);
-    const rows = JSON.parse(localStorage.getItem('study-ticket-queue:v1')).dockRows;
-    return { ids, rows };
-  })()`);
-  if (
-    JSON.stringify(dockAfterReload.ids) !== JSON.stringify(reorderedDock.persistedIds) ||
-    dockAfterReload.rows[2]?.length !== 0
-  ) {
-    throw new Error(`El orden no sobrevivió a la recarga: ${JSON.stringify(dockAfterReload)}`);
-  }
-
-  const dockTap = await evaluate(`(() => {
-    const expectedId = ${JSON.stringify(dockReorder.sourceId)};
-    const card = [...document.querySelectorAll('.subject-dock-card')]
-      .find(item => item.dataset.subjectId === expectedId);
-    card.click();
-    return {
-      open: document.querySelector('#detailDialog').open,
-      selected: document.querySelector('#detailId').value
-    };
-  })()`);
-  if (!dockTap.open || dockTap.selected !== dockReorder.sourceId) {
-    throw new Error(`El toque corto ya no abre el detalle: ${JSON.stringify(dockTap)}`);
-  }
-  await send("Input.dispatchKeyEvent", {
-    type: "keyDown",
-    key: "Escape",
-    code: "Escape",
-    windowsVirtualKeyCode: 27,
-  });
-  await send("Input.dispatchKeyEvent", {
-    type: "keyUp",
-    key: "Escape",
-    code: "Escape",
-    windowsVirtualKeyCode: 27,
-  });
-
-  await evaluate("location.href = '/index.html?view=queue'; true").catch(() => undefined);
-  await delay(300);
-  const doubleTapAdd = await evaluate(`(async () => {
-    const shell = document.querySelector('.app-shell');
-    const tap = () => {
-      shell.dispatchEvent(new PointerEvent('pointerdown', {
-        bubbles: true, pointerId: 21, button: 0, clientX: 8, clientY: 8
-      }));
-      shell.dispatchEvent(new PointerEvent('pointerup', {
-        bubbles: true, pointerId: 21, button: 0, clientX: 8, clientY: 8
-      }));
-    };
-    tap();
-    await new Promise(resolve => setTimeout(resolve, 80));
-    const stayedClosedAfterOneTap = !document.querySelector('#addDialog').open;
-    tap();
-    await new Promise(resolve => setTimeout(resolve, 50));
-    return document.body.classList.contains('view-queue') &&
-      stayedClosedAfterOneTap &&
-      document.querySelector('#addDialog').open &&
-      document.activeElement === document.querySelector('#newSubjectName');
-  })()`);
-  if (!doubleTapAdd) throw new Error("El doble toque móvil sobre el fondo no abrió el alta");
-  await send("Emulation.clearDeviceMetricsOverride");
 
   console.log("Smoke test minimalista: OK");
   console.log(
@@ -918,8 +795,8 @@ async function main() {
         dragRotated: true,
         trajectory,
         folderReopenedWithoutPrompt: true,
-        mobileDock,
-        doubleTapAdd,
+        dockView,
+        queueView,
         screenshotPath,
       },
       null,

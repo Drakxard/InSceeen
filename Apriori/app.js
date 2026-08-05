@@ -4,18 +4,15 @@
   const Scheduler = window.StudyScheduler;
   const folderStorage = window.AprioriFolderStorage.createFolderStorage();
   const STORAGE_KEY = "study-ticket-queue:v1";
-  const STATE_VERSION = 1;
+  const STATE_VERSION = 3;
+  const VIEW = new URLSearchParams(window.location.search).get("view") || "desktop";
+  const MODULE_CATALOG_URL = "https://raw.githubusercontent.com/Drakxard/InSceeen/main/modules/index.json";
+  const MODULE_RAW_BASE_URL = "https://raw.githubusercontent.com/Drakxard/InSceeen/main/";
   const DRAG_THRESHOLD = 64;
   const CLICK_THRESHOLD = 6;
-  const DOCK_REORDER_THRESHOLD = 8;
-  const DOCK_AUTO_SCROLL_EDGE = 64;
-  const BLANK_DOUBLE_TAP_DELAY = 360;
-  const BLANK_DOUBLE_TAP_DISTANCE = 32;
-  const DOCK_ROW_CAPACITY = 4;
-  const MIN_DOCK_ROWS = 6;
   const HOLD_DELAY = 150;
   const HOLD_LIFT = 8;
-  const VIEW = new URLSearchParams(window.location.search).get("view") || "desktop";
+  const DOCK_ACTIVATION_HEIGHT = 90;
   const ANIMATION_MS = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 270;
   const PALETTE = [
     "#13a8e0",
@@ -47,14 +44,15 @@
     detailForm: document.querySelector("#detailForm"),
     detailId: document.querySelector("#detailId"),
     detailName: document.querySelector("#detailName"),
-    detailClassDay: document.querySelector("#detailClassDay"),
-    detailExamDate: document.querySelector("#detailExamDate"),
+    assignedModule: document.querySelector("#assignedModule"),
+    assignedModuleName: document.querySelector("#assignedModuleName"),
+    removeModuleButton: document.querySelector("#removeModuleButton"),
+    weightCycleButton: document.querySelector("#weightCycleButton"),
+    evaluationList: document.querySelector("#evaluationList"),
+    addEvaluationButton: document.querySelector("#addEvaluationButton"),
     detailColor: document.querySelector("#detailColor"),
     detailAppearances: document.querySelector("#detailAppearances"),
     detailNextTurn: document.querySelector("#detailNextTurn"),
-    moduleAssignment: document.querySelector("#moduleAssignment"),
-    detailModuleName: document.querySelector("#detailModuleName"),
-    clearModuleButton: document.querySelector("#clearModuleButton"),
     colorButton: document.querySelector("#colorButton"),
     colorPicker: document.querySelector("#colorPicker"),
     colorHue: document.querySelector("#colorHue"),
@@ -63,7 +61,16 @@
     colorHex: document.querySelector("#colorHex"),
     colorInputError: document.querySelector("#colorInputError"),
     detailError: document.querySelector("#detailError"),
-    calendarButton: document.querySelector("#calendarButton"),
+    moduleDialog: document.querySelector("#moduleDialog"),
+    moduleSearch: document.querySelector("#moduleSearch"),
+    moduleResults: document.querySelector("#moduleResults"),
+    moduleError: document.querySelector("#moduleError"),
+    settingsDialog: document.querySelector("#settingsDialog"),
+    settingsForm: document.querySelector("#settingsForm"),
+    cycleSize: document.querySelector("#cycleSize"),
+    urgencyK: document.querySelector("#urgencyK"),
+    settingsError: document.querySelector("#settingsError"),
+    cancelSettings: document.querySelector("#cancelSettings"),
     deleteButton: document.querySelector("#deleteButton"),
     storageDialog: document.querySelector("#storageDialog"),
     storageMessage: document.querySelector("#storageMessage"),
@@ -79,28 +86,17 @@
   let isAnimating = false;
   let suppressClick = false;
   let dockDraggedId = null;
-  let dockPointerDrag = null;
-  let dockAutoScrollFrame = null;
-  let dockAutoScrollDirection = 0;
   let suppressDockClick = false;
+  let pointerInDockActivationZone = false;
   let dayRefreshTimer = null;
-  let blankTapCandidate = null;
-  let previousBlankTap = null;
-  let blankTapTimer = null;
+  let moduleCatalog = null;
+  let moduleSearchSubjectId = null;
+  let dockPointerDrag = null;
 
   document.body.classList.add(`view-${VIEW}`);
 
   bindEvents();
   bootstrapStorage();
-
-  window.InScreenApplyState = (raw) => {
-    try {
-      state = normalizeState(typeof raw === "string" ? JSON.parse(raw) : raw);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-      ensureFreshRing();
-      render();
-    } catch {}
-  };
 
   function emptyState() {
     return {
@@ -110,6 +106,7 @@
       weightSignature: "",
       dockSplitIndex: 0,
       dockRows: [],
+      settings: { ...Scheduler.DEFAULT_SETTINGS },
     };
   }
 
@@ -151,6 +148,7 @@
           ? Math.max(0, Math.min(saved.dockSplitIndex, subjects.length))
           : Math.min(5, subjects.length),
         dockRows: normalizeDockRows(saved.dockRows, subjects),
+        settings: Scheduler.normalizeSettings(saved.settings),
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizedState));
       return normalizedState;
@@ -159,40 +157,20 @@
     }
   }
 
-  function normalizeDockRows(savedRows, subjects) {
+  function normalizeDockRows(rows, subjects) {
     const validIds = new Set(subjects.map((subject) => subject.id));
-    const placedIds = new Set();
-    const rows = Array.isArray(savedRows)
-      ? savedRows.map((savedRow) => {
-          if (!Array.isArray(savedRow)) return [];
-          let accepted = 0;
-          return savedRow
-            .filter((id) => {
-              if (
-                accepted >= DOCK_ROW_CAPACITY ||
-                typeof id !== "string" ||
-                !validIds.has(id) ||
-                placedIds.has(id)
-              ) return false;
-              placedIds.add(id);
-              accepted += 1;
-              return true;
-            });
-        })
-      : [];
-
-    for (const subject of subjects) {
-      if (placedIds.has(subject.id)) continue;
-      let destination = rows.at(-1);
-      if (!destination || destination.length >= DOCK_ROW_CAPACITY) {
-        destination = [];
-        rows.push(destination);
+    const placed = new Set();
+    const normalized = [];
+    if (Array.isArray(rows)) {
+      for (const row of rows) {
+        if (!Array.isArray(row)) continue;
+        const clean = row.filter((id) => validIds.has(id) && !placed.has(id) && placed.add(id)).slice(0, 4);
+        if (clean.length) normalized.push(clean);
       }
-      destination.push(subject.id);
-      placedIds.add(subject.id);
     }
-    while (rows.length && rows.at(-1).length === 0) rows.pop();
-    return rows;
+    const missing = subjects.map((subject) => subject.id).filter((id) => !placed.has(id));
+    while (missing.length) normalized.push(missing.splice(0, 4));
+    return normalized;
   }
 
   async function bootstrapStorage() {
@@ -282,17 +260,37 @@
     return {
       id: typeof subject.id === "string" && subject.id ? subject.id : createId(),
       name,
-      classDay:
-        Number.isInteger(subject.classDay) && subject.classDay >= 0 && subject.classDay <= 6
-          ? subject.classDay
-          : null,
-      examDate: Scheduler.parseLocalDate(subject.examDate) ? subject.examDate : null,
+      active: subject.active !== false,
+      baseWeight: Math.max(1, Math.min(100, Number(subject.baseWeight) || 1)),
+      evaluations: normalizeEvaluations(subject.evaluations, subject.examDate),
       createdAt: Number.isNaN(createdAt.getTime()) ? new Date().toISOString() : createdAt.toISOString(),
       color: normalizeColor(subject.color, index),
-      moduleId: typeof subject.moduleId === "string" && subject.moduleId ? subject.moduleId : null,
-      moduleName: typeof subject.moduleName === "string" && subject.moduleName ? subject.moduleName : null,
-      moduleEntry: typeof subject.moduleEntry === "string" && subject.moduleEntry ? subject.moduleEntry : null,
+      module: normalizeModule(subject.module),
     };
+  }
+
+  function normalizeModule(module) {
+    if (!module || typeof module !== "object") return null;
+    const id = typeof module.id === "string" ? module.id.trim() : "";
+    const nombre = normalizeName(module.nombre);
+    const entry = typeof module.entry === "string" ? module.entry.trim() : "";
+    return id && nombre && entry ? { id, nombre, entry } : null;
+  }
+
+  function normalizeEvaluations(evaluations, legacyExamDate = null) {
+    const source = Array.isArray(evaluations)
+      ? evaluations
+      : Scheduler.parseLocalDate(legacyExamDate)
+        ? [{ id: createId(), name: "Examen", date: legacyExamDate }]
+        : [];
+    const ids = new Set();
+    return source.map((evaluation) => {
+      if (!Scheduler.parseLocalDate(evaluation?.date)) return null;
+      let id = typeof evaluation.id === "string" && evaluation.id ? evaluation.id : createId();
+      if (ids.has(id)) id = createId();
+      ids.add(id);
+      return { id, name: normalizeName(evaluation.name).slice(0, 60), date: evaluation.date };
+    }).filter(Boolean);
   }
 
   function normalizeColor(color, index) {
@@ -324,10 +322,8 @@
   }
 
   function ringMatchesWeights(ring, subjects) {
-    if (!subjects.length) return ring.length === 0;
-    const desired = new Map(
-      subjects.map((subject) => [subject.id, Scheduler.calculateWeight(subject).tickets]),
-    );
+    const schedule = Scheduler.calculateSchedule(subjects, state.settings);
+    const desired = new Map(schedule.allocations.filter((item) => item.tickets > 0).map((item) => [item.id, item.tickets]));
     const actual = new Map();
     for (const id of ring) actual.set(id, (actual.get(id) || 0) + 1);
     if (actual.size !== desired.size) return false;
@@ -335,7 +331,7 @@
   }
 
   function ensureFreshRing(force = false) {
-    const signature = Scheduler.weightSignature(state.subjects);
+    const signature = Scheduler.weightSignature(state.subjects, state.settings);
     const shouldRebuild =
       force ||
       signature !== state.weightSignature ||
@@ -345,6 +341,7 @@
 
     const preferredHead = state.ring[0] || state.subjects[0]?.id || null;
     state.ring = Scheduler.buildRing(state.subjects, new Date(), {
+      settings: state.settings,
       preferredHead,
       preferredOrder: uniqueOrder(state.ring),
     });
@@ -393,47 +390,50 @@
     }
   }
 
+  function currentSchedule() {
+    return Scheduler.calculateSchedule(state.subjects, state.settings, new Date(), {
+      preferredHead: state.ring[0] || null,
+      preferredOrder: uniqueOrder(state.ring),
+    });
+  }
+
+  function renderMode() {
+    const labels = { regular: "Regular", alert: "Alerta", critical: "Crítico" };
+    const mode = currentSchedule().mode;
+    elements.modeBadge.textContent = labels[mode];
+    elements.modeBadge.dataset.mode = mode;
+  }
+
   function renderSubjectDock() {
     elements.subjectDockList.replaceChildren();
     if (state.subjects.length === 0) document.body.classList.remove("dock-visible");
     if (VIEW === "dock") {
-      renderDockRows();
+      state.dockRows = normalizeDockRows(state.dockRows, state.subjects);
+      for (const ids of state.dockRows) {
+        const row = document.createElement("div");
+        row.className = "subject-dock-layout-row";
+        for (const id of ids) {
+          const subject = subjectById(id);
+          if (subject) row.append(createDockCard(subject, state.subjects.indexOf(subject)));
+        }
+        elements.subjectDockList.append(row);
+      }
       return;
     }
     for (const [index, subject] of state.subjects.entries()) {
-      const card = createDockCard(subject);
-      if (index === state.dockSplitIndex) card.classList.add("starts-right-group");
-      card.dataset.dockSide = index < state.dockSplitIndex ? "left" : "right";
-      elements.subjectDockList.append(card);
+      elements.subjectDockList.append(createDockCard(subject, index));
     }
   }
 
-  function renderDockRows() {
-    const subjectMap = new Map(state.subjects.map((subject) => [subject.id, subject]));
-    const visibleRowCount = Math.max(
-      MIN_DOCK_ROWS,
-      state.dockRows.length + 1,
-      Math.ceil(window.innerHeight / 72),
-    );
-    for (let rowIndex = 0; rowIndex < visibleRowCount; rowIndex += 1) {
-      const row = document.createElement("div");
-      row.className = "subject-dock-layout-row";
-      row.dataset.rowIndex = String(rowIndex);
-      row.setAttribute("aria-label", `Fila ${rowIndex + 1}`);
-      for (const id of state.dockRows[rowIndex] || []) {
-        const subject = subjectMap.get(id);
-        if (subject) row.append(createDockCard(subject));
-      }
-      elements.subjectDockList.append(row);
-    }
-  }
-
-  function createDockCard(subject) {
+  function createDockCard(subject, index) {
     const card = document.createElement("button");
     card.type = "button";
     card.className = "subject-dock-card";
+    if (!subject.active) card.classList.add("is-inactive");
+    if (index === state.dockSplitIndex) card.classList.add("starts-right-group");
     card.draggable = VIEW !== "dock";
     card.dataset.subjectId = subject.id;
+    card.dataset.dockSide = index < state.dockSplitIndex ? "left" : "right";
     card.style.setProperty("--card-color", subject.color);
     card.textContent = Scheduler.acronym(subject.name);
     card.setAttribute("aria-label", `Ver detalles de ${subject.name}`);
@@ -442,16 +442,27 @@
 
   function handleDockProximity(event) {
     if (!storageReady || state.subjects.length === 0) return;
-    if (window.innerHeight - event.clientY <= 90) showSubjectDock();
-    else if (!elements.subjectDock.matches(":hover")) hideSubjectDock();
+    pointerInDockActivationZone = window.innerHeight - event.clientY <= DOCK_ACTIVATION_HEIGHT;
+    if (pointerInDockActivationZone) showSubjectDock();
+    else hideSubjectDock();
   }
 
   function showSubjectDock() {
     if (storageReady && state.subjects.length > 0) document.body.classList.add("dock-visible");
   }
 
-  function hideSubjectDock() {
-    if (!elements.subjectDock.matches(":hover") && !elements.subjectDock.matches(":focus-within")) {
+  function hideSubjectDock(event) {
+    if (event?.type === "pointerleave" && event.currentTarget === document) {
+      pointerInDockActivationZone = false;
+    } else if (typeof event?.clientY === "number") {
+      pointerInDockActivationZone = window.innerHeight - event.clientY <= DOCK_ACTIVATION_HEIGHT;
+    }
+
+    if (
+      !pointerInDockActivationZone &&
+      !elements.subjectDock.matches(":hover") &&
+      !elements.subjectDock.matches(":focus-within")
+    ) {
       document.body.classList.remove("dock-visible");
     }
   }
@@ -463,10 +474,6 @@
   }
 
   function handleDockDragStart(event) {
-    if (VIEW === "dock") {
-      event.preventDefault();
-      return;
-    }
     const card = event.target.closest(".subject-dock-card[data-subject-id]");
     if (!card) return;
     dockDraggedId = card.dataset.subjectId;
@@ -524,6 +531,41 @@
     finishDockDrag();
   }
 
+  function handleDockPointerDown(event) {
+    if (VIEW !== "dock" || event.button !== 0) return;
+    const card = event.target.closest(".subject-dock-card[data-subject-id]");
+    if (!card) return;
+    dockPointerDrag = { id: card.dataset.subjectId, pointerId: event.pointerId, x: event.clientX, y: event.clientY, moved: false };
+    card.setPointerCapture?.(event.pointerId);
+  }
+
+  function handleDockPointerMove(event) {
+    if (!dockPointerDrag || dockPointerDrag.pointerId !== event.pointerId) return;
+    if (Math.hypot(event.clientX - dockPointerDrag.x, event.clientY - dockPointerDrag.y) > 12) {
+      dockPointerDrag.moved = true;
+      event.preventDefault();
+    }
+  }
+
+  function handleDockPointerEnd(event) {
+    if (!dockPointerDrag || dockPointerDrag.pointerId !== event.pointerId) return;
+    const current = dockPointerDrag;
+    dockPointerDrag = null;
+    if (!current.moved) return;
+    const target = document.elementFromPoint(event.clientX, event.clientY)?.closest?.(".subject-dock-card[data-subject-id]");
+    if (!target || target.dataset.subjectId === current.id) return;
+    const sourceIndex = state.subjects.findIndex((subject) => subject.id === current.id);
+    const targetIndex = state.subjects.findIndex((subject) => subject.id === target.dataset.subjectId);
+    if (sourceIndex < 0 || targetIndex < 0) return;
+    const [moved] = state.subjects.splice(sourceIndex, 1);
+    state.subjects.splice(targetIndex, 0, moved);
+    state.dockRows = normalizeDockRows([], state.subjects);
+    suppressDockClick = true;
+    saveState();
+    renderSubjectDock();
+    window.setTimeout(() => { suppressDockClick = false; }, 0);
+  }
+
   function handleDockDragEnd() {
     finishDockDrag();
   }
@@ -536,243 +578,6 @@
     }, 0);
   }
 
-  function handleDockPointerDown(event) {
-    if (VIEW !== "dock" || !storageReady || dockPointerDrag || event.button !== 0) return;
-    const card = event.target.closest(".subject-dock-card[data-subject-id]");
-    if (!card) return;
-    const bounds = card.getBoundingClientRect();
-    dockPointerDrag = {
-      pointerId: event.pointerId,
-      card,
-      startX: event.clientX,
-      startY: event.clientY,
-      currentX: event.clientX,
-      currentY: event.clientY,
-      moved: false,
-      finishing: false,
-      origin: { left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height },
-      placeholder: null,
-      originalSubjects: state.subjects.slice(),
-      originalRows: state.dockRows.map((row) => row.slice()),
-    };
-    card.setPointerCapture(event.pointerId);
-  }
-
-  function handleDockPointerMove(event) {
-    if (!dockPointerDrag || dockPointerDrag.pointerId !== event.pointerId || dockPointerDrag.finishing) return;
-    dockPointerDrag.currentX = event.clientX;
-    dockPointerDrag.currentY = event.clientY;
-    if (!dockPointerDrag.moved) {
-      const distance = Math.hypot(
-        event.clientX - dockPointerDrag.startX,
-        event.clientY - dockPointerDrag.startY,
-      );
-      if (distance <= DOCK_REORDER_THRESHOLD) return;
-      beginFloatingDockDrag();
-    }
-    event.preventDefault();
-    positionFloatingDockCard(event.clientX, event.clientY);
-    moveDockPlaceholder(event.clientX, event.clientY);
-    updateDockAutoScroll(event.clientY);
-  }
-
-  function beginFloatingDockDrag() {
-    if (!dockPointerDrag || dockPointerDrag.moved) return;
-    const { card, origin } = dockPointerDrag;
-    const placeholder = document.createElement("div");
-    placeholder.className = "subject-dock-placeholder";
-    placeholder.setAttribute("aria-hidden", "true");
-    card.after(placeholder);
-    dockPointerDrag.placeholder = placeholder;
-    dockPointerDrag.moved = true;
-    suppressDockClick = true;
-    card.classList.add("is-reordering");
-    Object.assign(card.style, {
-      position: "fixed",
-      left: `${origin.left}px`,
-      top: `${origin.top}px`,
-      width: `${origin.width}px`,
-      height: `${origin.height}px`,
-      margin: "0",
-      zIndex: "20",
-      pointerEvents: "none",
-    });
-    document.body.append(card);
-  }
-
-  function positionFloatingDockCard(clientX, clientY) {
-    if (!dockPointerDrag?.moved) return;
-    const deltaX = clientX - dockPointerDrag.startX;
-    const deltaY = clientY - dockPointerDrag.startY - 8;
-    const tilt = Math.max(-3, Math.min(3, deltaX / 55));
-    dockPointerDrag.card.style.transform =
-      `translate3d(${deltaX}px, ${deltaY}px, 0) rotate(${tilt}deg) scale(1.06)`;
-  }
-
-  function moveDockPlaceholder(clientX, clientY) {
-    if (!dockPointerDrag?.moved) return;
-    const rows = Array.from(elements.subjectDockList.querySelectorAll(".subject-dock-layout-row"));
-    if (!rows.length) return;
-    let row = document.elementFromPoint(clientX, clientY)?.closest?.(".subject-dock-layout-row");
-    if (!row) {
-      row = rows
-        .map((candidate) => {
-          const bounds = candidate.getBoundingClientRect();
-          return {
-            row: candidate,
-            distance: Math.abs(clientY - (bounds.top + bounds.height / 2)),
-          };
-        })
-        .sort((left, right) => left.distance - right.distance)[0]?.row;
-    }
-    if (!row) return;
-
-    const cards = Array.from(row.querySelectorAll(".subject-dock-card[data-subject-id]"));
-    const reference = cards.find((candidate) => {
-      const bounds = candidate.getBoundingClientRect();
-      return clientX < bounds.left + bounds.width / 2;
-    }) || null;
-    const placeholder = dockPointerDrag.placeholder;
-    if (!placeholder) return;
-    if (reference === placeholder || (reference === null && row.lastElementChild === placeholder)) return;
-    const priorRow = placeholder.parentElement;
-    if (row !== priorRow && cards.length >= DOCK_ROW_CAPACITY) {
-      const displaced = reference || cards.at(-1);
-      const priorReference = placeholder.nextElementSibling;
-      animateDockLayoutChange(() => {
-        row.insertBefore(placeholder, displaced);
-        priorRow.insertBefore(displaced, priorReference);
-      });
-      return;
-    }
-    animateDockLayoutChange(() => row.insertBefore(placeholder, reference));
-  }
-
-  function animateDockLayoutChange(change) {
-    const cards = Array.from(elements.subjectDockList.querySelectorAll(".subject-dock-card"));
-    const before = new Map(cards.map((card) => [card, card.getBoundingClientRect()]));
-    change();
-    for (const card of cards) {
-      const prior = before.get(card);
-      const next = card.getBoundingClientRect();
-      const deltaX = prior.left - next.left;
-      const deltaY = prior.top - next.top;
-      if (Math.abs(deltaX) < 1 && Math.abs(deltaY) < 1) continue;
-      card.animate(
-        [
-          { transform: `translate(${deltaX}px, ${deltaY}px)` },
-          { transform: "translate(0, 0)" },
-        ],
-        { duration: 150, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" },
-      );
-    }
-  }
-
-  function syncDockStateFromRows() {
-    const subjectsById = new Map(state.subjects.map((subject) => [subject.id, subject]));
-    const rows = Array.from(elements.subjectDockList.querySelectorAll(".subject-dock-layout-row"))
-      .map((row) => Array.from(
-        row.querySelectorAll(".subject-dock-card[data-subject-id]"),
-        (card) => card.dataset.subjectId,
-      ));
-    while (rows.length && rows.at(-1).length === 0) rows.pop();
-    state.dockRows = rows;
-    state.subjects = rows.flat().map((id) => subjectsById.get(id)).filter(Boolean);
-  }
-
-  function updateDockAutoScroll(clientY) {
-    const bounds = elements.subjectDockList.getBoundingClientRect();
-    dockAutoScrollDirection = clientY < bounds.top + DOCK_AUTO_SCROLL_EDGE
-      ? -1
-      : clientY > bounds.bottom - DOCK_AUTO_SCROLL_EDGE
-        ? 1
-        : 0;
-    if (dockAutoScrollDirection === 0) {
-      stopDockAutoScroll();
-      return;
-    }
-    if (dockAutoScrollFrame !== null) return;
-
-    const step = () => {
-      if (!dockPointerDrag?.moved || dockAutoScrollDirection === 0) {
-        dockAutoScrollFrame = null;
-        return;
-      }
-      elements.subjectDockList.scrollTop += dockAutoScrollDirection * 10;
-      moveDockPlaceholder(dockPointerDrag.currentX, dockPointerDrag.currentY);
-      dockAutoScrollFrame = window.requestAnimationFrame(step);
-    };
-    dockAutoScrollFrame = window.requestAnimationFrame(step);
-  }
-
-  function stopDockAutoScroll() {
-    dockAutoScrollDirection = 0;
-    if (dockAutoScrollFrame !== null) window.cancelAnimationFrame(dockAutoScrollFrame);
-    dockAutoScrollFrame = null;
-  }
-
-  function handleDockPointerUp(event) {
-    if (!dockPointerDrag || dockPointerDrag.pointerId !== event.pointerId) return;
-    finishDockPointerDrag(true);
-  }
-
-  function handleDockPointerCancel(event) {
-    if (!dockPointerDrag || dockPointerDrag.pointerId !== event.pointerId) return;
-    finishDockPointerDrag(false);
-  }
-
-  function finishDockPointerDrag(commit) {
-    const currentDrag = dockPointerDrag;
-    if (!currentDrag || currentDrag.finishing) return;
-    stopDockAutoScroll();
-    if (currentDrag.card.hasPointerCapture(currentDrag.pointerId)) {
-      currentDrag.card.releasePointerCapture(currentDrag.pointerId);
-    }
-    if (!currentDrag.moved) {
-      dockPointerDrag = null;
-      return;
-    }
-    currentDrag.finishing = true;
-    const destination = commit && currentDrag.placeholder
-      ? currentDrag.placeholder.getBoundingClientRect()
-      : currentDrag.origin;
-    const finalX = destination.left - currentDrag.origin.left;
-    const finalY = destination.top - currentDrag.origin.top;
-    const animation = currentDrag.card.animate(
-      [
-        { transform: currentDrag.card.style.transform },
-        { transform: `translate3d(${finalX}px, ${finalY}px, 0) rotate(0deg) scale(1)` },
-      ],
-      { duration: 180, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)", fill: "forwards" },
-    );
-    animation.finished.catch(() => undefined).then(() => {
-      if (commit && currentDrag.placeholder?.isConnected) {
-        currentDrag.placeholder.before(currentDrag.card);
-        currentDrag.placeholder.remove();
-        clearFloatingDockCard(currentDrag.card);
-        syncDockStateFromRows();
-        saveState();
-      } else {
-        state.subjects = currentDrag.originalSubjects;
-        state.dockRows = currentDrag.originalRows;
-        currentDrag.placeholder?.remove();
-        clearFloatingDockCard(currentDrag.card);
-        renderSubjectDock();
-      }
-      dockPointerDrag = null;
-      window.setTimeout(() => {
-        suppressDockClick = false;
-      }, 0);
-    });
-  }
-
-  function clearFloatingDockCard(card) {
-    card.classList.remove("is-reordering");
-    for (const property of [
-      "position", "left", "top", "width", "height", "margin", "z-index", "pointer-events", "transform",
-    ]) card.style.removeProperty(property);
-  }
-
   function bindEvents() {
     elements.storagePrimaryButton.addEventListener("click", () => runStorageAction(storageGateMode));
     elements.storageSecondaryButton.addEventListener("click", () => runStorageAction("select"));
@@ -783,15 +588,20 @@
     elements.detailName.addEventListener("blur", saveSubjectDetails);
     elements.detailName.addEventListener("keydown", handleDetailNameKeydown);
     elements.deleteButton.addEventListener("click", deleteSelectedSubject);
-    elements.clearModuleButton.addEventListener("click", clearSelectedModule);
-    elements.calendarButton.addEventListener("click", openDatePicker);
-    elements.detailClassDay.addEventListener("change", saveSubjectDetails);
-    elements.detailExamDate.addEventListener("change", saveSubjectDetails);
+    elements.removeModuleButton.addEventListener("click", removeAssignedModule);
+    elements.weightCycleButton.addEventListener("click", cycleSubjectWeight);
+    elements.addEvaluationButton.addEventListener("click", addEvaluation);
+    elements.evaluationList.addEventListener("change", saveEvaluations);
+    elements.evaluationList.addEventListener("click", handleEvaluationAction);
+    elements.settingsForm.addEventListener("submit", saveSettings);
+    elements.cancelSettings.addEventListener("click", () => elements.settingsDialog.close());
     elements.detailColor.addEventListener("change", commitColorPickerValue);
     elements.colorButton.addEventListener("click", toggleColorPicker);
     elements.colorPicker.addEventListener("input", handleColorPickerInput);
     elements.colorHex.addEventListener("change", handleColorHexChange);
     elements.queue.addEventListener("click", handleCardClick);
+    elements.moduleSearch.addEventListener("input", renderModuleResults);
+    elements.moduleResults.addEventListener("click", useModule);
     elements.queue.addEventListener("pointerdown", handlePointerDown);
     elements.queue.addEventListener("pointermove", handlePointerMove);
     elements.queue.addEventListener("pointerup", handlePointerUp);
@@ -803,23 +613,25 @@
     elements.subjectDockList.addEventListener("drop", handleDockDrop);
     elements.subjectDockList.addEventListener("dragend", handleDockDragEnd);
     elements.subjectDockList.addEventListener("pointerdown", handleDockPointerDown);
-    document.addEventListener("pointermove", handleDockPointerMove);
-    document.addEventListener("pointerup", handleDockPointerUp);
-    document.addEventListener("pointercancel", handleDockPointerCancel);
+    elements.subjectDockList.addEventListener("pointermove", handleDockPointerMove);
+    elements.subjectDockList.addEventListener("pointerup", handleDockPointerEnd);
+    elements.subjectDockList.addEventListener("pointercancel", () => { dockPointerDrag = null; });
+    elements.subjectDockList.addEventListener("dblclick", (event) => {
+      if (VIEW === "dock" && !event.target.closest(".subject-dock-card")) openAddDialog();
+    });
     elements.subjectDock.addEventListener("pointerenter", showSubjectDock);
     elements.subjectDock.addEventListener("pointerleave", hideSubjectDock);
     document.addEventListener("pointermove", handleDockProximity);
+    document.addEventListener("pointerdown", handleDockProximity);
     document.addEventListener("pointerleave", hideSubjectDock);
     document.addEventListener("pointerdown", closeColorPickerOnOutsidePress);
     document.addEventListener("keydown", handleGlobalKeydown);
     document.addEventListener("visibilitychange", refreshAfterVisibilityChange);
-    document.querySelector(".app-shell").addEventListener("pointerdown", handleBlankTapStart);
-    document.querySelector(".app-shell").addEventListener("pointermove", handleBlankTapMove);
-    document.querySelector(".app-shell").addEventListener("pointerup", finishBlankTap);
-    document.querySelector(".app-shell").addEventListener("pointercancel", cancelBlankTapCandidate);
 
     elements.addDialog.addEventListener("click", closeOnBackdrop);
     elements.detailDialog.addEventListener("click", closeOnBackdrop);
+    elements.moduleDialog.addEventListener("click", closeOnBackdrop);
+    elements.settingsDialog.addEventListener("click", closeOnBackdrop);
     elements.addDialog.addEventListener("close", () => {
       elements.addError.textContent = "";
       elements.addForm.reset();
@@ -828,67 +640,12 @@
       closeColorPicker();
       elements.detailError.textContent = "";
     });
-  }
-
-  function handleBlankTapStart(event) {
-    if (
-      VIEW !== "queue" ||
-      event.button !== 0 ||
-      event.target.closest(".queue-card") ||
-      !storageReady
-    ) {
-      cancelBlankTapSequence();
-      return;
-    }
-    blankTapCandidate = {
-      pointerId: event.pointerId,
-      x: event.clientX,
-      y: event.clientY,
-    };
-  }
-
-  function handleBlankTapMove(event) {
-    if (!blankTapCandidate || blankTapCandidate.pointerId !== event.pointerId) return;
-    if (Math.hypot(event.clientX - blankTapCandidate.x, event.clientY - blankTapCandidate.y) > 10) {
-      cancelBlankTapCandidate();
-    }
-  }
-
-  function cancelBlankTapCandidate() {
-    blankTapCandidate = null;
-  }
-
-  function cancelBlankTapSequence() {
-    cancelBlankTapCandidate();
-    previousBlankTap = null;
-    window.clearTimeout(blankTapTimer);
-    blankTapTimer = null;
-  }
-
-  function finishBlankTap(event) {
-    if (!blankTapCandidate || blankTapCandidate.pointerId !== event.pointerId) return;
-    const tap = { x: event.clientX, y: event.clientY, time: performance.now() };
-    blankTapCandidate = null;
-    const isDoubleTap =
-      previousBlankTap &&
-      tap.time - previousBlankTap.time <= BLANK_DOUBLE_TAP_DELAY &&
-      Math.hypot(tap.x - previousBlankTap.x, tap.y - previousBlankTap.y) <=
-        BLANK_DOUBLE_TAP_DISTANCE;
-
-    if (!isDoubleTap) {
-      previousBlankTap = tap;
-      window.clearTimeout(blankTapTimer);
-      blankTapTimer = window.setTimeout(() => {
-        previousBlankTap = null;
-        blankTapTimer = null;
-      }, BLANK_DOUBLE_TAP_DELAY);
-      return;
-    }
-
-    cancelBlankTapSequence();
-    event.preventDefault();
-    event.stopPropagation();
-    window.requestAnimationFrame(openAddDialog);
+    elements.moduleDialog.addEventListener("close", () => {
+      moduleSearchSubjectId = null;
+      elements.moduleSearch.value = "";
+      elements.moduleResults.replaceChildren();
+      elements.moduleError.textContent = "";
+    });
   }
 
   function closeOnBackdrop(event) {
@@ -937,10 +694,12 @@
     const subject = {
       id: createId(),
       name,
-      classDay: null,
-      examDate: null,
       createdAt: new Date().toISOString(),
       color: nextColor(),
+      active: true,
+      baseWeight: 1,
+      evaluations: [],
+      module: null,
     };
     const priorHead = state.ring[0] || null;
     const extendLeftGroup =
@@ -949,7 +708,7 @@
     state.dockRows = normalizeDockRows(state.dockRows, state.subjects);
     if (extendLeftGroup) state.dockSplitIndex += 1;
     state.ring.push(subject.id);
-    state.weightSignature = Scheduler.weightSignature(state.subjects);
+    state.weightSignature = Scheduler.weightSignature(state.subjects, state.settings);
 
     if (!ringMatchesWeights(state.ring, state.subjects)) {
       state.ring = Scheduler.buildRing(state.subjects, new Date(), {
@@ -990,11 +749,118 @@
   function handleCardClick(event) {
     const card = event.target.closest(".queue-card[data-subject-id]");
     if (!card || suppressClick || isAnimating) return;
+    const subject = subjectById(card.dataset.subjectId);
+    if (!subject) return;
     if (VIEW === "queue" && window.InScreenApriori?.openModule) {
-      window.InScreenApriori.openModule(card.dataset.subjectId);
-    } else {
-      openDetails(card.dataset.subjectId);
+      window.InScreenApriori.openModule(subject.id);
+      return;
     }
+    if (subject.module) openAssignedModule(subject);
+    else openModuleSearch(subject.id);
+  }
+
+  async function openModuleSearch(subjectId) {
+    if (elements.moduleDialog.open || elements.detailDialog.open) return;
+    moduleSearchSubjectId = subjectId;
+    elements.moduleError.textContent = "";
+    elements.moduleResults.replaceChildren();
+    elements.moduleDialog.showModal();
+    requestAnimationFrame(() => elements.moduleSearch.focus());
+    try {
+      await loadModuleCatalog();
+      renderModuleResults();
+    } catch (error) {
+      elements.moduleError.textContent = error.message || "No se pudo cargar el catálogo de módulos.";
+    }
+  }
+
+  async function loadModuleCatalog() {
+    if (moduleCatalog) return moduleCatalog;
+    const response = await fetch(MODULE_CATALOG_URL);
+    if (!response.ok) throw new Error("No se pudo cargar el catálogo de módulos.");
+    const payload = await response.json();
+    if (!Array.isArray(payload?.modules)) throw new Error("El catálogo de módulos no es válido.");
+    moduleCatalog = payload.modules.map(normalizeModule).filter(Boolean);
+    return moduleCatalog;
+  }
+
+  function renderModuleResults() {
+    elements.moduleResults.replaceChildren();
+    const query = normalizeName(elements.moduleSearch.value).toLocaleLowerCase("es");
+    if (!query || !moduleCatalog) return;
+    const matches = moduleCatalog.filter((module) => module.nombre.toLocaleLowerCase("es").includes(query));
+    for (const module of matches) {
+      const row = document.createElement("div");
+      row.className = "module-result";
+      const name = document.createElement("span");
+      name.textContent = module.nombre;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = "Usar";
+      button.dataset.moduleId = module.id;
+      row.append(name, button);
+      elements.moduleResults.append(row);
+    }
+  }
+
+  async function useModule(event) {
+    const button = event.target.closest("button[data-module-id]");
+    if (!button || !moduleSearchSubjectId) return;
+    const subject = subjectById(moduleSearchSubjectId);
+    const module = moduleCatalog?.find((item) => item.id === button.dataset.moduleId);
+    if (!subject || !module) return;
+    const row = button.closest(".module-result");
+    button.disabled = true;
+    button.textContent = "...";
+    row?.classList.add("is-downloading");
+    row?.style.setProperty("--download-color", subject.color);
+    elements.moduleError.textContent = "";
+    try {
+      const entry = module.entry.replace(/^\/+/, "");
+      const response = await fetch(new URL(entry, MODULE_RAW_BASE_URL));
+      if (!response.ok) throw new Error("No se pudo descargar el módulo.");
+      const html = await response.text();
+      await folderStorage.saveModule(module.id, html);
+      subject.module = module;
+      await folderStorage.save(state);
+      openModuleHtml(html);
+    } catch (error) {
+      if (subject.module?.id === module.id) subject.module = null;
+      row?.classList.remove("is-downloading");
+      elements.moduleError.textContent = error.message || "No se pudo descargar el módulo.";
+      button.textContent = "Usar";
+      button.disabled = false;
+    }
+  }
+
+  async function openAssignedModule(subject) {
+    try {
+      const html = await folderStorage.readModule(subject.module.id);
+      openModuleHtml(html);
+    } catch {
+      openModuleSearch(subject.id);
+      elements.moduleError.textContent = "No se encontró la copia descargada. Volvé a elegir el módulo.";
+    }
+  }
+
+  function openModuleHtml(html) {
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    window.location.assign(url);
+  }
+
+  function renderAssignedModule(subject) {
+    const module = subject.module;
+    elements.assignedModule.hidden = !module;
+    elements.assignedModuleName.textContent = module?.nombre || "";
+  }
+
+  function removeAssignedModule() {
+    const subject = subjectById(elements.detailId.value);
+    if (!subject?.module) return;
+    subject.module = null;
+    saveState();
+    renderAssignedModule(subject);
   }
 
   function openDetails(id) {
@@ -1002,11 +868,10 @@
     if (!subject || elements.detailDialog.open) return;
     elements.detailId.value = subject.id;
     elements.detailName.value = subject.name;
-    elements.detailClassDay.value = subject.classDay === null ? "" : String(subject.classDay);
-    elements.detailExamDate.value = subject.examDate || "";
+    renderAssignedModule(subject);
+    renderWeightCycle(subject);
+    renderEvaluations(subject);
     elements.detailColor.value = subject.color;
-    elements.moduleAssignment.hidden = !subject.moduleId;
-    elements.detailModuleName.textContent = subject.moduleName || subject.moduleId || "";
     updateColorButton(subject.color);
     renderDetailMetrics(subject);
     elements.detailError.textContent = "";
@@ -1032,6 +897,104 @@
     elements.detailNextTurn.textContent = Number.isInteger(distance)
       ? `${distance} ${distance === 1 ? "turno" : "turnos"}`
       : "—";
+  }
+
+  function renderScheduleMetrics(subject) {
+    const schedule = currentSchedule();
+    const allocation = schedule.allocations.find((item) => item.id === subject.id);
+    const labels = { regular: "Regular", alert: "Alerta", critical: "Crítico" };
+    elements.detailMode.textContent = `Modo: ${labels[schedule.mode]}`;
+    elements.detailWeight.textContent = allocation
+      ? `Peso: ${allocation.baseWeight} → ${allocation.finalWeight.toFixed(2)}`
+      : "Materia inactiva";
+    elements.detailReason.textContent = allocation?.reason || "No participa de la planificación";
+  }
+
+  function renderWeightCycle(subject) {
+    elements.weightCycleButton.textContent = `× ${subject.baseWeight}`;
+  }
+
+  function cycleSubjectWeight() {
+    const subject = subjectById(elements.detailId.value);
+    if (!subject) return;
+    subject.baseWeight = subject.baseWeight >= 3 ? 1 : subject.baseWeight + 1;
+    renderWeightCycle(subject);
+    rebuildRing();
+    render();
+  }
+
+  function renderEvaluations(subject) {
+    elements.evaluationList.replaceChildren();
+    for (const evaluation of subject.evaluations) {
+      const row = document.createElement("div");
+      row.className = "evaluation-row";
+      row.dataset.evaluationId = evaluation.id;
+      row.innerHTML = '<input class="evaluation-name" type="text" maxlength="60" aria-label="Nombre"><input class="evaluation-date" type="date" required aria-label="Fecha"><button class="remove-evaluation" type="button" aria-label="Eliminar">×</button>';
+      row.querySelector(".evaluation-name").value = evaluation.name;
+      row.querySelector(".evaluation-date").value = evaluation.date;
+      elements.evaluationList.append(row);
+    }
+  }
+
+  function addEvaluation() {
+    const subject = subjectById(elements.detailId.value);
+    if (!subject) return;
+    const date = new Date();
+    date.setDate(date.getDate() + 14);
+    const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    subject.evaluations.push({ id: createId(), name: "", date: value });
+    rebuildRing();
+    renderEvaluations(subject);
+    elements.evaluationList.lastElementChild?.querySelector(".evaluation-name")?.focus();
+  }
+
+  function handleEvaluationAction(event) {
+    const row = event.target.closest(".evaluation-row");
+    if (!row || !event.target.closest(".remove-evaluation")) return;
+    const subject = subjectById(elements.detailId.value);
+    if (!subject) return;
+    subject.evaluations = subject.evaluations.filter((item) => item.id !== row.dataset.evaluationId);
+    rebuildRing();
+    renderEvaluations(subject);
+    render();
+  }
+
+  function saveEvaluations() {
+    const subject = subjectById(elements.detailId.value);
+    if (!subject) return;
+    const evaluations = [...elements.evaluationList.querySelectorAll(".evaluation-row")].map((row) => ({
+      id: row.dataset.evaluationId,
+      name: normalizeName(row.querySelector(".evaluation-name").value).slice(0, 60),
+      date: row.querySelector(".evaluation-date").value,
+    }));
+    if (evaluations.some((item) => !Scheduler.parseLocalDate(item.date))) {
+      elements.detailError.textContent = "Cada evaluación necesita una fecha válida.";
+      return;
+    }
+    subject.evaluations = evaluations;
+    rebuildRing();
+    render();
+  }
+
+  function openSettings() {
+    elements.cycleSize.value = String(state.settings.cycleSize);
+    elements.urgencyK.value = String(state.settings.urgencyK);
+    elements.settingsError.textContent = "";
+    elements.settingsDialog.showModal();
+  }
+
+  function saveSettings(event) {
+    event.preventDefault();
+    const cycleSize = Number(elements.cycleSize.value);
+    const urgencyK = Number(elements.urgencyK.value);
+    if (!Number.isInteger(cycleSize) || cycleSize < 1 || cycleSize > 100 || !Number.isFinite(urgencyK) || urgencyK < 0 || urgencyK > 100) {
+      elements.settingsError.textContent = "Usá 1–100 turnos y una agresividad entre 0 y 100.";
+      return;
+    }
+    state.settings = { cycleSize, urgencyK };
+    rebuildRing();
+    elements.settingsDialog.close();
+    render();
   }
 
   function toggleColorPicker() {
@@ -1247,13 +1210,9 @@
       return false;
     }
 
-    const nextClassDay = elements.detailClassDay.value === "" ? null : Number(elements.detailClassDay.value);
-    const nextExamDate = elements.detailExamDate.value || null;
     const nextColor = normalizeColor(elements.detailColor.value, 0);
-    const scheduleChanged = subject.classDay !== nextClassDay || subject.examDate !== nextExamDate;
+    const scheduleChanged = false;
     subject.name = name;
-    subject.classDay = nextClassDay;
-    subject.examDate = nextExamDate;
     subject.color = nextColor;
     elements.detailError.textContent = "";
     if (scheduleChanged) rebuildRing();
@@ -1277,30 +1236,6 @@
     rebuildRing();
     elements.detailDialog.close();
     render();
-  }
-
-  function clearSelectedModule() {
-    const subject = subjectById(elements.detailId.value);
-    if (!subject || !subject.moduleId) return;
-    if (!window.confirm(`¿Quitar el módulo “${subject.moduleName || subject.moduleId}”?`)) return;
-    subject.moduleId = null;
-    subject.moduleName = null;
-    subject.moduleEntry = null;
-    saveState();
-    elements.moduleAssignment.hidden = true;
-  }
-
-  function openDatePicker() {
-    try {
-      if (typeof elements.detailExamDate.showPicker === "function") {
-        elements.detailExamDate.showPicker();
-      } else {
-        elements.detailExamDate.focus();
-        elements.detailExamDate.click();
-      }
-    } catch {
-      elements.detailExamDate.focus();
-    }
   }
 
   function handlePointerDown(event) {
@@ -1521,6 +1456,11 @@
       elements.colorButton.focus();
       return;
     }
+    if (event.key === "|" && !elements.addDialog.open && !elements.detailDialog.open && !elements.settingsDialog.open) {
+      event.preventDefault();
+      openSettings();
+      return;
+    }
     if (event.key !== "+" || event.ctrlKey || event.metaKey || event.altKey) return;
     const target = event.target;
     const isTyping =
@@ -1553,5 +1493,18 @@
       scheduleDayRefresh();
     }, nextDay.getTime() - now.getTime());
   }
+
+  window.InScreenApplyState = function applyAndroidState(raw) {
+    if (!window.InScreenApriori) return;
+    try {
+      state = normalizeState(JSON.parse(raw));
+      storageReady = true;
+      document.body.classList.remove("storage-blocked");
+      ensureFreshRing();
+      render();
+    } catch {
+      // Android conserva el último estado válido si una actualización es incompleta.
+    }
+  };
 
 })();

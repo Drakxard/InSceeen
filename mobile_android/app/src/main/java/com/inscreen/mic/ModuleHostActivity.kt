@@ -31,9 +31,10 @@ class ModuleHostActivity : Activity() {
             return
         }
         subjectName = subject.optString("name")
-        val entry = subject.optString("moduleEntry")
+        val assignedModule = subject.optJSONObject("module")
+        val entry = assignedModule?.optString("entry").orEmpty()
         if (entry.isBlank()) showPicker() else showModule(ModuleCatalog.Module(
-            subject.optString("moduleId"), subject.optString("moduleName"), entry,
+            assignedModule?.optString("id").orEmpty(), assignedModule?.optString("nombre").orEmpty(), entry,
         ))
     }
 
@@ -48,7 +49,8 @@ class ModuleHostActivity : Activity() {
         val status = TextView(this).apply { text = notice ?: "Cargando módulos…"; setPadding(0, 18, 0, 8) }
         val results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         page.addView(title); page.addView(search); page.addView(status)
-        val assigned = AprioriStore.subject(AprioriStore.load(this), subjectId)?.optString("moduleId").orEmpty()
+        val assigned = AprioriStore.subject(AprioriStore.load(this), subjectId)
+            ?.optJSONObject("module")?.optString("id").orEmpty()
         if (assigned.isNotBlank()) {
             page.addView(Button(this).apply {
                 text = "Quitar módulo"

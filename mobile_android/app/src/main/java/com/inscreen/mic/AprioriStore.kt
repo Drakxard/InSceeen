@@ -9,21 +9,16 @@ object AprioriStore {
 
     private const val PREFS = "apriori_private"
     private const val KEY_STATE = "state"
-    private const val KEY_MODULE_DEFAULTS_MIGRATED = "module_defaults_migrated_v1"
-    const val EMPTY_STATE = """{"version":1,"subjects":[],"ring":[],"weightSignature":"","dockSplitIndex":0,"dockRows":[]}"""
+    const val EMPTY_STATE = """{"version":3,"subjects":[],"ring":[],"weightSignature":"","dockSplitIndex":0,"dockRows":[],"settings":{"cycleSize":20,"urgencyK":14}}"""
 
     @Synchronized
     fun load(context: Context): String {
         val preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val raw = preferences.getString(KEY_STATE, EMPTY_STATE) ?: EMPTY_STATE
-        if (preferences.getBoolean(KEY_MODULE_DEFAULTS_MIGRATED, false)) return raw
-
-        val migrated = runCatching { clearModuleAssignments(raw) }.getOrNull() ?: return raw
-        preferences.edit()
-            .putString(KEY_STATE, migrated)
-            .putBoolean(KEY_MODULE_DEFAULTS_MIGRATED, true)
-            .commit()
-        return migrated
+        val normalized = runCatching { validateAndNormalize(raw) }.getOrNull()
+        if (normalized != null) return normalized
+        preferences.edit().putString(KEY_STATE, EMPTY_STATE).commit()
+        return EMPTY_STATE
     }
 
     @Synchronized
@@ -36,7 +31,7 @@ object AprioriStore {
 
     internal fun validateAndNormalize(raw: String): String {
         val parsed = JSONObject(raw)
-        require(parsed.optInt("version") == 1)
+        require(parsed.optInt("version") == 3)
         val subjects = parsed.optJSONArray("subjects") ?: error("Faltan las materias")
         val ring = parsed.optJSONArray("ring") ?: error("Falta la cola")
         val subjectIds = linkedSetOf<String>()
@@ -45,11 +40,21 @@ object AprioriStore {
             val id = subject.optString("id").trim()
             require(id.isNotEmpty() && subject.optString("name").trim().isNotEmpty())
             require(subjectIds.add(id))
+            require(subject.optInt("baseWeight", 1) in 1..100)
+            val evaluations = subject.optJSONArray("evaluations") ?: JSONArray()
+            for (evaluationIndex in 0 until evaluations.length()) {
+                val evaluation = evaluations.optJSONObject(evaluationIndex) ?: error("Evaluación inválida")
+                require(evaluation.optString("id").isNotBlank())
+                require(Regex("\\d{4}-\\d{2}-\\d{2}").matches(evaluation.optString("date")))
+            }
         }
         for (index in 0 until ring.length()) {
             require(subjectIds.contains(ring.optString(index)))
         }
         parsed.optJSONArray("dockRows")?.let { rows -> validateDockRows(rows, subjectIds) }
+        val settings = parsed.optJSONObject("settings") ?: error("Faltan los ajustes")
+        require(settings.optInt("cycleSize") in 1..100)
+        require(settings.optDouble("urgencyK", Double.NaN).let { !it.isNaN() && it in 0.0..100.0 })
         return parsed.toString()
     }
 
@@ -61,6 +66,7 @@ object AprioriStore {
                 remove("moduleId")
                 remove("moduleName")
                 remove("moduleEntry")
+                remove("module")
             }
         }
         return state.toString()
@@ -116,10 +122,13 @@ object AprioriStore {
             subject.remove("moduleId")
             subject.remove("moduleName")
             subject.remove("moduleEntry")
+            subject.remove("module")
         } else {
-            subject.put("moduleId", module.id)
-            subject.put("moduleName", module.name)
-            subject.put("moduleEntry", module.entry)
+            subject.put("module", JSONObject().apply {
+                put("id", module.id)
+                put("nombre", module.name)
+                put("entry", module.entry)
+            })
         }
         AprioriUpdates.publish(context, save(context, state.toString()))
     }

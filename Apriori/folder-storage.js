@@ -8,6 +8,7 @@
   const FILE_NAME = "apriori.json";
   const FILE_FORMAT = "apriori.study-queue";
   const FILE_VERSION = 1;
+  const MODULE_DIRECTORY_NAME = "modulos";
   const MIRROR_KEY = "study-ticket-queue:v1";
   const SYNC_KEY = "study-ticket-folder-sync:v1";
   const HANDLE_KEY = "data-directory";
@@ -64,28 +65,32 @@
     const browser = options.browser || root;
     const android = browser?.InScreenApriori;
     if (android && typeof android.loadState === "function" && typeof android.saveState === "function") {
-      const clone = (value) => (value == null ? value : JSON.parse(JSON.stringify(value)));
+      const load = (fallbackState) => {
+        try {
+          const parsed = JSON.parse(android.loadState());
+          return parsed && typeof parsed === "object" ? parsed : cloneAndroid(fallbackState);
+        } catch {
+          return cloneAndroid(fallbackState);
+        }
+      };
+      const cloneAndroid = (value) => value == null ? value : JSON.parse(JSON.stringify(value));
       return {
+        get directoryName() { return "Android"; },
         async initialize(fallbackState) {
-          try {
-            const raw = android.loadState();
-            return {
-              status: "ready",
-              state: raw ? JSON.parse(raw) : clone(fallbackState),
-              source: "android",
-            };
-          } catch {
-            return { status: "ready", state: clone(fallbackState), source: "android" };
-          }
+          return { status: "ready", directoryName: "Android", state: load(fallbackState) };
         },
         async selectDirectory(fallbackState) { return this.initialize(fallbackState); },
         async authorize(fallbackState) { return this.initialize(fallbackState); },
-        save(state) {
+        async save(state) {
           android.saveState(JSON.stringify(state));
-          return Promise.resolve();
+          return cloneAndroid(state);
         },
-        get directoryName() { return null; },
-        get isReady() { return true; },
+        async saveModule() {
+          throw new Error("Los módulos se administran desde Android.");
+        },
+        async readModule() {
+          throw new Error("Los módulos se administran desde Android.");
+        },
       };
     }
     const localStorage = options.localStorage || browser?.localStorage;
@@ -193,7 +198,7 @@
         parsed.version !== FILE_VERSION ||
         !parsed.state ||
         typeof parsed.state !== "object" ||
-        parsed.state.version !== 1 ||
+        ![1, 2, 3].includes(parsed.state.version) ||
         !Array.isArray(parsed.state.subjects) ||
         !Array.isArray(parsed.state.ring)
       ) {
@@ -379,11 +384,72 @@
       return operation;
     }
 
+    function moduleFileName(moduleId) {
+      const id = String(moduleId || "");
+      if (!/^[a-z0-9][a-z0-9-]{0,99}$/i.test(id)) {
+        throw new TypeError("El identificador del módulo no es válido");
+      }
+      return `apriori-module-${id}.html`;
+    }
+
+    async function modulesDirectory(create = true) {
+      return directoryHandle.getDirectoryHandle(MODULE_DIRECTORY_NAME, { create });
+    }
+
+    function saveModule(moduleId, html) {
+      if (!ready || !directoryHandle) {
+        return Promise.reject(new DOMException("La carpeta no está disponible", "NotAllowedError"));
+      }
+      if (typeof html !== "string" || !html.trim()) {
+        return Promise.reject(new TypeError("El módulo descargado está vacío"));
+      }
+      const operation = writeChain
+        .catch(() => undefined)
+        .then(async () => {
+          const moduleDirectory = await modulesDirectory();
+          const fileHandle = await moduleDirectory.getFileHandle(moduleFileName(moduleId), { create: true });
+          const writable = await fileHandle.createWritable();
+          try {
+            await writable.write(html);
+            await writable.close();
+          } catch (error) {
+            try { await writable.abort(); } catch {}
+            throw error;
+          }
+        })
+        .catch((error) => {
+          ready = false;
+          throw error;
+        });
+      writeChain = operation;
+      return operation;
+    }
+
+    async function readModule(moduleId) {
+      if (!ready || !directoryHandle) {
+        throw new DOMException("La carpeta no está disponible", "NotAllowedError");
+      }
+      const fileName = moduleFileName(moduleId);
+      try {
+        const moduleDirectory = await modulesDirectory(false);
+        const fileHandle = await moduleDirectory.getFileHandle(fileName);
+        return (await fileHandle.getFile()).text();
+      } catch (error) {
+        // Permite abrir las copias creadas por versiones anteriores, que estaban
+        // en la carpeta elegida directamente.
+        if (error?.name !== "NotFoundError") throw error;
+        const legacyFileHandle = await directoryHandle.getFileHandle(fileName);
+        return (await legacyFileHandle.getFile()).text();
+      }
+    }
+
     return {
       initialize,
       selectDirectory,
       authorize,
       save,
+      saveModule,
+      readModule,
       get directoryName() {
         return directoryHandle?.name || null;
       },
@@ -398,6 +464,7 @@
     FILE_FORMAT,
     FILE_NAME,
     FILE_VERSION,
+    MODULE_DIRECTORY_NAME,
     HANDLE_KEY,
     MIRROR_KEY,
     STORE_NAME,
