@@ -5,7 +5,10 @@
   const folderStorage = window.AprioriFolderStorage.createFolderStorage();
   const STORAGE_KEY = "study-ticket-queue:v1";
   const STATE_VERSION = 3;
+<<<<<<< HEAD
   const VIEW = new URLSearchParams(window.location.search).get("view") || "desktop";
+=======
+>>>>>>> 624f2939b9e1f38c1572ba21494f16ae705083be
   const MODULE_CATALOG_URL = "https://raw.githubusercontent.com/Drakxard/InSceeen/main/modules/index.json";
   const MODULE_RAW_BASE_URL = "https://raw.githubusercontent.com/Drakxard/InSceeen/main/";
   const DRAG_THRESHOLD = 64;
@@ -91,9 +94,12 @@
   let dayRefreshTimer = null;
   let moduleCatalog = null;
   let moduleSearchSubjectId = null;
+<<<<<<< HEAD
   let dockPointerDrag = null;
 
   document.body.classList.add(`view-${VIEW}`);
+=======
+>>>>>>> 624f2939b9e1f38c1572ba21494f16ae705083be
 
   bindEvents();
   bootstrapStorage();
@@ -105,7 +111,10 @@
       ring: [],
       weightSignature: "",
       dockSplitIndex: 0,
+<<<<<<< HEAD
       dockRows: [],
+=======
+>>>>>>> 624f2939b9e1f38c1572ba21494f16ae705083be
       settings: { ...Scheduler.DEFAULT_SETTINGS },
     };
   }
@@ -121,7 +130,7 @@
   }
 
   function normalizeState(saved) {
-    if (!saved || saved.version !== STATE_VERSION || !Array.isArray(saved.subjects)) {
+    if (!saved || ![1, 2, STATE_VERSION].includes(saved.version) || !Array.isArray(saved.subjects)) {
       return emptyState();
     }
 
@@ -147,7 +156,10 @@
         dockSplitIndex: Number.isInteger(saved.dockSplitIndex)
           ? Math.max(0, Math.min(saved.dockSplitIndex, subjects.length))
           : Math.min(5, subjects.length),
+<<<<<<< HEAD
         dockRows: normalizeDockRows(saved.dockRows, subjects),
+=======
+>>>>>>> 624f2939b9e1f38c1572ba21494f16ae705083be
         settings: Scheduler.normalizeSettings(saved.settings),
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizedState));
@@ -407,6 +419,7 @@
   function renderSubjectDock() {
     elements.subjectDockList.replaceChildren();
     if (state.subjects.length === 0) document.body.classList.remove("dock-visible");
+<<<<<<< HEAD
     if (VIEW === "dock") {
       state.dockRows = normalizeDockRows(state.dockRows, state.subjects);
       for (const ids of state.dockRows) {
@@ -419,6 +432,21 @@
         elements.subjectDockList.append(row);
       }
       return;
+=======
+    for (const [index, subject] of state.subjects.entries()) {
+      const card = document.createElement("button");
+      card.type = "button";
+      card.className = "subject-dock-card";
+      if (!subject.active) card.classList.add("is-inactive");
+      if (index === state.dockSplitIndex) card.classList.add("starts-right-group");
+      card.draggable = true;
+      card.dataset.subjectId = subject.id;
+      card.dataset.dockSide = index < state.dockSplitIndex ? "left" : "right";
+      card.style.setProperty("--card-color", subject.color);
+      card.textContent = Scheduler.acronym(subject.name);
+      card.setAttribute("aria-label", `Ver detalles de ${subject.name}`);
+      elements.subjectDockList.append(card);
+>>>>>>> 624f2939b9e1f38c1572ba21494f16ae705083be
     }
     for (const [index, subject] of state.subjects.entries()) {
       elements.subjectDockList.append(createDockCard(subject, index));
@@ -751,10 +779,13 @@
     if (!card || suppressClick || isAnimating) return;
     const subject = subjectById(card.dataset.subjectId);
     if (!subject) return;
+<<<<<<< HEAD
     if (VIEW === "queue" && window.InScreenApriori?.openModule) {
       window.InScreenApriori.openModule(subject.id);
       return;
     }
+=======
+>>>>>>> 624f2939b9e1f38c1572ba21494f16ae705083be
     if (subject.module) openAssignedModule(subject);
     else openModuleSearch(subject.id);
   }
