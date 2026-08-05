@@ -34,8 +34,36 @@ internal object ModuleCatalog {
     }
 
     fun loadHtml(module: Module, callback: (Result<String>) -> Unit) {
+        val treeRequest = Request.Builder()
+            .url("https://api.github.com/repos/Drakxard/InSceeen/git/trees/main?recursive=1")
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "InScreenMic")
+            .build()
+        client.newCall(treeRequest).enqueue(object : okhttp3.Callback {
+            override fun onFailure(call: okhttp3.Call, error: IOException) = callback(Result.failure(error))
+            override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                response.use { result ->
+                    val blobUrl = runCatching {
+                        if (!result.isSuccessful) error("GitHub respondió ${result.code} al buscar el módulo")
+                        val tree = JSONObject(result.body?.string().orEmpty()).getJSONArray("tree")
+                        val sha = (0 until tree.length())
+                            .asSequence()
+                            .mapNotNull(tree::optJSONObject)
+                            .firstOrNull { it.optString("path") == module.entry && it.optString("type") == "blob" }
+                            ?.optString("sha")
+                            .orEmpty()
+                        require(sha.matches(Regex("[0-9a-f]{40}"))) { "El módulo no existe en GitHub" }
+                        "https://api.github.com/repos/Drakxard/InSceeen/git/blobs/$sha"
+                    }.getOrElse { callback(Result.failure(it)); return }
+                    loadBlob(blobUrl, callback)
+                }
+            }
+        })
+    }
+
+    private fun loadBlob(url: String, callback: (Result<String>) -> Unit) {
         val request = Request.Builder()
-            .url("${CONTENTS_BASE}${module.entry}?ref=main")
+            .url(url)
             .header("Accept", "application/vnd.github+json")
             .header("User-Agent", "InScreenMic")
             .build()

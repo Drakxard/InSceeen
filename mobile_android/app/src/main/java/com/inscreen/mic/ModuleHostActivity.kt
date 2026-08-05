@@ -13,7 +13,6 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.EditText
 import android.widget.LinearLayout
-import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import org.json.JSONObject
@@ -78,8 +77,11 @@ class ModuleHostActivity : Activity() {
 
     @SuppressLint("SetJavaScriptEnabled", "AddJavascriptInterface")
     private fun showModule(module: ModuleCatalog.Module) {
-        val loading = ProgressBar(this).apply { isIndeterminate = true }
-        setContentView(loading)
+        setContentView(TextView(this).apply {
+            text = "Abriendo módulo…"
+            textSize = 17f
+            gravity = Gravity.CENTER
+        })
         ModuleCatalog.loadHtml(module) { loaded -> runOnUiThread {
             loaded.fold(
                 onSuccess = { html -> showModuleHtml(module, html) },
