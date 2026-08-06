@@ -4,6 +4,10 @@
       "id": "ingles-vocabulario",
       "nombre": "Vocabulario de Inglés",
       "entry": "modules/ingles-vocabulario/index.html"
+    },{
+      "id": "test",
+      "nombre": "Testeo",
+      "entry": "modules/test/index.html"
     }
   ]
 }
