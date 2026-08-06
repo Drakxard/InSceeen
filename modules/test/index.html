@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Test Interactivo - WebView Nativo</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --card-border: rgba(226, 232, 240, 0.8);
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --pink: #ec4899;
+      --purple: #8b5cf6;
+      --blue: #3b82f6;
+      --cyan: #06b6d4;
+      --accent: #a78bfa;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', system-ui, sans-serif; user-select: none; }
+    body { min-height: 100vh; background-color: var(--bg); color: var(--text-main); display: flex; justify-content: center; align-items: center; padding: 1.5rem; position: relative; overflow: hidden; }
+
+    /* Fondo Pastel */
+    .bg-blob { position: absolute; border-radius: 50%; filter: blur(90px); z-index: 0; opacity: 0.6; pointer-events: none; }
+    .blob-1 { width: 400px; height: 400px; top: -10%; left: -5%; background: linear-gradient(135deg, #fbcfe8, #f472b6); }
+    .blob-2 { width: 350px; height: 350px; bottom: -5%; right: -5%; background: linear-gradient(135deg, #bae6fd, #38bdf8); }
+    .blob-3 { width: 300px; height: 300px; top: 40%; right: 15%; background: linear-gradient(135deg, #ddd6fe, #a78bfa); }
+
+    /* PANEL DE CONFIGURACIÓN */
+    .settings-container { position: absolute; top: 20px; right: 20px; z-index: 50; }
+    .gear-btn { background: rgba(255, 255, 255, 0.85); border: none; border-radius: 50%; width: 44px; height: 44px; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 15px rgba(0,0,0,0.05); backdrop-filter: blur(10px); transition: transform 0.3s ease; }
+    .gear-btn:hover { transform: rotate(45deg); }
+    .gear-icon { width: 22px; height: 22px; fill: var(--text-main); }
+    .settings-panel { position: absolute; top: 55px; right: 0; width: 280px; background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(12px); border-radius: 16px; padding: 18px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); display: none; flex-direction: column; gap: 14px; border: 1px solid rgba(255,255,255,0.6); }
+    .settings-panel.active { display: flex; }
+    .field-group { display: flex; flex-direction: column; gap: 6px; }
+    .field-group label { font-size: 0.82rem; font-weight: 600; color: #64748b; }
+    .input-compact { width: 100%; padding: 8px 12px; border-radius: 8px; border: 1px solid #cbd5e1; outline: none; font-size: 0.9rem; background: rgba(255, 255, 255, 0.9); }
+    .input-compact:focus { border-color: var(--accent); }
+    .switch-container { display: flex; align-items: center; justify-content: space-between; margin: 4px 0; }
+    .switch-label { font-size: 0.85rem; font-weight: 600; color: var(--text-main); }
+    .switch { position: relative; display: inline-block; width: 46px; height: 24px; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; transition: .3s; border-radius: 24px; }
+    .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; }
+    input:checked + .slider { background-color: var(--accent); }
+    input:checked + .slider:before { transform: translateX(22px); }
+    .btn-confirm { background: var(--accent); color: white; border: none; padding: 10px; border-radius: 8px; font-weight: 600; cursor: pointer; transition: opacity 0.2s; }
+    .btn-confirm:hover:not(:disabled) { opacity: 0.9; }
+    .btn-confirm:disabled { background: #cbd5e1; cursor: not-allowed; }
+
+    /* ESTRUCTURA PRINCIPAL DEL TEST */
+    .wrapper { position: relative; z-index: 1; width: 100%; max-width: 460px; display: flex; flex-direction: column; align-items: center; }
+    .container { width: 100%; background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 28px; padding: 2.5rem 2.25rem; box-shadow: 0 20px 40px -15px rgba(15,23,42,0.08); text-align: center; }
+    h1 { font-size: 2.5rem; font-weight: 800; margin-bottom: 2rem; }
+    .subtitle { font-size: 1.25rem; font-weight: 700; margin-bottom: 1.5rem; line-height: 1.4; }
+    .screen { display: none; width: 100%; }
+    .screen.active { display: flex; flex-direction: column; align-items: center; }
+
+    /* MENU MAIN */
+    .options-grid { display: flex; flex-direction: column; gap: 1.25rem; width: 100%; }
+    .option-card { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 1.25rem 1.5rem; background: #ffffff; border: 2px solid #f1f5f9; border-radius: 20px; color: var(--text-main); font-size: 1.125rem; font-weight: 700; cursor: pointer; transition: all 0.3s ease; }
+    .option-choi { --card-gradient: linear-gradient(135deg, #ec4899, #8b5cf6); --hover-bg: #fdf2f8; }
+    .option-preguntas { --card-gradient: linear-gradient(135deg, #3b82f6, #06b6d4); --hover-bg: #f0f9ff; }
+    .option-card:hover { background: var(--hover-bg); border-color: transparent; transform: translateY(-3px); box-shadow: 0 12px 25px -8px rgba(0,0,0,0.12); }
+    .option-content { display: flex; align-items: center; gap: 1rem; }
+    .color-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--card-gradient); }
+    .icon-wrapper { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 12px; background: #f8fafc; transition: all 0.3s ease; }
+    .option-card:hover .icon-wrapper { background: var(--card-gradient); transform: translateX(4px); }
+    .icon { width: 20px; height: 20px; stroke: var(--text-muted); transition: stroke 0.3s ease; }
+    .option-card:hover .icon { stroke: #ffffff; }
+
+    /* CHOI MULTIPLE CHOICE */
+    .quiz-options { display: flex; flex-direction: column; gap: 0.75rem; text-align: left; width: 100%; }
+    .radio-option { display: flex; align-items: center; gap: 12px; padding: 1rem; border: 2px solid #f1f5f9; border-radius: 16px; cursor: pointer; background: #ffffff; font-weight: 600; font-size: 0.95rem; transition: all 0.2s ease; }
+    .radio-option:hover { border-color: var(--blue); background: #f0f9ff; }
+    .radio-option input[type="radio"] { display: none; }
+    .radio-custom { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--text-muted); display: flex; justify-content: center; align-items: center; flex-shrink: 0; }
+    .radio-custom::after { content: ''; width: 8px; height: 8px; border-radius: 50%; background-color: #ffffff; opacity: 0; transform: scale(0); transition: all 0.2s; }
+    .radio-option input[type="radio"]:checked + .radio-custom { border-color: var(--blue); background-color: var(--blue); }
+    .radio-option input[type="radio"]:checked + .radio-custom::after { opacity: 1; transform: scale(1); }
+
+    /* FLASHCARD 3D */
+    .scene { width: 100%; height: 280px; perspective: 1000px; }
+    .card-3d { width: 100%; height: 100%; position: relative; transform-style: preserve-3d; transition: transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1); cursor: pointer; }
+    .card-3d.is-flipped { transform: rotateY(180deg); }
+    .card-face { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; border-radius: 20px; border: 2px solid #f1f5f9; background: #ffffff; padding: 1.5rem; display: flex; justify-content: center; align-items: center; box-shadow: 0 4px 12px rgba(0,0,0,0.03); overflow-y: auto; }
+    .card-front { transform: rotateY(0deg); }
+    .card-back { transform: rotateY(180deg); background: #f0f9ff; border-color: #bae6fd; }
+    .card-text { font-size: 1.1rem; font-weight: 700; color: var(--text-main); text-align: center; }
+
+    /* BOTÓN VOLVER */
+    .btn-back-container { position: fixed; bottom: 2rem; left: 50%; transform: translateX(-50%); z-index: 20; display: none; }
+    .btn-back { background: rgba(255,255,255,0.9); border: 1px solid var(--card-border); padding: 0.75rem 1.5rem; border-radius: 99px; color: var(--text-muted); font-weight: 700; font-size: 0.9rem; cursor: pointer; box-shadow: 0 10px 25px -5px rgba(15,23,42,0.1); backdrop-filter: blur(8px); transition: all 0.2s ease; }
+    .btn-back:hover { color: var(--text-main); transform: translateY(-2px); box-shadow: 0 12px 30px -5px rgba(15,23,42,0.15); }
+    
+    .status-msg { margin-top: 15px; font-size: 0.85rem; font-weight: 600; display: none; text-align: center; }
+    .status-success { color: #10b981; }
+    .status-error { color: #ef4444; }
+  </style>
+</head>
+<body>
+
+  <!-- Elementos de fondo -->
+  <div class="bg-blob blob-1"></div>
+  <div class="bg-blob blob-2"></div>
+  <div class="bg-blob blob-3"></div>
+
+  <!-- Engranaje y panel de configuración -->
+  <div class="settings-container">
+    <button class="gear-btn" id="gearBtn" title="Configuración">
+      <svg class="gear-icon" viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+    </button>
+
+    <div class="settings-panel" id="settingsPanel">
+      <div class="field-group">
+        <label for="dayInput">Día a solicitar</label>
+        <input type="number" id="dayInput" class="input-compact" min="1" step="1" value="6">
+      </div>
+      <div class="field-group">
+        <label for="promptInput">Instrucción Extra</label>
+        <input type="text" id="promptInput" class="input-compact" placeholder="Ej: Hazlo fácil y corto...">
+      </div>
+      <div class="switch-container">
+        <span class="switch-label" id="modeLabel">Página (paginasLeidas)</span>
+        <label class="switch">
+          <input type="checkbox" id="modeSwitch">
+          <span class="slider"></span>
+        </label>
+      </div>
+      <button class="btn-confirm" id="confirmBtn">Generar con Groq (APK)</button>
+      <div id="statusMsg" class="status-msg"></div>
+    </div>
+  </div>
+
+  <div class="wrapper">
+    <!-- PANTALLA PRINCIPAL -->
+    <div id="screen-main" class="screen active">
+      <div class="container">
+        <h1>Test</h1>
+        <div class="options-grid">
+          <button class="option-card option-choi" onclick="showScreen('screen-choi')">
+            <div class="option-content">
+              <span class="color-dot"></span><span>Choi</span>
+            </div>
+            <div class="icon-wrapper">
+              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
+          </button>
+          <button class="option-card option-preguntas" onclick="showScreen('screen-preguntas')">
+            <div class="option-content">
+              <span class="color-dot"></span><span>Preguntas</span>
+            </div>
+            <div class="icon-wrapper">
+              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- PANTALLA CHOI -->
+    <div id="screen-choi" class="screen">
+      <div class="container">
+        <h2 class="subtitle" id="choi-enunciado">Usa el panel para generar la trivia.</h2>
+        <form class="quiz-options">
+          <label class="radio-option">
+            <input type="radio" name="pregunta" value="0">
+            <span class="radio-custom"></span><span id="choi-op-0">Opción A</span>
+          </label>
+          <label class="radio-option">
+            <input type="radio" name="pregunta" value="1">
+            <span class="radio-custom"></span><span id="choi-op-1">Opción B</span>
+          </label>
+          <label class="radio-option">
+            <input type="radio" name="pregunta" value="2">
+            <span class="radio-custom"></span><span id="choi-op-2">Opción C</span>
+          </label>
+          <label class="radio-option">
+            <input type="radio" name="pregunta" value="3">
+            <span class="radio-custom"></span><span id="choi-op-3">Ninguna de las anteriores</span>
+          </label>
+        </form>
+      </div>
+    </div>
+
+    <!-- PANTALLA PREGUNTAS (FLASHCARD) -->
+    <div id="screen-preguntas" class="screen">
+      <div class="scene">
+        <div id="flashcard" class="card-3d" onclick="this.classList.toggle('is-flipped')">
+          <div class="card-face card-front">
+            <p class="card-text" id="flashcard-pregunta">Abre la configuración para generar.</p>
+          </div>
+          <div class="card-face card-back">
+            <p class="card-text" id="flashcard-respuesta">Aquí se mostrará la respuesta.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Botón Volver -->
+  <div id="back-button-wrapper" class="btn-back-container">
+    <button class="btn-back" onclick="showScreen('screen-main')">← Volver al Menú</button>
+  </div>
+
+  <script>
+    // ==========================================
+    // 1. NAVEGACIÓN Y UI
+    // ==========================================
+    function showScreen(screenId) {
+      document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+      document.getElementById(screenId).classList.add('active');
+      document.getElementById('back-button-wrapper').style.display = (screenId === 'screen-main') ? 'none' : 'block';
+      if (screenId === 'screen-preguntas') document.getElementById('flashcard').classList.remove('is-flipped');
+    }
+
+    const gearBtn = document.getElementById('gearBtn');
+    const settingsPanel = document.getElementById('settingsPanel');
+    const modeSwitch = document.getElementById('modeSwitch');
+    const modeLabel = document.getElementById('modeLabel');
+    const confirmBtn = document.getElementById('confirmBtn');
+    const statusMsg = document.getElementById('statusMsg');
+
+    gearBtn.addEventListener('click', () => settingsPanel.classList.toggle('active'));
+    modeSwitch.addEventListener('change', () => { 
+      modeLabel.textContent = modeSwitch.checked ? 'Traducción (traduccion)' : 'Página (paginasLeidas)'; 
+    });
+
+    function mostrarEstado(mensaje, esError = false) {
+      statusMsg.textContent = mensaje;
+      statusMsg.className = `status-msg ${esError ? 'status-error' : 'status-success'}`;
+      statusMsg.style.display = "block";
+    }
+
+    // Funciones utilitarias para limpiar bloques de Markdown devueltos por LLMs (ej. ```json ... ```)
+    function cleanJsonOutput(llmOutput) {
+      return llmOutput.replace(/```json/gi, '').replace(/```/g, '').trim();
+    }
+
+    // ==========================================
+    // 2. FLUJO PRINCIPAL: RECUPERAR DATOS Y CONSULTAR LLM
+    // ==========================================
+    confirmBtn.addEventListener('click', async () => {
+      
+      // Acceso estricto y nativo a la API de la APK
+      const api = window.InScreen.module;
+      
+      const dia = parseInt(document.getElementById('dayInput').value) || 1;
+      const esTraduccion = modeSwitch.checked;
+      let promptExtra = document.getElementById('promptInput').value.trim();
+      
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = "1. Obteniendo R2...";
+      statusMsg.style.display = "none";
+
+      try {
+        // A. OBTENER EL MATERIAL DESDE LA APK (Vercel -> R2)
+        const resArchivos = esTraduccion 
+          ? await api.traduccion(dia) 
+          : await api.paginasLeidas(dia);
+
+        if (!resArchivos || !resArchivos.ok) {
+          throw new Error("No se obtuvieron archivos de la APK.");
+        }
+
+        let materialDeEstudio = "";
+        for (const arch of resArchivos.archivos) {
+          materialDeEstudio += arch.contenido + "\n";
+        }
+
+        if (!materialDeEstudio.trim()) throw new Error("El archivo devuelto está vacío.");
+
+        // Seguridad de límites: Groq/APK (200.000 max en material)
+        if (materialDeEstudio.length > 200000) {
+          materialDeEstudio = materialDeEstudio.substring(0, 200000);
+        }
+        if (promptExtra.length > 10000) {
+          promptExtra = promptExtra.substring(0, 10000);
+        }
+
+        // B. PREPARAR PROMPTS CON ESTRUCTURA JSON ESTRICTA
+        const basePrompt = promptExtra ? `Instrucción adicional del usuario: ${promptExtra}\n\n` : "";
+        
+        const promptFlashcard = `${basePrompt}Basándote en el contenido, elabora UNA pregunta clave y su respuesta. DEVUELVE ÚNICAMENTE UN OBJETO JSON con esta estructura exacta y sin ningún otro texto: {"pregunta": "aquí tu pregunta", "respuesta": "aquí tu respuesta"}`;
+        
+        const promptChoi = `${basePrompt}Basándote en el contenido, elabora un enunciado (pregunta) y 4 opciones. OBLIGATORIO: La cuarta opción DEBE ser literalmente 'Ninguna de las anteriores'. DEVUELVE ÚNICAMENTE UN OBJETO JSON con esta estructura exacta (donde 'correcta' es el índice numérico 0, 1, 2 o 3): {"enunciado": "aquí la pregunta", "opciones": ["Opcion A", "Opcion B", "Opcion C", "Ninguna de las anteriores"], "correcta": 1}`;
+
+        // C. CONSULTA AL MÓDULO (Llamada asíncrona dual a Groq a través de la APK)
+        confirmBtn.textContent = "2. Consultando IA (Groq)...";
+        
+        const [resFlashcard, resChoi] = await Promise.all([
+          api.consulta(promptFlashcard, materialDeEstudio),
+          api.consulta(promptChoi, materialDeEstudio)
+        ]);
+
+        if (!resFlashcard.ok) throw new Error("Fallo en IA (Flashcard): " + (resFlashcard.error || "groq_not_configured"));
+        if (!resChoi.ok) throw new Error("Fallo en IA (Choi): " + (resChoi.error || "groq_not_configured"));
+
+        // D. PARSEO E INYECCIÓN DE DATOS
+        const dataFlashcard = JSON.parse(cleanJsonOutput(resFlashcard.contenido));
+        const dataChoi = JSON.parse(cleanJsonOutput(resChoi.contenido));
+
+        // Inyectar en UI
+        document.getElementById('flashcard-pregunta').textContent = dataFlashcard.pregunta;
+        document.getElementById('flashcard-respuesta').textContent = dataFlashcard.respuesta;
+
+        document.getElementById('choi-enunciado').textContent = dataChoi.enunciado;
+        dataChoi.opciones.forEach((opcionTexto, index) => {
+          document.getElementById(`choi-op-${index}`).textContent = opcionTexto;
+        });
+
+        // Limpiar selecciones anteriores y guardar respuesta correcta en el contenedor
+        document.querySelectorAll('input[name="pregunta"]').forEach(r => r.checked = false);
+        document.getElementById('screen-choi').dataset.correcta = dataChoi.correcta;
+
+        mostrarEstado("¡Material procesado e inyectado con éxito!");
+        setTimeout(() => settingsPanel.classList.remove('active'), 1200);
+
+      } catch (error) {
+        console.error("[InScreen WebModule] Error:", error);
+        mostrarEstado(error.message, true);
+      } finally {
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = "Generar con Groq (APK)";
+      }
+    });
+  </script>
+</body>
+</html>
