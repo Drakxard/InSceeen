@@ -118,9 +118,20 @@ object AprioriStore {
         }
     }
 
-    internal fun assignModule(context: Context, subjectId: String, module: ModuleCatalog.Module?) {
-        val state = JSONObject(load(context))
-        val subject = subject(state.toString(), subjectId) ?: return
+    internal fun assignModule(context: Context, subjectId: String, module: ModuleCatalog.Module?): Boolean {
+        val updated = assignModule(load(context), subjectId, module) ?: return false
+        AprioriUpdates.publish(context, save(context, updated))
+        return true
+    }
+
+    internal fun assignModule(raw: String, subjectId: String, module: ModuleCatalog.Module?): String? {
+        val state = JSONObject(raw)
+        val subjects = state.optJSONArray("subjects") ?: return null
+        val subject = (0 until subjects.length())
+            .asSequence()
+            .mapNotNull(subjects::optJSONObject)
+            .firstOrNull { it.optString("id") == subjectId }
+            ?: return null
         if (module == null) {
             subject.remove("moduleId")
             subject.remove("moduleName")
@@ -133,7 +144,7 @@ object AprioriStore {
                 put("entry", module.entry)
             })
         }
-        AprioriUpdates.publish(context, save(context, state.toString()))
+        return validateAndNormalize(state.toString())
     }
 
     fun queueHead(raw: String): QueueHead? {

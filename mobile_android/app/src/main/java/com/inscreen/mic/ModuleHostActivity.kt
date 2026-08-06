@@ -25,13 +25,14 @@ class ModuleHostActivity : Activity() {
     private var moduleWebView: WebView? = null
     private val providerCache by lazy { ProviderCache.from(this) }
     private val groqCredentialStore by lazy { GroqCredentialStore(this) }
+    private val moduleCache by lazy { ModuleCache.from(this) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         subjectId = intent.getStringExtra(EXTRA_SUBJECT_ID).orEmpty()
         val subject = AprioriStore.subject(AprioriStore.load(this), subjectId)
         if (subject == null) {
-            finish()
+            showMissingSubject()
             return
         }
         subjectName = subject.optString("name")
@@ -53,6 +54,26 @@ class ModuleHostActivity : Activity() {
         ))
     }
 
+    private fun showMissingSubject() {
+        setContentView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(32, 32, 32, 32)
+            addView(TextView(this@ModuleHostActivity).apply {
+                text = "La materia ya no existe."
+                textSize = 19f
+                gravity = Gravity.CENTER
+            })
+            addView(Button(this@ModuleHostActivity).apply {
+                text = "VOLVER A INSCREEN"
+                setOnClickListener {
+                    startActivity(Intent(this@ModuleHostActivity, MainActivity::class.java))
+                    finish()
+                }
+            })
+        })
+    }
+
     private fun showPicker(notice: String? = null) {
         val page = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -71,6 +92,7 @@ class ModuleHostActivity : Activity() {
                 text = "Quitar módulo"
                 setOnClickListener {
                     AprioriStore.assignModule(this@ModuleHostActivity, subjectId, null)
+                    moduleCache.remove(subjectId)
                     text = "Módulo quitado"
                     isEnabled = false
                 }
@@ -109,6 +131,12 @@ class ModuleHostActivity : Activity() {
 
     @SuppressLint("SetJavaScriptEnabled", "AddJavascriptInterface")
     private fun showModule(module: ModuleCatalog.Module, persistAssignment: Boolean = false) {
+        if (!persistAssignment) {
+            moduleCache.read(subjectId, module)?.let { cached ->
+                showModuleHtml(module, cached)
+                return
+            }
+        }
         setContentView(TextView(this).apply {
             text = "Abriendo módulo…"
             textSize = 17f
@@ -117,16 +145,41 @@ class ModuleHostActivity : Activity() {
         ModuleCatalog.loadHtml(module) { loaded -> runOnUiThread {
             loaded.fold(
                 onSuccess = { html ->
-                    if (persistAssignment) {
-                        AprioriStore.assignModule(this@ModuleHostActivity, subjectId, module)
-                    }
-                    showModuleHtml(module, html)
+                    runCatching {
+                        moduleCache.write(subjectId, module, html)
+                        if (persistAssignment) {
+                            check(AprioriStore.assignModule(this@ModuleHostActivity, subjectId, module))
+                        }
+                    }.fold(
+                        onSuccess = { showModuleHtml(module, html) },
+                        onFailure = { showModuleLoadError(module, persistAssignment) },
+                    )
                 },
-                onFailure = { error ->
-                    showPicker("No se pudo cargar el módulo desde GitHub. Elegí otro módulo.")
-                },
+                onFailure = { showModuleLoadError(module, persistAssignment) },
             )
         }}
+    }
+
+    private fun showModuleLoadError(module: ModuleCatalog.Module, persistAssignment: Boolean) {
+        setContentView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(32, 32, 32, 32)
+            addView(TextView(this@ModuleHostActivity).apply {
+                text = "No se pudo descargar y guardar el módulo. La asignación anterior no fue modificada."
+                textSize = 17f
+                gravity = Gravity.CENTER
+                setPadding(0, 0, 0, 18)
+            })
+            addView(Button(this@ModuleHostActivity).apply {
+                text = "REINTENTAR"
+                setOnClickListener { showModule(module, persistAssignment) }
+            })
+            addView(Button(this@ModuleHostActivity).apply {
+                text = "ELEGIR OTRO MÓDULO"
+                setOnClickListener { showPicker() }
+            })
+        })
     }
 
     @SuppressLint("SetJavaScriptEnabled", "AddJavascriptInterface")
@@ -229,6 +282,7 @@ class ModuleHostActivity : Activity() {
     }
 
     override fun onDestroy() {
+        moduleWebView?.destroy()
         moduleWebView = null
         super.onDestroy()
     }
@@ -293,19 +347,18 @@ class ModuleHostActivity : Activity() {
     }
 
     companion object {
-        private const val EXTRA_SUBJECT_ID = "subject_id"
+        internal const val EXTRA_SUBJECT_ID = "subject_id"
         private const val EXTRA_SELECTED_MODULE = "selected_module"
-        fun open(context: Context, subjectId: String) = context.startActivity(
+        internal fun intent(context: Context, subjectId: String): Intent =
             Intent(context, ModuleHostActivity::class.java)
                 .putExtra(EXTRA_SUBJECT_ID, subjectId)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-        )
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+        fun open(context: Context, subjectId: String) = context.startActivity(intent(context, subjectId))
 
         internal fun openSelected(context: Context, subjectId: String, module: ModuleCatalog.Module) = context.startActivity(
-            Intent(context, ModuleHostActivity::class.java)
-                .putExtra(EXTRA_SUBJECT_ID, subjectId)
+            intent(context, subjectId)
                 .putExtra(EXTRA_SELECTED_MODULE, ModuleSelection.serialize(module))
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
         )
     }
 }

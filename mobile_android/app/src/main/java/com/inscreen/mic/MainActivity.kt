@@ -141,6 +141,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (webViews.isNotEmpty()) {
+            val quoted = JSONObject.quote(AprioriStore.load(this))
+            webViews.forEach { it.evaluateJavascript("window.InScreenApplyState($quoted)", null) }
+        }
         resumePendingUpdateInstall()
         if (::mediaControlButton.isInitialized) {
             updateMediaControlButton()
@@ -275,14 +279,30 @@ class MainActivity : ComponentActivity() {
 
         @JavascriptInterface fun saveState(raw: String) {
             try {
+                val previous = JSONObject(AprioriStore.load(this@MainActivity))
                 val saved = AprioriStore.save(this@MainActivity, raw)
                 runOnUiThread { AprioriUpdates.publish(this@MainActivity, saved) }
-                val subjects = JSONObject(saved).optJSONArray("subjects")
+                val current = JSONObject(saved)
+                val subjects = current.optJSONArray("subjects")
                 val subjectIds = (0 until (subjects?.length() ?: 0))
                     .mapNotNull { subjects?.optJSONObject(it)?.optString("id")?.takeIf(String::isNotBlank) }
                     .toSet()
-                thread(name = "provider-cache-cleanup") {
+                val currentModules = (0 until (subjects?.length() ?: 0)).associate { index ->
+                    val subject = subjects?.optJSONObject(index)
+                    subject?.optString("id").orEmpty() to subject?.optJSONObject("module")?.optString("id").orEmpty()
+                }
+                val previousSubjects = previous.optJSONArray("subjects")
+                val removedModuleSubjects = (0 until (previousSubjects?.length() ?: 0)).mapNotNull { index ->
+                    val subject = previousSubjects?.optJSONObject(index) ?: return@mapNotNull null
+                    val id = subject.optString("id")
+                    val oldModule = subject.optJSONObject("module")?.optString("id").orEmpty()
+                    id.takeIf { oldModule.isNotBlank() && currentModules[id] != oldModule }
+                }
+                thread(name = "apriori-cache-cleanup") {
                     ProviderCache.from(this@MainActivity).reconcileSubjects(subjectIds)
+                    val moduleCache = ModuleCache.from(this@MainActivity)
+                    removedModuleSubjects.forEach(moduleCache::remove)
+                    moduleCache.reconcile(subjectIds)
                 }
             } catch (_: Exception) { }
         }

@@ -208,6 +208,11 @@ modelo se configuran tocando `>_ INSCREEN MIC` en la tercera pestaña. La clave 
 con Android Keystore, nunca se entrega al HTML y sólo se envía por HTTPS a Groq. Los
 cambios del diálogo se aplican únicamente al pulsar `GUARDAR`; `CANCELAR` los descarta.
 
+En Android, el HTML del módulo elegido se guarda en el almacenamiento privado de la
+materia antes de confirmar su asignación. Las aperturas posteriores —desde la cola o el
+widget— usan esa copia incluso sin conexión. La copia sólo se elimina al quitar el módulo
+con `×` desde el detalle de la materia o al eliminar la materia.
+
 La URL y el Bearer token se leen de `mobile_android/.provider/provider.properties`, que no
 se versiona. Copia `mobile_android/provider.properties.example` y completa ambos valores
 antes de compilar. El token queda incorporado al APK y no debe considerarse un secreto

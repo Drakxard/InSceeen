@@ -104,6 +104,22 @@ class AprioriStoreTest {
     }
 
     @Test
+    fun assignsAndRemovesModuleOnThePersistedStateObject() {
+        val raw = """{
+            "version":3,"settings":{"cycleSize":20,"urgencyK":14},
+            "subjects":[{"id":"a","name":"Álgebra"}],
+            "ring":["a"]
+        }""".trimIndent()
+        val module = ModuleCatalog.Module("algebra-vf", "V o F", "modules/algebra-vf/index.html")
+
+        val assigned = AprioriStore.assignModule(raw, "a", module)
+        assertEquals("algebra-vf", AprioriStore.subject(assigned!!, "a")?.optJSONObject("module")?.optString("id"))
+
+        val removed = AprioriStore.assignModule(assigned, "a", null)
+        assertEquals(null, AprioriStore.subject(removed!!, "a")?.optJSONObject("module"))
+    }
+
+    @Test
     fun clearsAllLegacyModuleAssignments() {
         val raw = """{
             "version":3,"settings":{"cycleSize":20,"urgencyK":14},
