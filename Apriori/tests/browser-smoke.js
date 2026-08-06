@@ -277,7 +277,9 @@ async function main() {
       shadow: style.boxShadow,
       fontSize: getComputedStyle(cards[0].querySelector('.card-label')).fontSize,
       gap: getComputedStyle(document.querySelector('#queue')).gap,
-      badges: document.querySelectorAll('.ticket-badge').length
+      badges: document.querySelectorAll('.ticket-badge').length,
+      providerSegments: JSON.parse(localStorage.getItem('study-ticket-queue:v1')).subjects
+        .map(subject => subject.providerSubjectSegment)
     };
   })()`);
   if (
@@ -290,7 +292,9 @@ async function main() {
     visual.shadow !== "none" ||
     visual.fontSize !== "40px" ||
     visual.gap !== "6px" ||
-    visual.badges !== 0
+    visual.badges !== 0 ||
+    !visual.providerSegments.includes("algebra2") ||
+    !visual.providerSegments.includes("logicabinaria")
   ) {
     throw new Error(`La composición no coincide: ${JSON.stringify(visual)}`);
   }
@@ -757,14 +761,35 @@ async function main() {
 
   await evaluate("location.assign('/index.html?view=dock'); true");
   await delay(350);
-  const dockView = await evaluate(`(() => ({
-    active: document.body.classList.contains('view-dock'),
-    queueHidden: getComputedStyle(document.querySelector('.app-shell')).display === 'none',
-    rows: document.querySelectorAll('.subject-dock-layout-row').length,
-    maxPerRow: Math.max(0, ...Array.from(document.querySelectorAll('.subject-dock-layout-row')).map(row => row.children.length)),
-    detailOpens: (() => { document.querySelector('.subject-dock-card')?.click(); return document.querySelector('#detailDialog').open; })()
-  }))()`);
-  if (!dockView.active || !dockView.queueHidden || dockView.rows < 1 || dockView.maxPerRow > 4 || !dockView.detailOpens) {
+  const dockView = await evaluate(`(async () => {
+    const rows = [...document.querySelectorAll('.subject-dock-layout-row')];
+    const movedCard = document.querySelector('.subject-dock-card');
+    const movedId = movedCard.dataset.subjectId;
+    const destination = rows[5];
+    const bounds = destination.getBoundingClientRect();
+    movedCard.dispatchEvent(new DragEvent('dragstart', { bubbles: true }));
+    destination.dispatchEvent(new DragEvent('drop', {
+      bubbles: true,
+      cancelable: true,
+      clientX: bounds.left + bounds.width / 2,
+      clientY: bounds.top + bounds.height / 2
+    }));
+    movedCard.dispatchEvent(new DragEvent('dragend', { bubbles: true }));
+    const persistedRows = JSON.parse(localStorage.getItem('study-ticket-queue:v1')).dockRows;
+    await new Promise(resolve => setTimeout(resolve, 0));
+    document.querySelector('.subject-dock-card')?.click();
+    return {
+      active: document.body.classList.contains('view-dock'),
+      queueHidden: getComputedStyle(document.querySelector('.app-shell')).display === 'none',
+      rows: rows.length,
+      maxPerRow: Math.max(0, ...rows.map(row => row.querySelectorAll('.subject-dock-card').length)),
+      movedToEmptyRow: persistedRows[5].includes(movedId),
+      persistedRowCount: persistedRows.length,
+      detailOpens: document.querySelector('#detailDialog').open
+    };
+  })()`);
+  if (!dockView.active || !dockView.queueHidden || dockView.rows !== 10 || dockView.maxPerRow > 4 ||
+      !dockView.movedToEmptyRow || dockView.persistedRowCount !== 10 || !dockView.detailOpens) {
     throw new Error(`La pestaña Materias no quedó aislada: ${JSON.stringify(dockView)}`);
   }
 
@@ -779,7 +804,22 @@ async function main() {
     throw new Error(`La pestaña Cola no quedó aislada: ${JSON.stringify(queueView)}`);
   }
 
-  const queueDoubleTap = await evaluate(`(() => {
+  const queueModulePicker = await evaluate(`(() => {
+    const mirror = JSON.parse(localStorage.getItem('study-ticket-queue:v1'));
+    const firstId = document.querySelector('.queue-card').dataset.subjectId;
+    const subject = mirror.subjects.find(item => item.id === firstId);
+    subject.module = null;
+    window.InScreenApplyState?.(JSON.stringify(mirror));
+    document.querySelector('.queue-card').click();
+    const opened = document.querySelector('#moduleDialog').open;
+    document.querySelector('#moduleDialog').close();
+    return { opened };
+  })()`);
+  if (!queueModulePicker.opened) {
+    throw new Error(`La materia sin módulo no abrió el buscador Apriori: ${JSON.stringify(queueModulePicker)}`);
+  }
+
+  const queueDoubleTap = await evaluate(`(async () => {
     const background = document.querySelector('.queue-section');
     const tap = () => background.dispatchEvent(new PointerEvent('pointerup', {
       bubbles: true,
@@ -791,8 +831,14 @@ async function main() {
     tap();
     const singleTapOpened = document.querySelector('#addDialog').open;
     tap();
-    const doubleTapOpened = document.querySelector('#addDialog').open;
-    document.querySelector('#addDialog').close();
+    const openedBeforeTrailingEvents = document.querySelector('#addDialog').open;
+    background.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const dialog = document.querySelector('#addDialog');
+    const doubleTapOpened = dialog.open;
+    dialog.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    const stayedOpenAfterTrailingClick = dialog.open;
+    dialog.close();
     document.querySelector('.queue-card').dispatchEvent(new PointerEvent('pointerup', {
       bubbles: true,
       pointerType: 'touch',
@@ -802,11 +848,14 @@ async function main() {
     }));
     return {
       singleTapOpened,
+      openedBeforeTrailingEvents,
       doubleTapOpened,
+      stayedOpenAfterTrailingClick,
       cardTapOpened: document.querySelector('#addDialog').open
     };
   })()`);
-  if (queueDoubleTap.singleTapOpened || !queueDoubleTap.doubleTapOpened || queueDoubleTap.cardTapOpened) {
+  if (queueDoubleTap.singleTapOpened || queueDoubleTap.openedBeforeTrailingEvents ||
+      !queueDoubleTap.doubleTapOpened || !queueDoubleTap.stayedOpenAfterTrailingClick || queueDoubleTap.cardTapOpened) {
     throw new Error(`El doble toque de fondo no se aisló correctamente: ${JSON.stringify(queueDoubleTap)}`);
   }
 
@@ -828,6 +877,7 @@ async function main() {
         folderReopenedWithoutPrompt: true,
         dockView,
         queueView,
+        queueModulePicker,
         queueDoubleTap,
         screenshotPath,
       },

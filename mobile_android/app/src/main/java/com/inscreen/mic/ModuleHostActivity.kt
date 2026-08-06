@@ -21,6 +21,10 @@ import org.json.JSONObject
 class ModuleHostActivity : Activity() {
     private lateinit var subjectId: String
     private var subjectName = ""
+    private var providerSubjectSegment = ""
+    private var moduleWebView: WebView? = null
+    private val providerCache by lazy { ProviderCache.from(this) }
+    private val groqCredentialStore by lazy { GroqCredentialStore(this) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -31,6 +35,17 @@ class ModuleHostActivity : Activity() {
             return
         }
         subjectName = subject.optString("name")
+        providerSubjectSegment = subject.optString(
+            "providerSubjectSegment",
+            ProviderSubject.segment(subjectName),
+        )
+        intent.getStringExtra(EXTRA_SELECTED_MODULE)?.let { raw ->
+            val selected = runCatching { ModuleSelection.parse(raw) }.getOrNull()
+            if (selected != null) {
+                showModule(selected, persistAssignment = true)
+                return
+            }
+        }
         val assignedModule = subject.optJSONObject("module")
         val entry = assignedModule?.optString("entry").orEmpty()
         if (entry.isBlank()) showPicker() else showModule(ModuleCatalog.Module(
@@ -120,9 +135,64 @@ class ModuleHostActivity : Activity() {
           <script>(function(){
             const native=window.InScreenModuleNative;
             const unavailable=(day)=>Promise.resolve(JSON.parse(native.providerNotConfigured(day)));
+            const pending=new Map();
+            let sequence=0;
+            const request=(kind,day)=>{
+              const normalizedDay=Number(day);
+              if(!Number.isInteger(normalizedDay)||normalizedDay<0||normalizedDay>6){
+                return Promise.resolve({ok:false,archivos:[],error:"invalid_day"});
+              }
+              return new Promise((resolve)=>{
+              const id=String(++sequence);
+              pending.set(id,resolve);
+              native.request(id,kind,normalizedDay);
+              });
+            };
+            const cached=(operation,type,stage,number)=>{
+              const normalizedStage=Number(stage);
+              if(typeof type!=="boolean")return Promise.resolve({ok:false,archivos:[],error:"invalid_type"});
+              if(!Number.isInteger(normalizedStage)||normalizedStage<=0){
+                return Promise.resolve({ok:false,archivos:[],error:"invalid_stage"});
+              }
+              if(operation==="archivo"&&(!Number.isInteger(Number(number))||Number(number)<=0)){
+                return Promise.resolve({ok:false,archivos:[],error:"invalid_file_number"});
+              }
+              return new Promise((resolve)=>{
+                const id=String(++sequence);
+                pending.set(id,resolve);
+                if(operation==="archivos")native.cachedFiles(id,type,normalizedStage);
+                else native.cachedFile(id,type,normalizedStage,Number(number));
+              });
+            };
+            const query=(question,content)=>{
+              if(typeof question!=="string"||typeof content!=="string"){
+                return Promise.resolve({ok:false,contenido:"",error:"invalid_arguments"});
+              }
+              if(!question.trim())return Promise.resolve({ok:false,contenido:"",error:"empty_question"});
+              if(question.length>12000||content.length>200000){
+                return Promise.resolve({ok:false,contenido:"",error:"content_too_large"});
+              }
+              return new Promise((resolve)=>{
+                const id=String(++sequence);
+                pending.set(id,resolve);
+                native.groqQuery(id,question,content);
+              });
+            };
+            window.__InScreenProviderResolve=(id,payload)=>{
+              const resolve=pending.get(String(id));
+              if(!resolve)return;
+              pending.delete(String(id));
+              try{resolve(JSON.parse(payload));}
+              catch(_){resolve({ok:false,archivos:[],error:"invalid_response"});}
+            };
             window.InScreen={module:{
               context:()=>JSON.parse(native.context()),
-              respyPreg:unavailable,paginasLeidas:unavailable,traduccion:unavailable
+              respyPreg:unavailable,
+              paginasLeidas:(day)=>request("paginasLeidas",day),
+              traduccion:(day)=>request("traduccion",day),
+              archivos:(type,stage)=>cached("archivos",type,stage),
+              archivo:(type,stage,number)=>cached("archivo",type,stage,number),
+              consulta:(question,content)=>query(question,content)
             }};
             delete window.InScreenModuleNative;
           })();</script>
@@ -130,31 +200,128 @@ class ModuleHostActivity : Activity() {
         val head = Regex("(?i)<head[^>]*>").find(html)
         val bootstrapped = if (head == null) bootstrap + html else
             html.substring(0, head.range.last + 1) + bootstrap + html.substring(head.range.last + 1)
-        val view = WebView(this).apply {
+        val view = WebView(this)
+        moduleWebView = view
+        view.apply {
             setBackgroundColor(Color.WHITE)
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.allowFileAccess = false
             settings.allowContentAccess = false
             webViewClient = WebViewClient()
-            addJavascriptInterface(ModuleBridge(subjectId, subjectName), "InScreenModuleNative")
+            addJavascriptInterface(
+                ModuleBridge(subjectId, subjectName, providerSubjectSegment, providerCache, groqCredentialStore) { requestId, payload ->
+                    runOnUiThread {
+                        if (isFinishing || moduleWebView !== view) return@runOnUiThread
+                        val quotedId = JSONObject.quote(requestId)
+                        val quotedPayload = JSONObject.quote(payload)
+                        view.evaluateJavascript(
+                            "window.__InScreenProviderResolve($quotedId,$quotedPayload)",
+                            null,
+                        )
+                    }
+                },
+                "InScreenModuleNative",
+            )
             loadDataWithBaseURL(module.url(), bootstrapped, "text/html", "utf-8", null)
         }
         setContentView(view)
     }
 
-    private class ModuleBridge(private val id: String, private val name: String) {
-        @JavascriptInterface fun context(): String = JSONObject().put("id", id).put("nombre", name).toString()
+    override fun onDestroy() {
+        moduleWebView = null
+        super.onDestroy()
+    }
+
+    private class ModuleBridge(
+        private val id: String,
+        private val name: String,
+        private val subjectSegment: String,
+        private val cache: ProviderCache,
+        private val groqCredentials: GroqCredentialStore,
+        private val deliver: (String, String) -> Unit,
+    ) {
+        @JavascriptInterface fun context(): String = JSONObject()
+            .put("id", id)
+            .put("nombre", name)
+            .put("providerSubjectSegment", subjectSegment)
+            .toString()
         @JavascriptInterface fun providerNotConfigured(day: Int): String = JSONObject()
-            .put("ok", false).put("error", "provider_not_configured").put("day", day).toString()
+            .put("ok", false).put("archivos", org.json.JSONArray())
+            .put("error", "provider_not_configured").put("day", day).toString()
+
+        @JavascriptInterface fun request(requestId: String, kind: String, day: Int) {
+            if (requestId.length !in 1..64) return
+            ProviderClient.shared.request(kind, subjectSegment, day) { payload ->
+                val merged = if (JSONObject(payload).optBoolean("ok", false)) {
+                    cache.merge(id, kind == "traduccion", payload)
+                } else payload
+                deliver(requestId, merged)
+            }
+        }
+
+        @JavascriptInterface fun cachedFiles(requestId: String, type: Boolean, stage: Int) {
+            if (requestId.length !in 1..64) return
+            deliver(requestId, cache.list(id, type, stage))
+        }
+
+        @JavascriptInterface fun cachedFile(requestId: String, type: Boolean, stage: Int, number: Int) {
+            if (requestId.length !in 1..64) return
+            deliver(requestId, cache.read(id, type, stage, number))
+        }
+
+        @JavascriptInterface fun groqQuery(requestId: String, question: String, content: String) {
+            if (requestId.length !in 1..64) return
+            val normalizedQuestion = question.trim()
+            when {
+                normalizedQuestion.isEmpty() -> deliver(requestId, GroqClient.failureJson("empty_question"))
+                question.length > 12_000 || content.length > 200_000 ->
+                    deliver(requestId, GroqClient.failureJson("content_too_large"))
+                else -> {
+                    val apiKey = groqCredentials.apiKey()
+                    val model = groqCredentials.model()
+                    if (apiKey == null || model == null) {
+                        deliver(requestId, GroqClient.failureJson("groq_not_configured"))
+                    } else {
+                        GroqClient.shared.query(apiKey, model, normalizedQuestion, content) { payload ->
+                            deliver(requestId, payload)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     companion object {
         private const val EXTRA_SUBJECT_ID = "subject_id"
+        private const val EXTRA_SELECTED_MODULE = "selected_module"
         fun open(context: Context, subjectId: String) = context.startActivity(
             Intent(context, ModuleHostActivity::class.java)
                 .putExtra(EXTRA_SUBJECT_ID, subjectId)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
         )
+
+        internal fun openSelected(context: Context, subjectId: String, module: ModuleCatalog.Module) = context.startActivity(
+            Intent(context, ModuleHostActivity::class.java)
+                .putExtra(EXTRA_SUBJECT_ID, subjectId)
+                .putExtra(EXTRA_SELECTED_MODULE, ModuleSelection.serialize(module))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
     }
+}
+
+internal object ModuleSelection {
+    fun parse(raw: String): ModuleCatalog.Module {
+        val value = JSONObject(raw)
+        val id = value.optString("id").trim()
+        val name = value.optString("nombre").trim()
+        val entry = value.optString("entry").trim()
+        require(id.matches(Regex("[a-z0-9][a-z0-9-]{0,79}")))
+        require(name.isNotEmpty())
+        require(entry.matches(Regex("modules/[a-z0-9][a-z0-9-]{0,79}/index\\.html")))
+        return ModuleCatalog.Module(id, name, entry)
+    }
+
+    fun serialize(module: ModuleCatalog.Module): String = JSONObject()
+        .put("id", module.id).put("nombre", module.name).put("entry", module.entry).toString()
 }

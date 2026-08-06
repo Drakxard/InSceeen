@@ -15,6 +15,8 @@
   const DOCK_ACTIVATION_HEIGHT = 90;
   const DOUBLE_TAP_DELAY = 350;
   const DOUBLE_TAP_DISTANCE = 24;
+  const DOCK_ROW_COUNT = 10;
+  const DOCK_ROW_CAPACITY = 4;
   const ANIMATION_MS = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 270;
   const PALETTE = [
     "#13a8e0",
@@ -95,6 +97,8 @@
   let moduleSearchSubjectId = null;
   let dockPointerDrag = null;
   let backgroundTap = null;
+  let ignoreAddBackdropUntil = 0;
+  let ignoreSyntheticDoubleClickUntil = 0;
 
   document.body.classList.add(`view-${VIEW}`);
 
@@ -163,16 +167,23 @@
   function normalizeDockRows(rows, subjects) {
     const validIds = new Set(subjects.map((subject) => subject.id));
     const placed = new Set();
-    const normalized = [];
+    const normalized = Array.from({ length: DOCK_ROW_COUNT }, () => []);
     if (Array.isArray(rows)) {
-      for (const row of rows) {
+      for (const [index, row] of rows.slice(0, DOCK_ROW_COUNT).entries()) {
         if (!Array.isArray(row)) continue;
-        const clean = row.filter((id) => validIds.has(id) && !placed.has(id) && placed.add(id)).slice(0, 4);
-        if (clean.length) normalized.push(clean);
+        for (const id of row) {
+          if (normalized[index].length >= DOCK_ROW_CAPACITY) break;
+          if (validIds.has(id) && !placed.has(id)) {
+            placed.add(id);
+            normalized[index].push(id);
+          }
+        }
       }
     }
     const missing = subjects.map((subject) => subject.id).filter((id) => !placed.has(id));
-    while (missing.length) normalized.push(missing.splice(0, 4));
+    for (const row of normalized) {
+      while (row.length < DOCK_ROW_CAPACITY && missing.length) row.push(missing.shift());
+    }
     return normalized;
   }
 
@@ -268,6 +279,7 @@
       evaluations: normalizeEvaluations(subject.evaluations, subject.examDate),
       createdAt: Number.isNaN(createdAt.getTime()) ? new Date().toISOString() : createdAt.toISOString(),
       color: normalizeColor(subject.color, index),
+      providerSubjectSegment: toProviderSubjectSegment(name),
       module: normalizeModule(subject.module),
     };
   }
@@ -412,14 +424,24 @@
     if (state.subjects.length === 0) document.body.classList.remove("dock-visible");
     if (VIEW === "dock") {
       state.dockRows = normalizeDockRows(state.dockRows, state.subjects);
-      for (const ids of state.dockRows) {
+      for (const [rowIndex, ids] of state.dockRows.entries()) {
         const row = document.createElement("div");
         row.className = "subject-dock-layout-row";
+        row.dataset.rowIndex = String(rowIndex);
+        row.setAttribute("aria-label", `Fila ${rowIndex + 1}`);
         for (const id of ids) {
           const subject = subjectById(id);
           if (subject) row.append(createDockCard(subject, state.subjects.indexOf(subject)));
         }
         elements.subjectDockList.append(row);
+      }
+      const placed = new Set(state.dockRows.flat());
+      const overflow = state.subjects.filter((subject) => !placed.has(subject.id));
+      if (overflow.length) {
+        const warning = document.createElement("p");
+        warning.className = "dock-overflow-warning";
+        warning.textContent = `${overflow.length} materia(s) sin posición: el tablero admite 40.`;
+        elements.subjectDockList.append(warning);
       }
       return;
     }
@@ -434,7 +456,7 @@
     card.className = "subject-dock-card";
     if (!subject.active) card.classList.add("is-inactive");
     if (index === state.dockSplitIndex) card.classList.add("starts-right-group");
-    card.draggable = VIEW !== "dock";
+    card.draggable = true;
     card.dataset.subjectId = subject.id;
     card.dataset.dockSide = index < state.dockSplitIndex ? "left" : "right";
     card.style.setProperty("--card-color", subject.color);
@@ -490,11 +512,18 @@
     if (!dockDraggedId) return;
     event.preventDefault();
     if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+    if (VIEW === "dock") markDockDropTarget(event.clientX, event.clientY);
   }
 
   function handleDockDrop(event) {
     if (!dockDraggedId) return;
     event.preventDefault();
+
+    if (VIEW === "dock") {
+      moveDockSubject(dockDraggedId, event.clientX, event.clientY);
+      finishDockDrag();
+      return;
+    }
 
     const sourceIndex = state.subjects.findIndex((subject) => subject.id === dockDraggedId);
     if (sourceIndex < 0) return;
@@ -546,8 +575,10 @@
     if (!dockPointerDrag || dockPointerDrag.pointerId !== event.pointerId) return;
     if (Math.hypot(event.clientX - dockPointerDrag.x, event.clientY - dockPointerDrag.y) > 12) {
       dockPointerDrag.moved = true;
+      event.target.closest?.(".subject-dock-card")?.classList.add("is-reordering");
       event.preventDefault();
     }
+    if (dockPointerDrag.moved) markDockDropTarget(event.clientX, event.clientY);
   }
 
   function handleDockPointerEnd(event) {
@@ -555,18 +586,59 @@
     const current = dockPointerDrag;
     dockPointerDrag = null;
     if (!current.moved) return;
-    const target = document.elementFromPoint(event.clientX, event.clientY)?.closest?.(".subject-dock-card[data-subject-id]");
-    if (!target || target.dataset.subjectId === current.id) return;
-    const sourceIndex = state.subjects.findIndex((subject) => subject.id === current.id);
-    const targetIndex = state.subjects.findIndex((subject) => subject.id === target.dataset.subjectId);
-    if (sourceIndex < 0 || targetIndex < 0) return;
-    const [moved] = state.subjects.splice(sourceIndex, 1);
-    state.subjects.splice(targetIndex, 0, moved);
-    state.dockRows = normalizeDockRows([], state.subjects);
     suppressDockClick = true;
+    moveDockSubject(current.id, event.clientX, event.clientY);
+    clearDockDropTargets();
+    elements.subjectDockList.querySelectorAll(".is-reordering").forEach((card) => card.classList.remove("is-reordering"));
+    window.setTimeout(() => { suppressDockClick = false; }, 0);
+  }
+
+  function markDockDropTarget(x, y) {
+    clearDockDropTargets();
+    const hit = document.elementFromPoint(x, y);
+    hit?.closest?.(".subject-dock-layout-row")?.classList.add("is-drop-target");
+    const card = hit?.closest?.(".subject-dock-card[data-subject-id]");
+    if (card && card.dataset.subjectId !== dockPointerDrag?.id && card.dataset.subjectId !== dockDraggedId) {
+      const placeAfter = x >= card.getBoundingClientRect().left + card.offsetWidth / 2;
+      card.classList.add(placeAfter ? "drop-after" : "drop-before");
+    }
+  }
+
+  function clearDockDropTargets() {
+    elements.subjectDockList.querySelectorAll(".is-drop-target, .drop-before, .drop-after")
+      .forEach((element) => element.classList.remove("is-drop-target", "drop-before", "drop-after"));
+  }
+
+  function cancelDockPointer() {
+    dockPointerDrag = null;
+    clearDockDropTargets();
+    elements.subjectDockList.querySelectorAll(".is-reordering").forEach((card) => card.classList.remove("is-reordering"));
+  }
+
+  function moveDockSubject(subjectId, x, y) {
+    const hit = document.elementFromPoint(x, y);
+    const targetRow = hit?.closest?.(".subject-dock-layout-row");
+    if (!targetRow) return false;
+    const rowIndex = Number(targetRow.dataset.rowIndex);
+    if (!Number.isInteger(rowIndex) || rowIndex < 0 || rowIndex >= DOCK_ROW_COUNT) return false;
+
+    const rows = normalizeDockRows(state.dockRows, state.subjects).map((row) => row.filter((id) => id !== subjectId));
+    const targetCard = hit.closest?.(".subject-dock-card[data-subject-id]");
+    const targetId = targetCard?.dataset.subjectId;
+    if (targetId === subjectId) return false;
+    let insertionIndex = rows[rowIndex].length;
+    if (targetId && targetId !== subjectId) {
+      const targetIndex = rows[rowIndex].indexOf(targetId);
+      if (targetIndex >= 0) {
+        insertionIndex = targetIndex + (x >= targetCard.getBoundingClientRect().left + targetCard.offsetWidth / 2 ? 1 : 0);
+      }
+    }
+    if (rows[rowIndex].length >= DOCK_ROW_CAPACITY) return false;
+    rows[rowIndex].splice(insertionIndex, 0, subjectId);
+    state.dockRows = rows;
     saveState();
     renderSubjectDock();
-    window.setTimeout(() => { suppressDockClick = false; }, 0);
+    return true;
   }
 
   function handleDockDragEnd() {
@@ -576,6 +648,7 @@
   function finishDockDrag() {
     dockDraggedId = null;
     elements.subjectDockList.querySelector(".is-reordering")?.classList.remove("is-reordering");
+    clearDockDropTargets();
     window.setTimeout(() => {
       suppressDockClick = false;
     }, 0);
@@ -618,7 +691,7 @@
     elements.subjectDockList.addEventListener("pointerdown", handleDockPointerDown);
     elements.subjectDockList.addEventListener("pointermove", handleDockPointerMove);
     elements.subjectDockList.addEventListener("pointerup", handleDockPointerEnd);
-    elements.subjectDockList.addEventListener("pointercancel", () => { dockPointerDrag = null; });
+    elements.subjectDockList.addEventListener("pointercancel", cancelDockPointer);
     elements.subjectDockList.addEventListener("dblclick", (event) => {
       if (VIEW === "dock" && !event.target.closest(".subject-dock-card")) openAddDialog();
     });
@@ -654,6 +727,7 @@
   }
 
   function closeOnBackdrop(event) {
+    if (event.currentTarget === elements.addDialog && performance.now() < ignoreAddBackdropUntil) return;
     if (event.target === event.currentTarget) event.currentTarget.close();
   }
 
@@ -677,10 +751,18 @@
     if (Math.hypot(event.clientX - previous.x, event.clientY - previous.y) > DOUBLE_TAP_DISTANCE) return;
     backgroundTap = null;
     event.preventDefault();
-    openAddDialog();
+    ignoreSyntheticDoubleClickUntil = performance.now() + DOUBLE_TAP_DELAY;
+    window.setTimeout(() => {
+      ignoreAddBackdropUntil = performance.now() + DOUBLE_TAP_DELAY;
+      openAddDialog();
+    }, 0);
   }
 
   function handleBackgroundDoubleClick(event) {
+    if (performance.now() < ignoreSyntheticDoubleClickUntil) {
+      event.preventDefault();
+      return;
+    }
     if (event.pointerType === "touch" || !isQueueBackground(event.target)) return;
     event.preventDefault();
     openAddDialog();
@@ -701,6 +783,14 @@
 
   function normalizeName(name) {
     return String(name || "").trim().replace(/\s+/g, " ");
+  }
+
+  function toProviderSubjectSegment(name) {
+    return normalizeName(name)
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLocaleLowerCase("es")
+      .replace(/[^a-z0-9]/g, "");
   }
 
   function isDuplicateName(name, ignoredId = null) {
@@ -728,6 +818,7 @@
     const subject = {
       id: createId(),
       name,
+      providerSubjectSegment: toProviderSubjectSegment(name),
       createdAt: new Date().toISOString(),
       color: nextColor(),
       active: true,
@@ -785,7 +876,7 @@
     if (!card || suppressClick || isAnimating) return;
     const subject = subjectById(card.dataset.subjectId);
     if (!subject) return;
-    if (VIEW === "queue" && window.InScreenApriori?.openModule) {
+    if (VIEW === "queue" && subject.module && window.InScreenApriori?.openModule) {
       window.InScreenApriori.openModule(subject.id);
       return;
     }
@@ -821,8 +912,21 @@
   function renderModuleResults() {
     elements.moduleResults.replaceChildren();
     const query = normalizeName(elements.moduleSearch.value).toLocaleLowerCase("es");
-    if (!query || !moduleCatalog) return;
+    if (!moduleCatalog) return;
+    if (!moduleCatalog.length) {
+      elements.moduleError.textContent = "No hay módulos disponibles.";
+      return;
+    }
+    if (!query) {
+      elements.moduleError.textContent = "Escribí para buscar un módulo.";
+      return;
+    }
     const matches = moduleCatalog.filter((module) => module.nombre.toLocaleLowerCase("es").includes(query));
+    if (!matches.length) {
+      elements.moduleError.textContent = "No se encontraron módulos.";
+      return;
+    }
+    elements.moduleError.textContent = "";
     for (const module of matches) {
       const row = document.createElement("div");
       row.className = "module-result";
@@ -850,6 +954,11 @@
     row?.style.setProperty("--download-color", subject.color);
     elements.moduleError.textContent = "";
     try {
+      if (window.InScreenApriori?.selectModule) {
+        window.InScreenApriori.selectModule(subject.id, JSON.stringify(module));
+        elements.moduleDialog.close();
+        return;
+      }
       const entry = module.entry.replace(/^\/+/, "");
       const response = await fetch(new URL(entry, MODULE_RAW_BASE_URL));
       if (!response.ok) throw new Error("No se pudo descargar el módulo.");
@@ -1247,6 +1356,7 @@
     const nextColor = normalizeColor(elements.detailColor.value, 0);
     const scheduleChanged = false;
     subject.name = name;
+    subject.providerSubjectSegment = toProviderSubjectSegment(name);
     subject.color = nextColor;
     elements.detailError.textContent = "";
     if (scheduleChanged) rebuildRing();

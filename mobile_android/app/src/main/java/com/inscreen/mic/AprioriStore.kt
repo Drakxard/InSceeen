@@ -38,8 +38,10 @@ object AprioriStore {
         for (index in 0 until subjects.length()) {
             val subject = subjects.optJSONObject(index) ?: error("Materia inválida")
             val id = subject.optString("id").trim()
-            require(id.isNotEmpty() && subject.optString("name").trim().isNotEmpty())
+            val name = subject.optString("name").trim()
+            require(id.isNotEmpty() && name.isNotEmpty())
             require(subjectIds.add(id))
+            subject.put("providerSubjectSegment", ProviderSubject.segment(name))
             require(subject.optInt("baseWeight", 1) in 1..100)
             val evaluations = subject.optJSONArray("evaluations") ?: JSONArray()
             for (evaluationIndex in 0 until evaluations.length()) {
@@ -73,6 +75,7 @@ object AprioriStore {
     }
 
     private fun validateDockRows(rows: JSONArray, subjectIds: Set<String>) {
+        require(rows.length() <= 10)
         val placed = mutableSetOf<String>()
         for (rowIndex in 0 until rows.length()) {
             val row = rows.optJSONArray(rowIndex) ?: error("Fila inválida")

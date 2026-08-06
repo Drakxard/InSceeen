@@ -183,9 +183,38 @@ const materia = InScreen.module.context();
 const resultado = await InScreen.module.respyPreg(6);
 ```
 
-También están disponibles `paginasLeidas(dia)` y `traduccion(dia)`. Por ahora las tres
-funciones devuelven `{ ok: false, error: "provider_not_configured", day }`; el futuro
-proveedor Vercel conservará este contrato y no requiere credenciales en el APK.
+También están disponibles `paginasLeidas(dia)` y `traduccion(dia)`. Ambas aceptan un día
+relativo entre `0` y `6` y consultan el proveedor configurado durante la compilación. El
+proveedor debe devolver `{ ok, etapa, archivos: [{ nombre, contenido }] }`, con `etapa`
+como entero positivo y archivos nombrados `N.txt`. Cada respuesta exitosa se fusiona con
+el almacenamiento privado de la materia y devuelve el inventario completo junto con
+`nuevos`, sin sobrescribir TXT que ya existan.
+
+Los módulos pueden consultar lo persistido con `archivos(tipo, etapa)` y
+`archivo(tipo, etapa, numero)`. Ambas funciones devuelven Promises; `tipo=false` representa
+páginas y `tipo=true` transcripciones. La primera devuelve el inventario numéricamente
+ordenado sin contenidos y la segunda devuelve un TXT concreto con su contenido. Un fallo
+de red no elimina lo guardado. `respyPreg(dia)` permanece reservado y devuelve
+`provider_not_configured`.
+
+La carpeta del proveedor se deriva automáticamente del nombre de la materia: se convierte
+a minúsculas y se eliminan tildes, espacios y símbolos (`Álgebra 2` se envía como
+`algebra2`). El valor queda disponible como `context().providerSubjectSegment`.
+
+Los módulos también pueden usar `await InScreen.module.consulta(pregunta, contenido)`.
+El APK estructura ambos textos como pregunta y material, y devuelve
+`{ ok:true, contenido, modelo }` o `{ ok:false, contenido:"", error }`. La API key y el
+modelo se configuran tocando `>_ INSCREEN MIC` en la tercera pestaña. La clave se cifra
+con Android Keystore, nunca se entrega al HTML y sólo se envía por HTTPS a Groq. Los
+cambios del diálogo se aplican únicamente al pulsar `GUARDAR`; `CANCELAR` los descarta.
+
+La URL y el Bearer token se leen de `mobile_android/.provider/provider.properties`, que no
+se versiona. Copia `mobile_android/provider.properties.example` y completa ambos valores
+antes de compilar. El token queda incorporado al APK y no debe considerarse un secreto
+irrecuperable frente a quien tenga acceso al archivo.
+
+Los días relativos son: `6` día de clase, `5` un día después, hasta `1` cinco días después;
+`0` representa el día anterior a la siguiente clase.
 
 ## Actualizaciones del APK
 

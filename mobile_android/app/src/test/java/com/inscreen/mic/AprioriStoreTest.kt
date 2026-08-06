@@ -7,6 +7,19 @@ import org.junit.Test
 
 class AprioriStoreTest {
     @Test
+    fun derivesAndPersistsProviderSubjectSegment() {
+        val raw = """{
+            "version":3,"settings":{"cycleSize":20,"urgencyK":14},
+            "subjects":[{"id":"a","name":"Lógica y Computabilidad"}],
+            "ring":["a"]
+        }""".trimIndent()
+
+        val subject = JSONObject(AprioriStore.validateAndNormalize(raw))
+            .getJSONArray("subjects").getJSONObject(0)
+        assertEquals("logicaycomputabilidad", subject.getString("providerSubjectSegment"))
+    }
+
+    @Test
     fun readsQueueHeadWithNameAndColor() {
         val raw = """{
             "version":3,"settings":{"cycleSize":20,"urgencyK":14},

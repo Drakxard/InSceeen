@@ -12,6 +12,7 @@ runtime/
 mobile_android/.gradle/
 mobile_android/.kotlin/
 mobile_android/.signing/
+mobile_android/.provider/provider.properties
 mobile_android/local.properties
 mobile_android/app/build/
 mobile_android/build/

@@ -11,6 +11,14 @@ if (signingPropertiesFile.exists()) {
     signingPropertiesFile.inputStream().use(signingProperties::load)
 }
 
+val providerPropertiesFile = rootProject.file(".provider/provider.properties")
+val providerProperties = Properties()
+if (providerPropertiesFile.exists()) {
+    providerPropertiesFile.inputStream().use(providerProperties::load)
+}
+fun buildConfigString(value: String): String =
+    "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+
 android {
     namespace = "com.inscreen.mic"
     compileSdk = 36
@@ -19,8 +27,19 @@ android {
         applicationId = "com.inscreen.mic"
         minSdk = 26
         targetSdk = 36
-        versionCode = 14
-        versionName = "1.7.5"
+        versionCode = 17
+        versionName = "1.7.8"
+
+        buildConfigField(
+            "String",
+            "PROVIDER_BASE_URL",
+            buildConfigString(providerProperties.getProperty("baseUrl", "")),
+        )
+        buildConfigField(
+            "String",
+            "PROVIDER_TOKEN",
+            buildConfigString(providerProperties.getProperty("token", "")),
+        )
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -70,6 +89,7 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test:runner:1.7.0")
 }

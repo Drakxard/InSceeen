@@ -17,6 +17,8 @@ import android.os.Bundle
 import android.os.Environment
 import android.os.PowerManager
 import android.provider.Settings
+import android.text.InputType
+import android.text.method.PasswordTransformationMethod
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -27,9 +29,12 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
+import android.widget.ArrayAdapter
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.LinearLayout
+import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -272,11 +277,23 @@ class MainActivity : ComponentActivity() {
             try {
                 val saved = AprioriStore.save(this@MainActivity, raw)
                 runOnUiThread { AprioriUpdates.publish(this@MainActivity, saved) }
+                val subjects = JSONObject(saved).optJSONArray("subjects")
+                val subjectIds = (0 until (subjects?.length() ?: 0))
+                    .mapNotNull { subjects?.optJSONObject(it)?.optString("id")?.takeIf(String::isNotBlank) }
+                    .toSet()
+                thread(name = "provider-cache-cleanup") {
+                    ProviderCache.from(this@MainActivity).reconcileSubjects(subjectIds)
+                }
             } catch (_: Exception) { }
         }
 
         @JavascriptInterface fun openModule(subjectId: String) {
             runOnUiThread { ModuleHostActivity.open(this@MainActivity, subjectId) }
+        }
+
+        @JavascriptInterface fun selectModule(subjectId: String, rawModule: String) {
+            val selected = runCatching { ModuleSelection.parse(rawModule) }.getOrNull() ?: return
+            runOnUiThread { ModuleHostActivity.openSelected(this@MainActivity, subjectId, selected) }
         }
     }
 
@@ -292,6 +309,11 @@ class MainActivity : ComponentActivity() {
             textSize = 24f
             setTextColor(Color.rgb(69, 255, 26))
             gravity = Gravity.CENTER
+            contentDescription = "Configurar consultas Groq"
+            isClickable = true
+            isFocusable = true
+            setPadding(0, dp(12), 0, dp(12))
+            setOnClickListener { showGroqSettings() }
         }, matchWidth())
         stateView = TextView(this).apply {
             text = lastState
@@ -364,6 +386,124 @@ class MainActivity : ComponentActivity() {
             rightMargin = dp(8)
         })
         return page
+    }
+
+    private fun showGroqSettings() {
+        val store = GroqCredentialStore(this)
+        val savedKey = store.apiKey()
+        val savedModel = store.model()
+        var confirmedKey: String? = savedKey
+        var stagedForDeletion = false
+        var availableModels = savedModel?.let(::listOf).orEmpty()
+
+        val keyInput = EditText(this).apply {
+            hint = if (savedKey == null) "API key" else "API key guardada"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            transformationMethod = PasswordTransformationMethod.getInstance()
+            isSingleLine = true
+            importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
+        }
+        val keyButton = terminalButton(if (savedKey == null) "CONFIRMAR" else "BORRAR")
+        val keyRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(keyInput, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(keyButton, LinearLayout.LayoutParams(dp(120), -2).apply { leftMargin = dp(8) })
+        }
+        val modelLabel = TextView(this).apply { text = "MODELO"; setPadding(0, dp(18), 0, dp(4)) }
+        val modelSpinner = Spinner(this)
+        fun renderModels(models: List<String>, selected: String? = null) {
+            availableModels = models.distinct().sorted()
+            modelSpinner.adapter = ArrayAdapter(
+                this,
+                android.R.layout.simple_spinner_dropdown_item,
+                availableModels,
+            )
+            modelSpinner.isEnabled = availableModels.isNotEmpty()
+            selected?.let { value ->
+                availableModels.indexOf(value).takeIf { it >= 0 }?.let(modelSpinner::setSelection)
+            }
+        }
+        renderModels(availableModels, savedModel)
+        val status = TextView(this).apply { setPadding(0, dp(8), 0, 0) }
+        val body = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(22), dp(8), dp(22), 0)
+            addView(keyRow, matchWidth())
+            addView(modelLabel, matchWidth())
+            addView(modelSpinner, matchWidth())
+            addView(status, matchWidth())
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("INSCREEN MIC")
+            .setView(body)
+            .setNegativeButton("CANCELAR", null)
+            .setPositiveButton("GUARDAR", null)
+            .create()
+
+        fun loadModels(key: String, validation: Boolean) {
+            status.text = "Consultando modelos…"
+            keyButton.isEnabled = false
+            GroqClient.shared.models(key) { result -> runOnUiThread {
+                if (!dialog.isShowing) return@runOnUiThread
+                keyButton.isEnabled = true
+                result.fold(onSuccess = { models ->
+                    confirmedKey = key
+                    stagedForDeletion = false
+                    keyInput.text.clear()
+                    keyInput.hint = "API key confirmada"
+                    keyButton.text = "BORRAR"
+                    renderModels(models, savedModel)
+                    status.text = "Clave válida. Elegí un modelo."
+                }, onFailure = { error ->
+                    if (validation) confirmedKey = null
+                    status.text = when (error.message) {
+                        "authentication_error" -> "La API key no es válida."
+                        "rate_limited" -> "Groq limitó temporalmente la solicitud."
+                        else -> "No se pudieron obtener los modelos."
+                    }
+                })
+            }}
+        }
+        keyButton.setOnClickListener {
+            if (confirmedKey != null && keyButton.text == "BORRAR") {
+                confirmedKey = null
+                stagedForDeletion = true
+                keyInput.text.clear()
+                keyInput.hint = "API key"
+                keyButton.text = "CONFIRMAR"
+                renderModels(emptyList())
+                status.text = "La configuración se borrará al guardar."
+            } else {
+                val candidate = keyInput.text.toString().trim()
+                if (candidate.isEmpty()) status.text = "Pegá una API key para confirmarla."
+                else loadModels(candidate, validation = true)
+            }
+        }
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                if (stagedForDeletion) {
+                    store.clear()
+                    dialog.dismiss()
+                    Toast.makeText(this, "Configuración Groq borrada", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                val key = confirmedKey
+                val model = availableModels.getOrNull(modelSpinner.selectedItemPosition)
+                if (key == null || model == null) {
+                    status.text = "Confirmá una API key y elegí un modelo."
+                    return@setOnClickListener
+                }
+                runCatching { store.save(key, model) }.fold(
+                    onSuccess = {
+                        dialog.dismiss()
+                        Toast.makeText(this, "Configuración Groq guardada", Toast.LENGTH_SHORT).show()
+                    },
+                    onFailure = { status.text = "No se pudo guardar la configuración segura." },
+                )
+            }
+            savedKey?.let { loadModels(it, validation = false) }
+        }
+        dialog.show()
     }
 
     private fun registerUpdateReceiver() {

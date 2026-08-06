@@ -39,6 +39,16 @@ jobs:
           printf 'storeFile=.signing/inscreen-release.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
             "$STORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD" > .signing/keystore.properties
 
+      - name: Configure provider
+        env:
+          PROVIDER_BASE_URL: ${{ secrets.INSCREEN_PROVIDER_BASE_URL }}
+          PROVIDER_TOKEN: ${{ secrets.INSCREEN_PROVIDER_TOKEN }}
+        run: |
+          test -n "$PROVIDER_BASE_URL"
+          test -n "$PROVIDER_TOKEN"
+          mkdir -p .provider
+          printf 'baseUrl=%s\ntoken=%s\n' "$PROVIDER_BASE_URL" "$PROVIDER_TOKEN" > .provider/provider.properties
+
       - name: Test and build signed APK
         run: ./gradlew --no-daemon testDebugUnitTest lintDebug assembleRelease
 
