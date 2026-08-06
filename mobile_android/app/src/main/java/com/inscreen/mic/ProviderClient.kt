@@ -63,7 +63,7 @@ internal class ProviderClient(
             val source = JSONObject(raw)
             val ok = source.optBoolean("ok", false)
             val stage = source.optInt("etapa", 0)
-            if (ok && stage <= 0) return failure("invalid_stage")
+            if (ok && (!source.has("etapa") || stage !in 0..6)) return failure("invalid_stage")
             val files = JSONArray()
             val sourceFiles = source.optJSONArray("archivos") ?: JSONArray()
             for (index in 0 until sourceFiles.length()) {

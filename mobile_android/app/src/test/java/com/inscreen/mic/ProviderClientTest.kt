@@ -103,6 +103,7 @@ class ProviderClientTest {
         val client = ProviderClient("https://example.test", "secret", OkHttpClient())
         assertEquals("invalid_response", JSONObject(client.normalizeResponse("not-json")).getString("error"))
         assertEquals("invalid_stage", JSONObject(client.normalizeResponse("""{"ok":true,"archivos":[]}""")).getString("error"))
+        assertTrue(JSONObject(client.normalizeResponse("""{"ok":true,"etapa":0,"archivos":[]}""")).getBoolean("ok"))
         assertFalse(JSONObject(client.normalizeResponse("""{"ok":false,"archivos":[]}""")).getBoolean("ok"))
     }
 }

@@ -16,7 +16,7 @@ internal class ProviderCache(private val root: File) {
             val source = JSONObject(payload)
             if (!source.optBoolean("ok", false)) return@synchronized payload
             val stage = source.optInt("etapa", 0)
-            if (stage <= 0) return@synchronized failure("invalid_stage")
+            if (stage !in 0..6) return@synchronized failure("invalid_stage")
             val directory = stageDirectory(subjectId, transcription, stage)
             directory.mkdirs()
             var added = 0
@@ -46,13 +46,13 @@ internal class ProviderCache(private val root: File) {
     }
 
     fun list(subjectId: String, transcription: Boolean, stage: Int): String = synchronized(lock) {
-        if (stage <= 0) return@synchronized failure("invalid_stage")
+        if (stage !in 0..6) return@synchronized failure("invalid_stage")
         runCatching { inventory(subjectId, transcription, stage, includeContent = false).toString() }
             .getOrElse { failure("storage_error") }
     }
 
     fun read(subjectId: String, transcription: Boolean, stage: Int, number: Int): String = synchronized(lock) {
-        if (stage <= 0) return@synchronized failure("invalid_stage")
+        if (stage !in 0..6) return@synchronized failure("invalid_stage")
         if (number <= 0) return@synchronized failure("invalid_file_number")
         val file = File(stageDirectory(subjectId, transcription, stage), "$number.txt")
         if (!file.isFile) return@synchronized failure("file_not_found")

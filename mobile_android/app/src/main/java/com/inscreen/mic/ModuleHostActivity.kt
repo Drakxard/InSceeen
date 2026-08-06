@@ -204,7 +204,7 @@ class ModuleHostActivity : Activity() {
             const cached=(operation,type,stage,number)=>{
               const normalizedStage=Number(stage);
               if(typeof type!=="boolean")return Promise.resolve({ok:false,archivos:[],error:"invalid_type"});
-              if(!Number.isInteger(normalizedStage)||normalizedStage<=0){
+              if(!Number.isInteger(normalizedStage)||normalizedStage<0||normalizedStage>6){
                 return Promise.resolve({ok:false,archivos:[],error:"invalid_stage"});
               }
               if(operation==="archivo"&&(!Number.isInteger(Number(number))||Number(number)<=0)){
