@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Test Interactivo - WebView Nativo</title>
+  <title>Test Interactivo - WebView Nativo con Depuración</title>
   <style>
     :root {
       --bg: #f8fafc;
@@ -97,7 +97,62 @@
     
     .status-msg { margin-top: 15px; font-size: 0.85rem; font-weight: 600; display: none; text-align: center; }
     .status-success { color: #10b981; }
-    .status-error { color: #ef4444; }
+
+    /* ========================================================
+       ESTILOS DEL OVERLAY DE ERROR (PANTALLA COMPLETA)
+       ======================================================== */
+    .error-overlay {
+      position: fixed;
+      top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(15, 23, 42, 0.95);
+      backdrop-filter: blur(8px);
+      z-index: 99999;
+      display: none; /* Oculto por defecto */
+      justify-content: center;
+      align-items: center;
+      padding: 1.5rem;
+    }
+    .error-overlay.active { display: flex; }
+    
+    .error-card {
+      background: #1e293b;
+      border: 2px solid #ef4444;
+      border-radius: 16px;
+      padding: 2rem;
+      width: 100%;
+      max-width: 800px;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+      color: #f8fafc;
+      user-select: text; /* Permitir seleccionar el texto para copiarlo */
+    }
+    .error-card h2 {
+      color: #ef4444;
+      margin-bottom: 1rem;
+      font-size: 1.75rem;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .error-details-box {
+      background: #0f172a;
+      padding: 1rem;
+      border-radius: 8px;
+      font-family: monospace;
+      white-space: pre-wrap;
+      word-break: break-all;
+      font-size: 0.9rem;
+      margin-bottom: 1.5rem;
+      color: #fca5a5;
+      text-align: left;
+    }
+    .btn-close-error {
+      background: #ef4444; color: white; border: none; padding: 12px 24px;
+      border-radius: 8px; font-weight: bold; cursor: pointer; transition: background 0.2s;
+      width: 100%; font-size: 1rem;
+    }
+    .btn-close-error:hover { background: #dc2626; }
   </style>
 </head>
 <body>
@@ -106,6 +161,16 @@
   <div class="bg-blob blob-1"></div>
   <div class="bg-blob blob-2"></div>
   <div class="bg-blob blob-3"></div>
+
+  <!-- OVERLAY DE ERROR A PANTALLA COMPLETA -->
+  <div id="errorOverlay" class="error-overlay">
+    <div class="error-card">
+      <h2>🚨 Error de Ejecución</h2>
+      <p style="margin-bottom: 10px; color: #94a3b8; font-size: 0.9rem;">Detalles técnicos del fallo para depuración:</p>
+      <div id="errorDetailsText" class="error-details-box"></div>
+      <button class="btn-close-error" onclick="closeErrorOverlay()">Cerrar y Continuar</button>
+    </div>
+  </div>
 
   <!-- Engranaje y panel de configuración -->
   <div class="settings-container">
@@ -207,7 +272,31 @@
 
   <script>
     // ==========================================
-    // 1. NAVEGACIÓN Y UI
+    // 1. SISTEMA DE REPORTES DE ERROR
+    // ==========================================
+    function openErrorOverlay(contextoStr, err) {
+      const overlay = document.getElementById('errorOverlay');
+      const detailsBox = document.getElementById('errorDetailsText');
+      
+      let detailedOutput = `[CONTEXTO]\n${contextoStr}\n\n`;
+      
+      if (err instanceof Error) {
+        detailedOutput += `[MENSAJE]\n${err.message}\n\n`;
+        detailedOutput += `[STACK TRACE]\n${err.stack}`;
+      } else {
+        detailedOutput += `[DETALLES DEL OBJETO]\n${JSON.stringify(err, null, 2)}`;
+      }
+      
+      detailsBox.textContent = detailedOutput;
+      overlay.classList.add('active');
+    }
+
+    function closeErrorOverlay() {
+      document.getElementById('errorOverlay').classList.remove('active');
+    }
+
+    // ==========================================
+    // 2. NAVEGACIÓN Y UI
     // ==========================================
     function showScreen(screenId) {
       document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
@@ -228,24 +317,21 @@
       modeLabel.textContent = modeSwitch.checked ? 'Traducción (traduccion)' : 'Página (paginasLeidas)'; 
     });
 
-    function mostrarEstado(mensaje, esError = false) {
+    function mostrarExito(mensaje) {
       statusMsg.textContent = mensaje;
-      statusMsg.className = `status-msg ${esError ? 'status-error' : 'status-success'}`;
+      statusMsg.className = 'status-msg status-success';
       statusMsg.style.display = "block";
     }
 
-    // Funciones utilitarias para limpiar bloques de Markdown devueltos por LLMs (ej. ```json ... ```)
+    // Limpia bloques Markdown ```json ... ``` devueltos por la IA
     function cleanJsonOutput(llmOutput) {
       return llmOutput.replace(/```json/gi, '').replace(/```/g, '').trim();
     }
 
     // ==========================================
-    // 2. FLUJO PRINCIPAL: RECUPERAR DATOS Y CONSULTAR LLM
+    // 3. FLUJO PRINCIPAL: RECUPERAR DATOS Y CONSULTAR LLM
     // ==========================================
     confirmBtn.addEventListener('click', async () => {
-      
-      // Acceso estricto y nativo a la API de la APK
-      const api = window.InScreen.module;
       
       const dia = parseInt(document.getElementById('dayInput').value) || 1;
       const esTraduccion = modeSwitch.checked;
@@ -256,21 +342,35 @@
       statusMsg.style.display = "none";
 
       try {
+        // Validar que exista la API de InScreen (WebView)
+        if (typeof window.InScreen === 'undefined' || typeof window.InScreen.module === 'undefined') {
+          throw new Error("El objeto 'window.InScreen.module' NO existe. ¿Estás ejecutando esto fuera del WebView de Android?");
+        }
+        const api = window.InScreen.module;
+
         // A. OBTENER EL MATERIAL DESDE LA APK (Vercel -> R2)
         const resArchivos = esTraduccion 
           ? await api.traduccion(dia) 
           : await api.paginasLeidas(dia);
 
-        if (!resArchivos || !resArchivos.ok) {
-          throw new Error("No se obtuvieron archivos de la APK.");
+        if (!resArchivos) {
+          throw new Error("La APK devolvió un objeto undefined o nulo al solicitar los archivos.");
+        }
+        if (!resArchivos.ok) {
+          throw new Error("La APK devolvió error al intentar obtener los archivos. Datos crudos: " + JSON.stringify(resArchivos));
+        }
+        if (!resArchivos.archivos || resArchivos.archivos.length === 0) {
+          throw new Error("La APK devolvió un 'ok: true' pero el arreglo de 'archivos' está vacío o no existe.");
         }
 
         let materialDeEstudio = "";
         for (const arch of resArchivos.archivos) {
-          materialDeEstudio += arch.contenido + "\n";
+          materialDeEstudio += (arch.contenido || "") + "\n";
         }
 
-        if (!materialDeEstudio.trim()) throw new Error("El archivo devuelto está vacío.");
+        if (!materialDeEstudio.trim()) {
+          throw new Error("Los archivos devueltos por la APK están vacíos (sin contenido legible).");
+        }
 
         // Seguridad de límites: Groq/APK (200.000 max en material)
         if (materialDeEstudio.length > 200000) {
@@ -295,12 +395,35 @@
           api.consulta(promptChoi, materialDeEstudio)
         ]);
 
-        if (!resFlashcard.ok) throw new Error("Fallo en IA (Flashcard): " + (resFlashcard.error || "groq_not_configured"));
-        if (!resChoi.ok) throw new Error("Fallo en IA (Choi): " + (resChoi.error || "groq_not_configured"));
+        if (!resFlashcard.ok) {
+          throw new Error("La llamada a la IA (Flashcard) falló. Detalle: " + JSON.stringify(resFlashcard));
+        }
+        if (!resChoi.ok) {
+          throw new Error("La llamada a la IA (Choi) falló. Detalle: " + JSON.stringify(resChoi));
+        }
 
         // D. PARSEO E INYECCIÓN DE DATOS
-        const dataFlashcard = JSON.parse(cleanJsonOutput(resFlashcard.contenido));
-        const dataChoi = JSON.parse(cleanJsonOutput(resChoi.contenido));
+        let dataFlashcard, dataChoi;
+        
+        try {
+          dataFlashcard = JSON.parse(cleanJsonOutput(resFlashcard.contenido));
+        } catch (e) {
+          throw new Error("Fallo al parsear JSON de Flashcard. Respuesta cruda de la IA:\n" + resFlashcard.contenido + "\n\nError interno: " + e.message);
+        }
+
+        try {
+          dataChoi = JSON.parse(cleanJsonOutput(resChoi.contenido));
+        } catch (e) {
+          throw new Error("Fallo al parsear JSON de Choi. Respuesta cruda de la IA:\n" + resChoi.contenido + "\n\nError interno: " + e.message);
+        }
+
+        // Validación estructural básica antes de inyectar
+        if (!dataFlashcard.pregunta || !dataFlashcard.respuesta) {
+          throw new Error("El JSON de la Flashcard está incompleto. Faltan las llaves 'pregunta' o 'respuesta'. JSON obtenido:\n" + JSON.stringify(dataFlashcard, null, 2));
+        }
+        if (!dataChoi.enunciado || !Array.isArray(dataChoi.opciones) || typeof dataChoi.correcta !== 'number') {
+          throw new Error("El JSON del Choice está mal formado. Faltan llaves o tipos incorrectos. JSON obtenido:\n" + JSON.stringify(dataChoi, null, 2));
+        }
 
         // Inyectar en UI
         document.getElementById('flashcard-pregunta').textContent = dataFlashcard.pregunta;
@@ -308,19 +431,23 @@
 
         document.getElementById('choi-enunciado').textContent = dataChoi.enunciado;
         dataChoi.opciones.forEach((opcionTexto, index) => {
-          document.getElementById(`choi-op-${index}`).textContent = opcionTexto;
+          const el = document.getElementById(`choi-op-${index}`);
+          if(el) el.textContent = opcionTexto;
         });
 
         // Limpiar selecciones anteriores y guardar respuesta correcta en el contenedor
         document.querySelectorAll('input[name="pregunta"]').forEach(r => r.checked = false);
         document.getElementById('screen-choi').dataset.correcta = dataChoi.correcta;
 
-        mostrarEstado("¡Material procesado e inyectado con éxito!");
+        mostrarExito("¡Material procesado e inyectado con éxito!");
         setTimeout(() => settingsPanel.classList.remove('active'), 1200);
 
       } catch (error) {
-        console.error("[InScreen WebModule] Error:", error);
-        mostrarEstado(error.message, true);
+        console.error("[InScreen WebModule] Flujo interrumpido por excepción:", error);
+        
+        // Disparar pantalla de error detallada
+        openErrorOverlay("Ocurrió un error en la cadena de eventos de la App.", error);
+
       } finally {
         confirmBtn.disabled = false;
         confirmBtn.textContent = "Generar con Groq (APK)";
