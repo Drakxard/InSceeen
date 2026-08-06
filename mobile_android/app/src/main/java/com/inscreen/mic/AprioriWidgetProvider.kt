@@ -77,9 +77,15 @@ class AprioriWidgetProvider : AppWidgetProvider() {
         }
 
         private fun bindTap(context: Context, views: RemoteViews, id: Int, canConsume: Boolean) {
-            val subjectId = JSONObject(AprioriStore.load(context)).optJSONArray("ring")?.optString(0).orEmpty()
-            val open = if (subjectId.isBlank()) Intent(context, MainActivity::class.java)
-            else ModuleHostActivity.intent(context, subjectId)
+            val state = AprioriStore.load(context)
+            val subjectId = JSONObject(state).optJSONArray("ring")?.optString(0).orEmpty()
+            val subject = AprioriStore.subject(state, subjectId)
+            val hasModule = subject?.optJSONObject("module")?.optString("entry")?.isNotBlank() == true
+            val open = when {
+                subjectId.isBlank() -> Intent(context, MainActivity::class.java)
+                hasModule -> ModuleHostActivity.intent(context, subjectId)
+                else -> MainActivity.moduleSearchIntent(context, subjectId)
+            }
             open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             val pendingIntent = PendingIntent.getActivity(
                 context, id, open, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,

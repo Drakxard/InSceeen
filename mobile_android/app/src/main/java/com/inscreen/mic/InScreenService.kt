@@ -110,9 +110,10 @@ class InScreenService : Service() {
                 sendReady()
                 if (socket == null && config == null) stopSelf(startId)
             }
-            ACTION_CONNECT, null -> startConnection()
+            ACTION_CONNECT -> startConnection()
+            null -> stopSelf(startId)
         }
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     private fun startConnection() {

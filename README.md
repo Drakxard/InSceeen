@@ -46,9 +46,10 @@ recién entonces Windows mostrará el QR. Léelo con la cámara integrada, conce
 micrófono y notificaciones y acepta excluir InScreen de la optimización de batería.
 
 La app verifica la huella del certificado local incluida en el enlace de vinculación y
-guarda la PC. En los siguientes usos basta con abrir InScreen Mic: se conecta y queda
-reintentando en segundo plano. Si cambia la IP de la PC, Android la descubre en la red
-local mediante mensajes autenticados y conserva la misma vinculación.
+guarda la PC. En los siguientes usos queda en `LISTO PARA CONECTAR`: la conexión comienza
+únicamente al pulsar **CONECTAR** y el servicio no se reinicia solo si Android lo cierra.
+Mientras una conexión iniciada manualmente siga activa, puede reintentar y descubrir una
+nueva IP de la PC mediante mensajes autenticados sin perder la vinculación.
 
 Para sincronizar música, abre la página de conexión del APK y pulsa **HABILITAR
 CONTROL MULTIMEDIA**. Android abrirá el ajuste de acceso a notificaciones: habilita

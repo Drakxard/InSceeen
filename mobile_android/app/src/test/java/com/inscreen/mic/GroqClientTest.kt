@@ -9,6 +9,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.Collections
 
 class GroqClientTest {
     @Test fun listsSortedUniqueModelsWithBearerToken() {
@@ -53,7 +54,7 @@ class GroqClientTest {
         server.enqueue(MockResponse().setBody("""{"choices":[]}"""))
         server.start()
         try {
-            val outputs = mutableListOf<String>()
+            val outputs = Collections.synchronizedList(mutableListOf<String>())
             val latch = CountDownLatch(2)
             val client = GroqClient(server.url("/").toString(), OkHttpClient())
             client.query("bad", "m", "q", "") { outputs += it; latch.countDown() }

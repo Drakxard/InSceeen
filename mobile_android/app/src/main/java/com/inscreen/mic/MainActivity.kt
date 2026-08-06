@@ -71,6 +71,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var mediaControlButton: Button
     private lateinit var updateButton: ImageButton
     private val webViews = mutableListOf<WebView>()
+    private var queueWebView: WebView? = null
+    private var pendingModuleSubjectId: String? = null
     private var scannerView: View? = null
     private var cameraProvider: ProcessCameraProvider? = null
     private var exitDialog: AlertDialog? = null
@@ -124,10 +126,10 @@ class MainActivity : ComponentActivity() {
         registerUpdateReceiver()
         registerStateReceiver()
         registerAprioriReceiver()
+        handleNavigationIntent(intent)
         val link = intent?.dataString
         if (link.isNullOrBlank()) {
             refreshPairingState()
-            connectIfPaired()
         } else {
             handlePairLink(link)
         }
@@ -136,6 +138,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        handleNavigationIntent(intent)
         handlePairLink(intent?.dataString)
     }
 
@@ -145,6 +148,7 @@ class MainActivity : ComponentActivity() {
             val quoted = JSONObject.quote(AprioriStore.load(this))
             webViews.forEach { it.evaluateJavascript("window.InScreenApplyState($quoted)", null) }
         }
+        dispatchPendingModuleSubject()
         resumePendingUpdateInstall()
         if (::mediaControlButton.isInitialized) {
             updateMediaControlButton()
@@ -164,6 +168,7 @@ class MainActivity : ComponentActivity() {
         exitDialog?.dismiss()
         exitDialog = null
         webViews.forEach(WebView::destroy)
+        queueWebView = null
         cameraProvider?.unbindAll()
         super.onDestroy()
     }
@@ -268,9 +273,35 @@ class MainActivity : ComponentActivity() {
             webViewClient = object : WebViewClient() {
                 override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
                     loader.shouldInterceptRequest(request.url)
+
+                override fun onPageFinished(webView: WebView, url: String?) {
+                    super.onPageFinished(webView, url)
+                    if (view == "queue") dispatchPendingModuleSubject()
+                }
             }
             loadUrl("https://appassets.androidplatform.net/assets/index.html?view=$view")
             webViews += this
+            if (view == "queue") queueWebView = this
+        }
+    }
+
+    private fun handleNavigationIntent(source: Intent?) {
+        val subjectId = source?.getStringExtra(EXTRA_OPEN_MODULE_SUBJECT)?.trim().orEmpty()
+        if (subjectId.isEmpty()) return
+        pendingModuleSubjectId = subjectId
+        source?.removeExtra(EXTRA_OPEN_MODULE_SUBJECT)
+        if (::pager.isInitialized) pager.setCurrentItem(1, false)
+        dispatchPendingModuleSubject()
+    }
+
+    private fun dispatchPendingModuleSubject() {
+        val subjectId = pendingModuleSubjectId ?: return
+        val view = queueWebView ?: return
+        if (::pager.isInitialized) pager.setCurrentItem(1, false)
+        view.evaluateJavascript(
+            "Boolean(window.InScreenOpenSubjectModule && window.InScreenOpenSubjectModule(${JSONObject.quote(subjectId)}))",
+        ) { result ->
+            if (result == "true" && pendingModuleSubjectId == subjectId) pendingModuleSubjectId = null
         }
     }
 
@@ -919,10 +950,6 @@ class MainActivity : ComponentActivity() {
         showState(if (PairingStore.load(this) == null) "SIN VINCULAR" else "LISTO PARA CONECTAR")
     }
 
-    private fun connectIfPaired() {
-        if (PairingStore.load(this) != null) connect()
-    }
-
     private fun connect() {
         if (PairingStore.load(this) == null) return
         val missing = mutableListOf<String>()
@@ -973,6 +1000,12 @@ class MainActivity : ComponentActivity() {
     }
 
     companion object {
+        internal const val EXTRA_OPEN_MODULE_SUBJECT = "open_module_subject"
+        internal fun moduleSearchIntent(context: Context, subjectId: String): Intent =
+            Intent(context, MainActivity::class.java)
+                .putExtra(EXTRA_OPEN_MODULE_SUBJECT, subjectId)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+
         private const val EDGE_SWIPE_DP = 20f
         private const val EDGE_SWIPE_THRESHOLD_DP = 48f
         private const val REQUEST_PERMISSIONS = 100

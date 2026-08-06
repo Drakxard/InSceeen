@@ -717,6 +717,7 @@
     elements.detailDialog.addEventListener("close", () => {
       closeColorPicker();
       elements.detailError.textContent = "";
+      resetDeleteConfirmation();
     });
     elements.moduleDialog.addEventListener("close", () => {
       moduleSearchSubjectId = null;
@@ -1368,7 +1369,11 @@
   function deleteSelectedSubject() {
     const subject = subjectById(elements.detailId.value);
     if (!subject) return;
-    if (!window.confirm(`¿Eliminar “${subject.name}” de la cola?`)) return;
+    if (elements.deleteButton.dataset.confirming !== "true") {
+      elements.deleteButton.dataset.confirming = "true";
+      elements.deleteButton.textContent = "Confirmar eliminación";
+      return;
+    }
 
     const subjectIndex = state.subjects.findIndex((item) => item.id === subject.id);
     if (subjectIndex >= 0 && subjectIndex < state.dockSplitIndex) {
@@ -1380,6 +1385,11 @@
     rebuildRing();
     elements.detailDialog.close();
     render();
+  }
+
+  function resetDeleteConfirmation() {
+    elements.deleteButton.dataset.confirming = "false";
+    elements.deleteButton.textContent = "Eliminar materia";
   }
 
   function handlePointerDown(event) {
@@ -1649,6 +1659,17 @@
     } catch {
       // Android conserva el último estado válido si una actualización es incompleta.
     }
+  };
+
+  window.InScreenOpenSubjectModule = function openAndroidSubjectModule(subjectId) {
+    const subject = subjectById(subjectId);
+    if (!subject || VIEW !== "queue") return false;
+    if (subject.module && window.InScreenApriori?.openModule) {
+      window.InScreenApriori.openModule(subject.id);
+    } else {
+      openModuleSearch(subject.id);
+    }
+    return true;
   };
 
 })();

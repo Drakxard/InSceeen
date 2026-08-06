@@ -19,4 +19,13 @@ class ModuleNavigationTest {
         assertEquals("materia-1", intent.getStringExtra(ModuleHostActivity.EXTRA_SUBJECT_ID))
         assertFalse(intent.flags and Intent.FLAG_ACTIVITY_SINGLE_TOP != 0)
     }
+
+    @Test fun moduleSearchIntentReusesMainActivityAndCarriesSubject() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val intent = MainActivity.moduleSearchIntent(context, "materia-sin-modulo")
+
+        assertEquals(MainActivity::class.java.name, intent.component?.className)
+        assertEquals("materia-sin-modulo", intent.getStringExtra(MainActivity.EXTRA_OPEN_MODULE_SUBJECT))
+        assertFalse(intent.flags and Intent.FLAG_ACTIVITY_SINGLE_TOP == 0)
+    }
 }

@@ -810,12 +810,12 @@ async function main() {
     const subject = mirror.subjects.find(item => item.id === firstId);
     subject.module = null;
     window.InScreenApplyState?.(JSON.stringify(mirror));
-    document.querySelector('.queue-card').click();
+    const routed = window.InScreenOpenSubjectModule?.(firstId) === true;
     const opened = document.querySelector('#moduleDialog').open;
     document.querySelector('#moduleDialog').close();
-    return { opened };
+    return { opened, routed };
   })()`);
-  if (!queueModulePicker.opened) {
+  if (!queueModulePicker.opened || !queueModulePicker.routed) {
     throw new Error(`La materia sin módulo no abrió el buscador Apriori: ${JSON.stringify(queueModulePicker)}`);
   }
 
@@ -859,6 +859,34 @@ async function main() {
     throw new Error(`El doble toque de fondo no se aisló correctamente: ${JSON.stringify(queueDoubleTap)}`);
   }
 
+  await evaluate("location.assign('/index.html?view=dock'); true");
+  await delay(350);
+  const dockDelete = await evaluate(`(async () => {
+    const before = JSON.parse(localStorage.getItem('study-ticket-queue:v1'));
+    const card = document.querySelector('.subject-dock-card');
+    const deletedId = card.dataset.subjectId;
+    card.click();
+    const button = document.querySelector('#deleteButton');
+    button.click();
+    const requestedConfirmation = document.querySelector('#detailDialog').open &&
+      button.textContent === 'Confirmar eliminación';
+    button.click();
+    await new Promise(resolve => setTimeout(resolve, 30));
+    const after = JSON.parse(localStorage.getItem('study-ticket-queue:v1'));
+    return {
+      requestedConfirmation,
+      dialogClosed: !document.querySelector('#detailDialog').open,
+      removedFromSubjects: !after.subjects.some(subject => subject.id === deletedId),
+      removedFromRing: !after.ring.includes(deletedId),
+      removedFromRows: !(after.dockRows || []).some(row => row.includes(deletedId)),
+      countChanged: after.subjects.length === before.subjects.length - 1
+    };
+  })()`);
+  if (!dockDelete.requestedConfirmation || !dockDelete.dialogClosed || !dockDelete.removedFromSubjects ||
+      !dockDelete.removedFromRing || !dockDelete.removedFromRows || !dockDelete.countChanged) {
+    throw new Error(`La pestaña Materias no eliminó de forma persistente: ${JSON.stringify(dockDelete)}`);
+  }
+
   console.log("Smoke test minimalista: OK");
   console.log(
     JSON.stringify(
@@ -879,6 +907,7 @@ async function main() {
         queueView,
         queueModulePicker,
         queueDoubleTap,
+        dockDelete,
         screenshotPath,
       },
       null,
