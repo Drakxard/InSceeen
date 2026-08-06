@@ -27,8 +27,8 @@ android {
         applicationId = "com.inscreen.mic"
         minSdk = 26
         targetSdk = 36
-        versionCode = 20
-        versionName = "1.7.11"
+        versionCode = 21
+        versionName = "1.7.12"
 
         buildConfigField(
             "String",

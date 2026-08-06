@@ -52,7 +52,9 @@ class ProviderCacheTest {
             {"nombre":"../1.txt","contenido":"unsafe"},{"nombre":"name.txt","contenido":"invalid"}
         ]}"""
         assertEquals(0, JSONObject(cache.merge("subject", false, invalidNames)).getInt("nuevos"))
-        assertEquals("invalid_stage", JSONObject(cache.merge("subject", false, payload(0, emptyMap()))).getString("error"))
+        assertTrue(JSONObject(cache.merge("subject", false, payload(0, mapOf(1 to "day-zero")))).getBoolean("ok"))
+        assertEquals("day-zero", content(cache.read("subject", false, 0, 1)))
+        assertEquals("invalid_stage", JSONObject(cache.merge("subject", false, payload(7, emptyMap()))).getString("error"))
         assertEquals("invalid_file_number", JSONObject(cache.read("subject", false, 1, 0)).getString("error"))
         assertEquals("file_not_found", JSONObject(cache.read("subject", false, 1, 1)).getString("error"))
     }
