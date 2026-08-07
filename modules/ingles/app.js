@@ -46,10 +46,7 @@ function setView(view) {
 }
 
 function renderCard() {
-  const current = historyFiles[currentFileIndex];
   flashcard.classList.remove('is-flipped');
-  document.getElementById('fileName').textContent = current?.nombre || 'Sin TXT';
-  document.getElementById('cardCounter').textContent = cards.length ? `${cardIndex + 1} / ${cards.length}` : '0 / 0';
   if (!cards.length) return;
   document.getElementById('flashcard-english').textContent = cards[cardIndex].english;
   document.getElementById('flashcard-spanish').textContent = cards[cardIndex].spanish;
@@ -72,10 +69,7 @@ function loadFile(index) {
 }
 
 function showDayCard(message = '') {
-  const file = historyFiles[currentFileIndex];
   flashcard.classList.remove('is-flipped');
-  document.getElementById('fileName').textContent = file?.nombre || 'Sin TXT';
-  document.getElementById('cardCounter').textContent = 'Completado';
   previousDay.disabled = currentFileIndex <= 0;
   nextDay.disabled = false;
   dayNotice.textContent = message;
