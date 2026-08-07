@@ -84,7 +84,7 @@ select:focus-visible {
   --shift-distance: calc(var(--card-height) + var(--queue-gap));
   display: grid;
   gap: var(--queue-gap);
-  touch-action: pan-x;
+  touch-action: none;
 }
 
 body.view-queue .subject-dock {

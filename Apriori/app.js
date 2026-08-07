@@ -8,7 +8,7 @@
   const VIEW = new URLSearchParams(window.location.search).get("view") || "desktop";
   const MODULE_CATALOG_URL = "https://raw.githubusercontent.com/Drakxard/InSceeen/main/modules/index.json";
   const MODULE_RAW_BASE_URL = "https://raw.githubusercontent.com/Drakxard/InSceeen/main/";
-  const DRAG_THRESHOLD = 64;
+  const DRAG_THRESHOLD = 28;
   const CLICK_THRESHOLD = 6;
   const HOLD_DELAY = 150;
   const HOLD_LIFT = 8;
@@ -1020,6 +1020,7 @@
     renderDetailMetrics(subject);
     elements.detailError.textContent = "";
     elements.detailDialog.showModal();
+    requestAnimationFrame(() => elements.detailDialog.focus({ preventScroll: true }));
   }
 
   function renderDetailMetrics(selectedSubject = null) {
@@ -1472,11 +1473,10 @@
     }
     currentDrag.card.classList.remove("is-dragging", "is-held");
 
-    const upwardThrow = currentDrag.deltaY <= -DRAG_THRESHOLD || velocity.y <= -0.45;
-    const sidewaysThrow =
-      Math.abs(currentDrag.deltaX) >= 24 && Math.abs(velocity.x) >= 0.65 && velocity.y <= 0.2;
+    const dragDistance = Math.hypot(currentDrag.deltaX, currentDrag.deltaY);
+    const directedThrow = dragDistance >= DRAG_THRESHOLD;
 
-    if (currentDrag.moved && (upwardThrow || sidewaysThrow)) {
+    if (currentDrag.moved && directedThrow) {
       flingQueue(currentDrag, velocity);
     } else if (currentDrag.moved || currentDrag.held) {
       returnCard(
