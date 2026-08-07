@@ -13,29 +13,24 @@
     <div class="error-card"><h2>Error de ejecución</h2><p id="errorDetailsText" class="error-details-box"></p><button class="btn-confirm" onclick="closeErrorOverlay()">Cerrar</button></div>
   </div>
 
-  <div class="settings-container">
-    <button class="gear-btn" id="gearBtn" title="Configuración" aria-label="Configuración">
-      <svg class="gear-icon" viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
-    </button>
-    <div class="settings-panel" id="settingsPanel">
-      <div class="field-group"><label for="dayInput">Día a solicitar</label><input type="number" id="dayInput" class="input-compact" min="0" max="6" step="1" value="0"></div>
-      <div class="field-group"><label for="promptInput">Instrucción extra (solo preguntas)</label><input type="text" id="promptInput" class="input-compact" placeholder="Ej.: Hazlo fácil y corto"></div>
-      <div class="switch-container"><span class="switch-label" id="modeLabel">Página (preguntas IA)</span><label class="switch"><input type="checkbox" id="modeSwitch"><span class="slider"></span></label></div>
-      <button class="btn-confirm" id="confirmBtn">Cargar material</button><div id="statusMsg" class="status-msg"></div>
-    </div>
-  </div>
-
   <main class="wrapper">
     <section id="screen-main" class="screen active"><div class="container"><h1>Inglés</h1><p class="intro">Elegí cómo querés practicar.</p>
       <div class="options-grid">
-        <button class="option-card option-preguntas" onclick="showScreen('screen-preguntas')"><span class="option-content"><span class="color-dot"></span><span>Preguntas</span></span><span class="icon-wrapper"><svg class="option-icon" viewBox="0 0 24 24" fill="none"><path d="M6 3h9l3 3v15H6zM9 10h6M9 14h6M9 18h4"/></svg></span></button>
-        <button class="option-card option-tarjetas" onclick="showScreen('screen-tarjetas')"><span class="option-content"><span class="color-dot"></span><span>Tarjetas</span></span><span class="icon-wrapper"><svg class="option-icon" viewBox="0 0 24 24" fill="none"><rect x="5" y="4" width="14" height="16" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M18 9h4M2 15h4M18 15h4"/></svg></span></button>
+        <button class="option-card option-preguntas" onclick="loadQuestions()"><span class="option-content"><span class="color-dot"></span><span>Preguntas</span></span><span class="icon-wrapper"><svg class="option-icon" viewBox="0 0 24 24" fill="none"><path d="M6 3h9l3 3v15H6zM9 10h6M9 14h6M9 18h4"/></svg></span></button>
+        <button class="option-card option-tarjetas" onclick="loadTranslations()"><span class="option-content"><span class="color-dot"></span><span>Tarjetas</span></span><span class="icon-wrapper"><svg class="option-icon" viewBox="0 0 24 24" fill="none"><rect x="5" y="4" width="14" height="16" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M18 9h4M2 15h4M18 15h4"/></svg></span></button>
       </div></div>
     </section>
     <section id="screen-preguntas" class="screen"><div class="container"><h2 class="subtitle" id="choi-enunciado">Abrí la configuración y cargá páginas para generar una pregunta.</h2><form class="quiz-options" id="quizOptions"><label class="radio-option"><input type="radio" name="pregunta" value="0"><span class="radio-custom"></span><span id="choi-op-0">Opción A</span></label><label class="radio-option"><input type="radio" name="pregunta" value="1"><span class="radio-custom"></span><span id="choi-op-1">Opción B</span></label><label class="radio-option"><input type="radio" name="pregunta" value="2"><span class="radio-custom"></span><span id="choi-op-2">Opción C</span></label><label class="radio-option"><input type="radio" name="pregunta" value="3"><span class="radio-custom"></span><span id="choi-op-3">Ninguna de las anteriores</span></label></form></div></section>
     <section id="screen-tarjetas" class="screen"><div class="deck-header"><span id="cardCounter">0 / 0</span><span>Deslizá para cambiar</span></div><div id="cardStage" class="card-stage"><article id="flashcard" class="flashcard" tabindex="0" role="button" aria-label="Tarjeta; tocá para ver la traducción"><div class="flashcard-face front"><span class="card-label">INGLÉS</span><p id="flashcard-english" class="card-text">Cargá el material en modo Traducción.</p><span class="tap-hint">Tocá para traducir</span></div><div class="flashcard-face back"><span class="card-label">ESPAÑOL</span><p id="flashcard-spanish" class="card-text">Cada línea debe tener el formato inglés:español.</p><span class="tap-hint">Tocá para volver</span></div></article></div><div class="deck-controls"><button id="previousCard" class="round-btn" aria-label="Tarjeta anterior">←</button><button id="nextCard" class="round-btn" aria-label="Tarjeta siguiente">→</button></div></section>
   </main>
   <div id="back-button-wrapper" class="btn-back-container"><button class="btn-back" onclick="showScreen('screen-main')">← Volver al menú</button></div>
+  <script>
+    // Configuración fija: editá estos valores desde este HTML si la necesitás cambiar.
+    window.INGLES_CONFIG = {
+      day: 0,
+      questionPrompt: ''
+    };
+  </script>
   <script src="app.js"></script>
 </body>
 </html>
