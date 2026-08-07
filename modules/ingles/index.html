@@ -8,29 +8,27 @@
 </head>
 <body>
   <div class="bg-blob blob-1"></div><div class="bg-blob blob-2"></div><div class="bg-blob blob-3"></div>
-
   <div id="errorOverlay" class="error-overlay" role="alertdialog" aria-modal="true">
-    <div class="error-card"><h2>Error de ejecución</h2><p id="errorDetailsText" class="error-details-box"></p><button class="btn-confirm" onclick="closeErrorOverlay()">Cerrar</button></div>
+    <div class="error-card"><h2>Error de ejecución</h2><p id="errorDetailsText" class="error-details-box"></p><button class="primary-btn" onclick="closeErrorOverlay()">Cerrar</button></div>
   </div>
 
   <main class="wrapper">
-    <section id="screen-main" class="screen active"><div class="container"><h1>Inglés</h1><p class="intro">Elegí cómo querés practicar.</p>
-      <div class="options-grid">
-        <button class="option-card option-preguntas" onclick="loadQuestions()"><span class="option-content"><span class="color-dot"></span><span>Preguntas</span></span><span class="icon-wrapper"><svg class="option-icon" viewBox="0 0 24 24" fill="none"><path d="M6 3h9l3 3v15H6zM9 10h6M9 14h6M9 18h4"/></svg></span></button>
-        <button class="option-card option-tarjetas" onclick="loadTranslations()"><span class="option-content"><span class="color-dot"></span><span>Tarjetas</span></span><span class="icon-wrapper"><svg class="option-icon" viewBox="0 0 24 24" fill="none"><rect x="5" y="4" width="14" height="16" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M18 9h4M2 15h4M18 15h4"/></svg></span></button>
-      </div></div>
+    <header class="deck-header"><span id="fileName">Cargando…</span><span id="cardCounter">0 / 0</span></header>
+    <section id="cardStage" class="card-stage" aria-live="polite">
+      <article id="flashcard" class="flashcard is-hidden" tabindex="0" role="button" aria-label="Tarjeta; tocá para ver la traducción">
+        <div class="flashcard-face front"><span class="card-label">INGLÉS</span><p id="flashcard-english" class="card-text"></p><span class="tap-hint">Tocá para traducir</span></div>
+        <div class="flashcard-face back"><span class="card-label">ESPAÑOL</span><p id="flashcard-spanish" class="card-text"></p><span class="tap-hint">Tocá para volver</span></div>
+      </article>
+      <article id="dayCard" class="day-card is-hidden">
+        <span class="card-label">COMPLETADO</span>
+        <h1>Día <span id="dayNumber">—</span></h1>
+        <div class="day-actions"><button id="previousDay" class="day-btn">Anterior</button><button id="nextDay" class="day-btn primary-btn">Siguiente</button></div>
+        <p id="dayNotice" class="day-notice" aria-live="polite"></p>
+      </article>
+      <div id="loadingCard" class="loading-card"><span class="loader"></span><p>Revisando tus tarjetas…</p></div>
     </section>
-    <section id="screen-preguntas" class="screen"><div class="container"><h2 class="subtitle" id="choi-enunciado">Abrí la configuración y cargá páginas para generar una pregunta.</h2><form class="quiz-options" id="quizOptions"><label class="radio-option"><input type="radio" name="pregunta" value="0"><span class="radio-custom"></span><span id="choi-op-0">Opción A</span></label><label class="radio-option"><input type="radio" name="pregunta" value="1"><span class="radio-custom"></span><span id="choi-op-1">Opción B</span></label><label class="radio-option"><input type="radio" name="pregunta" value="2"><span class="radio-custom"></span><span id="choi-op-2">Opción C</span></label><label class="radio-option"><input type="radio" name="pregunta" value="3"><span class="radio-custom"></span><span id="choi-op-3">Ninguna de las anteriores</span></label></form></div></section>
-    <section id="screen-tarjetas" class="screen"><div class="deck-header"><span id="cardCounter">0 / 0</span><span>Deslizá para cambiar</span></div><div id="cardStage" class="card-stage"><article id="flashcard" class="flashcard" tabindex="0" role="button" aria-label="Tarjeta; tocá para ver la traducción"><div class="flashcard-face front"><span class="card-label">INGLÉS</span><p id="flashcard-english" class="card-text">Cargá el material en modo Traducción.</p><span class="tap-hint">Tocá para traducir</span></div><div class="flashcard-face back"><span class="card-label">ESPAÑOL</span><p id="flashcard-spanish" class="card-text">Cada línea debe tener el formato inglés:español.</p><span class="tap-hint">Tocá para volver</span></div></article></div><div class="deck-controls"><button id="previousCard" class="round-btn" aria-label="Tarjeta anterior">←</button><button id="nextCard" class="round-btn" aria-label="Tarjeta siguiente">→</button></div></section>
+    <div id="deckControls" class="deck-controls is-hidden"><button id="previousCard" class="round-btn" aria-label="Tarjeta anterior">←</button><span>Deslizá para cambiar</span><button id="nextCard" class="round-btn" aria-label="Tarjeta siguiente">→</button></div>
   </main>
-  <div id="back-button-wrapper" class="btn-back-container"><button class="btn-back" onclick="showScreen('screen-main')">← Volver al menú</button></div>
-  <script>
-    // Configuración fija: editá estos valores desde este HTML si la necesitás cambiar.
-    window.INGLES_CONFIG = {
-      day: 0,
-      questionPrompt: ''
-    };
-  </script>
   <script src="app.js"></script>
 </body>
 </html>

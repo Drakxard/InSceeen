@@ -64,6 +64,32 @@ class ProviderClientTest {
     }
 
     @Test
+    fun requestsLatestTranslationWithOptionalFileCursor() {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setBody(
+            """{"ok":true,"hayNuevos":true,"archivos":[{"nombre":"9.txt","contenido":"Previous week"}],"nuevaEtapa":{"etapa":15,"archivos":[{"nombre":"1.txt","contenido":"New week"}]}}"""
+        ))
+        server.start()
+        try {
+            val client = ProviderClient(server.url("/").toString(), "secret", OkHttpClient())
+            val latch = CountDownLatch(1)
+            var payload = ""
+            client.requestLatestTranslation("ingles", "8.txt") { payload = it; latch.countDown() }
+            assertTrue(latch.await(2, TimeUnit.SECONDS))
+            val request = server.takeRequest()
+            assertEquals(null, request.requestUrl?.queryParameter("dia"))
+            assertEquals("8.txt", request.requestUrl?.queryParameter("ultimo"))
+            val normalized = JSONObject(payload)
+            assertTrue(normalized.getBoolean("hayNuevos"))
+            assertEquals("9.txt", normalized.getJSONArray("archivos").getJSONObject(0).getString("nombre"))
+            assertEquals(15, normalized.getJSONObject("nuevaEtapa").getInt("etapa"))
+            assertEquals("1.txt", normalized.getJSONObject("nuevaEtapa").getJSONArray("archivos").getJSONObject(0).getString("nombre"))
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
     fun rejectsInvalidDayWithoutNetworkCall() {
         val server = MockWebServer()
         server.start()

@@ -58,26 +58,70 @@ internal class ProviderClient(
         })
     }
 
+    fun requestLatestTranslation(subjectSegment: String, lastFile: String?, callback: (String) -> Unit) {
+        if (subjectSegment.isBlank()) return callback(failure("invalid_subject"))
+        if (lastFile != null && !lastFile.matches(Regex("[1-9][0-9]*\\.txt"))) {
+            return callback(failure("invalid_last_file"))
+        }
+        if (baseUrl.isBlank() || token.isBlank()) return callback(failure("provider_not_configured"))
+        val url = runCatching {
+            "${baseUrl.trimEnd('/')}/api/inscreen/provider/traducciones".toHttpUrl().newBuilder()
+                .addQueryParameter("materia", subjectSegment)
+                .apply { if (lastFile != null) addQueryParameter("ultimo", lastFile) }
+                .build()
+        }.getOrElse { return callback(failure("invalid_provider_url")) }
+        val request = Request.Builder().url(url).header("Authorization", "Bearer $token").get().build()
+        client.newCall(request).enqueue(object : okhttp3.Callback {
+            override fun onFailure(call: okhttp3.Call, error: IOException) = callback(failure("network_error"))
+            override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                response.use { result ->
+                    if (!result.isSuccessful) return callback(failure("http_${result.code}"))
+                    callback(normalizeResponse(result.body?.string().orEmpty()))
+                }
+            }
+        })
+    }
+
     internal fun normalizeResponse(raw: String): String {
         return runCatching {
             val source = JSONObject(raw)
             val ok = source.optBoolean("ok", false)
-            val stage = source.optInt("etapa", 0)
-            if (ok && (!source.has("etapa") || stage !in 0..6)) return failure("invalid_stage")
-            val files = JSONArray()
-            val sourceFiles = source.optJSONArray("archivos") ?: JSONArray()
-            for (index in 0 until sourceFiles.length()) {
-                val item = sourceFiles.optJSONObject(index) ?: continue
-                val name = item.optString("nombre").trim()
-                val content = item.optString("contenido")
-                if (name.matches(Regex("[1-9][0-9]*\\.txt"))) {
-                    files.put(JSONObject().put("nombre", name).put("contenido", content))
+            fun normalizeFiles(sourceFiles: JSONArray): JSONArray {
+                val files = JSONArray()
+                for (index in 0 until sourceFiles.length()) {
+                    val item = sourceFiles.optJSONObject(index) ?: continue
+                    val name = item.optString("nombre").trim()
+                    if (name.matches(Regex("[1-9][0-9]*\\.txt"))) {
+                        files.put(JSONObject().put("nombre", name).put("contenido", item.optString("contenido")))
+                    }
                 }
+                return files
             }
-            JSONObject().put("ok", ok).put("archivos", files).apply {
-                if (ok) put("etapa", stage)
-                else put("error", source.optString("error", "provider_rejected"))
-            }.toString()
+            if (!ok) return JSONObject().put("ok", false).put("archivos", JSONArray())
+                .put("error", source.optString("error", "provider_rejected")).toString()
+
+            val files = normalizeFiles(source.optJSONArray("archivos") ?: JSONArray())
+            if (source.has("nuevaEtapa")) {
+                val newStageSource = source.optJSONObject("nuevaEtapa")
+                val newStage = newStageSource?.let {
+                    val stage = it.optInt("etapa", -1)
+                    if (stage < 0) return failure("invalid_stage")
+                    val stageFiles = normalizeFiles(it.optJSONArray("archivos") ?: JSONArray())
+                    if (stageFiles.length() == 0 || stageFiles.getJSONObject(0).optString("nombre") != "1.txt") {
+                        return failure("invalid_new_stage")
+                    }
+                    JSONObject().put("etapa", stage).put("archivos", stageFiles)
+                }
+                return JSONObject().put("ok", true).put("archivos", files)
+                    .put("nuevaEtapa", newStage ?: JSONObject.NULL)
+                    .put("hayNuevos", source.optBoolean("hayNuevos", files.length() > 0 || newStage != null))
+                    .toString()
+            }
+
+            val stage = source.optInt("etapa", -1)
+            if (stage < 0) return failure("invalid_stage")
+            JSONObject().put("ok", true).put("etapa", stage).put("archivos", files)
+                .put("hayNuevos", source.optBoolean("hayNuevos", files.length() > 0)).toString()
         }.getOrElse { failure("invalid_response") }
     }
 

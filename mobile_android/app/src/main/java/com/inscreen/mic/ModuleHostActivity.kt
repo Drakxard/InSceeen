@@ -205,7 +205,7 @@ class ModuleHostActivity : Activity() {
             const cached=(operation,type,stage,number)=>{
               const normalizedStage=Number(stage);
               if(typeof type!=="boolean")return Promise.resolve({ok:false,archivos:[],error:"invalid_type"});
-              if(!Number.isInteger(normalizedStage)||normalizedStage<0||normalizedStage>6){
+              if(!Number.isInteger(normalizedStage)||normalizedStage<0){
                 return Promise.resolve({ok:false,archivos:[],error:"invalid_stage"});
               }
               if(operation==="archivo"&&(!Number.isInteger(Number(number))||Number(number)<=0)){
@@ -216,6 +216,25 @@ class ModuleHostActivity : Activity() {
                 pending.set(id,resolve);
                 if(operation==="archivos")native.cachedFiles(id,type,normalizedStage);
                 else native.cachedFile(id,type,normalizedStage,Number(number));
+              });
+            };
+            const history=(type)=>{
+              if(typeof type!=="boolean")return Promise.resolve({ok:false,archivos:[],error:"invalid_type"});
+              return new Promise((resolve)=>{
+                const id=String(++sequence);
+                pending.set(id,resolve);
+                native.cachedHistory(id,type);
+              });
+            };
+            const latestTranslation=(lastFile)=>{
+              if(lastFile!==false&&lastFile!==null&&lastFile!==undefined&&
+                 (typeof lastFile!=="string"||!/^[1-9][0-9]*\.txt$/.test(lastFile))){
+                return Promise.resolve({ok:false,archivos:[],error:"invalid_last_file"});
+              }
+              return new Promise((resolve)=>{
+                const id=String(++sequence);
+                pending.set(id,resolve);
+                native.requestLatestTranslation(id,typeof lastFile==="string"?lastFile:"");
               });
             };
             const query=(question,content)=>{
@@ -243,9 +262,10 @@ class ModuleHostActivity : Activity() {
               context:()=>JSON.parse(native.context()),
               respyPreg:unavailable,
               paginasLeidas:(day)=>request("paginasLeidas",day),
-              traduccion:(day)=>request("traduccion",day),
+              traduccion:(cursor)=>typeof cursor==="number"?request("traduccion",cursor):latestTranslation(cursor),
               archivos:(type,stage)=>cached("archivos",type,stage),
               archivo:(type,stage,number)=>cached("archivo",type,stage,number),
+              historial:(type)=>history(type),
               consulta:(question,content)=>query(question,content)
             }};
             delete window.InScreenModuleNative;
@@ -324,6 +344,14 @@ class ModuleHostActivity : Activity() {
             }
         }
 
+        @JavascriptInterface fun requestLatestTranslation(requestId: String, lastFile: String) {
+            if (requestId.length !in 1..64) return
+            ProviderClient.shared.requestLatestTranslation(subjectSegment, lastFile.ifBlank { null }) { payload ->
+                val merged = if (JSONObject(payload).optBoolean("ok", false)) cache.merge(id, true, payload) else payload
+                deliver(requestId, merged)
+            }
+        }
+
         @JavascriptInterface fun cachedFiles(requestId: String, type: Boolean, stage: Int) {
             if (requestId.length !in 1..64) return
             deliver(requestId, cache.list(id, type, stage))
@@ -332,6 +360,11 @@ class ModuleHostActivity : Activity() {
         @JavascriptInterface fun cachedFile(requestId: String, type: Boolean, stage: Int, number: Int) {
             if (requestId.length !in 1..64) return
             deliver(requestId, cache.read(id, type, stage, number))
+        }
+
+        @JavascriptInterface fun cachedHistory(requestId: String, type: Boolean) {
+            if (requestId.length !in 1..64) return
+            deliver(requestId, cache.history(id, type))
         }
 
         @JavascriptInterface fun groqQuery(requestId: String, question: String, content: String) {

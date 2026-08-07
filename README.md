@@ -191,6 +191,12 @@ como entero positivo y archivos nombrados `N.txt`. Cada respuesta exitosa se fus
 el almacenamiento privado de la materia y devuelve el inventario completo junto con
 `nuevos`, sin sobrescribir TXT que ya existan.
 
+Para recorrer traducciones por etapas semanales, `traduccion(ultimoTxt)` acepta el nombre
+del último archivo guardado (`"6.txt"`) o `false` cuando todavía no hay ninguno. El
+proveedor resuelve la etapa vigente, guarda un nuevo `1.txt` en otra carpeta y devuelve
+`hayNuevos` junto con el grupo `nuevaEtapa`. `historial(true)` entrega todos los TXT de traducción en orden
+cronológico, conservando archivos con el mismo nombre que pertenezcan a semanas distintas.
+
 Los módulos pueden consultar lo persistido con `archivos(tipo, etapa)` y
 `archivo(tipo, etapa, numero)`. Ambas funciones devuelven Promises; `tipo=false` representa
 páginas y `tipo=true` transcripciones. La primera devuelve el inventario numéricamente
