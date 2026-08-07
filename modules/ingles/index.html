@@ -21,15 +21,18 @@
       <article id="questionCard" class="question-card is-hidden" aria-live="polite">
         <p class="question-prompt" id="questionPromptText"></p>
         <div id="questionOptions" class="question-options"></div>
+        <p id="questionStatus" class="question-status" aria-live="polite"></p>
+        <button id="retryQuestions" class="question-retry is-hidden" type="button">Reintentar</button>
       </article>
       <article id="dayCard" class="day-card is-hidden">
-        <div class="day-actions"><button id="previousDay" class="day-btn">Anterior</button><button id="retryDay" class="retry-btn" aria-label="Reintentar">↻</button><button id="nextDay" class="day-btn primary-btn">Siguiente</button></div>
-        <p id="dayNotice" class="day-notice" aria-live="polite"></p>
+        <span class="completion-label">COMPLETADO</span>
+        <div class="completion-center"><p id="dayNotice" class="day-notice" aria-live="polite"></p><button id="retryDay" class="retry-btn" aria-label="Reintentar">↻</button></div>
+        <div class="day-actions"><button id="previousDay" class="day-btn">Anterior</button><button id="nextDay" class="day-btn primary-btn">Siguiente</button></div>
       </article>
-      <div id="loadingCard" class="loading-card"><span class="loader"></span><p>Revisando tus tarjetas…</p></div>
+      <div id="loadingCard" class="loading-card"><span class="loader"></span><p id="loadingText">Revisando tus tarjetas…</p></div>
     </section>
   </main>
-  <script type="text/plain" id="questionPrompt">Tomá la palabra en inglés indicada y proponé cuatro opciones de traducción. La cuarta opción debe ser siempre "Ninguna de las anteriores". Mezclá al azar la traducción correcta entre las primeras tres opciones o hacé correcta la opción "Ninguna de las anteriores".</script>
+  <script type="text/plain" id="questionPrompt">Recibirás un arreglo JSON de hasta cinco objetos con {"id":"identificador","linea":"inglés:español"}. Para cada objeto devolvé exactamente cuatro traducciones candidatas, distintas y en orden aleatorio. Una de las cuatro debe ser la traducción correcta, copiada exactamente desde la parte española de la línea. No uses "Ninguna de las anteriores" entre las candidatas. Respondé únicamente JSON válido con esta forma exacta: {"preguntas":[{"id":"mismo identificador","opciones":["traducción 1","traducción 2","traducción 3","traducción 4"],"correcta":0}]}. "correcta" debe indicar la posición de la traducción correcta con un entero entre 0 y 3. Devolvé un elemento por cada objeto recibido y no inventes identificadores.</script>
   <script src="app.js"></script>
 </body>
 </html>
