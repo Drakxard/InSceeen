@@ -6,13 +6,12 @@ let pointerStartX = null;
 let didSwipe = false;
 
 const flashcard = document.getElementById('flashcard');
+const cardStage = document.getElementById('cardStage');
 const dayCard = document.getElementById('dayCard');
 const loadingCard = document.getElementById('loadingCard');
-const deckControls = document.getElementById('deckControls');
-const previousCard = document.getElementById('previousCard');
-const nextCard = document.getElementById('nextCard');
 const previousDay = document.getElementById('previousDay');
 const nextDay = document.getElementById('nextDay');
+const retryDay = document.getElementById('retryDay');
 const dayNotice = document.getElementById('dayNotice');
 
 function openErrorOverlay(context, error) {
@@ -44,7 +43,6 @@ function setView(view) {
   flashcard.classList.toggle('is-hidden', view !== 'card');
   dayCard.classList.toggle('is-hidden', view !== 'day');
   loadingCard.classList.toggle('is-hidden', view !== 'loading');
-  deckControls.classList.toggle('is-hidden', view !== 'card');
 }
 
 function renderCard() {
@@ -55,7 +53,6 @@ function renderCard() {
   if (!cards.length) return;
   document.getElementById('flashcard-english').textContent = cards[cardIndex].english;
   document.getElementById('flashcard-spanish').textContent = cards[cardIndex].spanish;
-  previousCard.disabled = cardIndex === 0;
 }
 
 function loadFile(index) {
@@ -77,7 +74,6 @@ function loadFile(index) {
 function showDayCard(message = '') {
   const file = historyFiles[currentFileIndex];
   flashcard.classList.remove('is-flipped');
-  document.getElementById('dayNumber').textContent = file?.numero || Number.parseInt(file?.nombre, 10) || '—';
   document.getElementById('fileName').textContent = file?.nombre || 'Sin TXT';
   document.getElementById('cardCounter').textContent = 'Completado';
   previousDay.disabled = currentFileIndex <= 0;
@@ -139,15 +135,15 @@ flashcard.addEventListener('keydown', event => {
   if (event.key === 'ArrowRight') moveCard(1);
   if (event.key === 'ArrowLeft') moveCard(-1);
 });
-flashcard.addEventListener('pointerdown', event => { pointerStartX = event.clientX; flashcard.setPointerCapture(event.pointerId); });
-flashcard.addEventListener('pointerup', event => {
+cardStage.addEventListener('pointerdown', event => { pointerStartX = event.clientX; cardStage.setPointerCapture(event.pointerId); });
+cardStage.addEventListener('pointerup', event => {
   if (pointerStartX === null) return;
   const delta = event.clientX - pointerStartX; pointerStartX = null;
+  if (Math.abs(delta) > 50 && !dayCard.classList.contains('is-hidden')) return;
   if (Math.abs(delta) > 50) { didSwipe = true; moveCard(delta < 0 ? 1 : -1); }
 });
-previousCard.addEventListener('click', () => moveCard(-1));
-nextCard.addEventListener('click', () => moveCard(1));
 previousDay.addEventListener('click', () => { if (currentFileIndex > 0) loadFile(currentFileIndex - 1); });
+retryDay.addEventListener('click', () => loadFile(currentFileIndex));
 nextDay.addEventListener('click', async () => {
   if (currentFileIndex + 1 < historyFiles.length) { loadFile(currentFileIndex + 1); return; }
   const currentId = historyFiles[currentFileIndex]?.id;
