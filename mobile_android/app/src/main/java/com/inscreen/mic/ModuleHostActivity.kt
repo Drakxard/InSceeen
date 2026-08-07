@@ -16,6 +16,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Button
+import androidx.webkit.WebViewAssetLoader
 import org.json.JSONObject
 
 class ModuleHostActivity : Activity() {
@@ -142,16 +143,16 @@ class ModuleHostActivity : Activity() {
             textSize = 17f
             gravity = Gravity.CENTER
         })
-        ModuleCatalog.loadHtml(module) { loaded -> runOnUiThread {
+        ModuleCatalog.loadPackage(module) { loaded -> runOnUiThread {
             loaded.fold(
-                onSuccess = { html ->
+                onSuccess = { packageFiles ->
                     runCatching {
-                        moduleCache.write(subjectId, module, html)
+                        moduleCache.write(subjectId, module, packageFiles.files)
                         if (persistAssignment) {
                             check(AprioriStore.assignModule(this@ModuleHostActivity, subjectId, module))
                         }
                     }.fold(
-                        onSuccess = { showModuleHtml(module, html) },
+                        onSuccess = { showModuleHtml(module, packageFiles.html) },
                         onFailure = { showModuleLoadError(module, persistAssignment) },
                     )
                 },
@@ -255,13 +256,22 @@ class ModuleHostActivity : Activity() {
             html.substring(0, head.range.last + 1) + bootstrap + html.substring(head.range.last + 1)
         val view = WebView(this)
         moduleWebView = view
+        val assets = WebViewAssetLoader.Builder()
+            .addPathHandler(
+                "/module-assets/",
+                WebViewAssetLoader.InternalStoragePathHandler(this, moduleCache.directory(subjectId)),
+            )
+            .build()
         view.apply {
             setBackgroundColor(Color.WHITE)
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.allowFileAccess = false
             settings.allowContentAccess = false
-            webViewClient = WebViewClient()
+            webViewClient = object : WebViewClient() {
+                override fun shouldInterceptRequest(view: WebView?, request: android.webkit.WebResourceRequest?) =
+                    request?.url?.let(assets::shouldInterceptRequest)
+            }
             addJavascriptInterface(
                 ModuleBridge(subjectId, subjectName, providerSubjectSegment, providerCache, groqCredentialStore) { requestId, payload ->
                     runOnUiThread {
@@ -276,7 +286,7 @@ class ModuleHostActivity : Activity() {
                 },
                 "InScreenModuleNative",
             )
-            loadDataWithBaseURL(module.url(), bootstrapped, "text/html", "utf-8", null)
+            loadDataWithBaseURL("https://appassets.androidplatform.net/module-assets/", bootstrapped, "text/html", "utf-8", null)
         }
         setContentView(view)
     }

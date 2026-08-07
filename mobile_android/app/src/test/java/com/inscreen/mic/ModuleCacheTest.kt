@@ -5,6 +5,7 @@ import org.junit.Assert.assertNull
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.io.File
 
 class ModuleCacheTest {
     @get:Rule val temporary = TemporaryFolder()
@@ -14,20 +15,21 @@ class ModuleCacheTest {
 
     @Test fun persistsAndIsolatesHtmlBySubject() {
         val cache = ModuleCache.at(temporary.newFolder("modules"))
-        cache.write("materia-1", first, "<h1>uno</h1>")
-        cache.write("materia-2", first, "<h1>dos</h1>")
+        cache.write("materia-1", first, mapOf("index.html" to "<h1>uno</h1>".toByteArray(), "styles.css" to "body{}".toByteArray()))
+        cache.write("materia-2", first, mapOf("index.html" to "<h1>dos</h1>".toByteArray()))
 
         assertEquals("<h1>uno</h1>", cache.read("materia-1", first))
         assertEquals("<h1>dos</h1>", cache.read("materia-2", first))
+        assertEquals("body{}", File(cache.directory("materia-1"), "styles.css").readText())
         assertNull(cache.read("materia-1", second))
     }
 
     @Test fun replacingAssignmentRemovesOldModuleAndDeleteIsPerSubject() {
         val root = temporary.newFolder("modules")
         val cache = ModuleCache.at(root)
-        cache.write("materia-1", first, "anterior")
-        cache.write("materia-1", second, "nuevo")
-        cache.write("materia-2", first, "otra")
+        cache.write("materia-1", first, mapOf("index.html" to "anterior".toByteArray()))
+        cache.write("materia-1", second, mapOf("index.html" to "nuevo".toByteArray()))
+        cache.write("materia-2", first, mapOf("index.html" to "otra".toByteArray()))
 
         assertNull(cache.read("materia-1", first))
         assertEquals("nuevo", cache.read("materia-1", second))
@@ -38,8 +40,8 @@ class ModuleCacheTest {
 
     @Test fun reconcileRemovesDeletedSubjectsOnly() {
         val cache = ModuleCache.at(temporary.newFolder("modules"))
-        cache.write("keep", first, "guardado")
-        cache.write("delete", first, "borrar")
+        cache.write("keep", first, mapOf("index.html" to "guardado".toByteArray()))
+        cache.write("delete", first, mapOf("index.html" to "borrar".toByteArray()))
 
         cache.reconcile(setOf("keep"))
 
