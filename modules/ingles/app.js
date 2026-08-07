@@ -4,6 +4,9 @@ let cards = [];
 let cardIndex = 0;
 let pointerStartX = null;
 let didSwipe = false;
+let questionHoldTimer = null;
+let questionMode = false;
+let questionCorrectIndex = -1;
 
 const flashcard = document.getElementById('flashcard');
 const cardStage = document.getElementById('cardStage');
@@ -13,6 +16,9 @@ const previousDay = document.getElementById('previousDay');
 const nextDay = document.getElementById('nextDay');
 const retryDay = document.getElementById('retryDay');
 const dayNotice = document.getElementById('dayNotice');
+const questionCard = document.getElementById('questionCard');
+const questionPromptText = document.getElementById('questionPromptText');
+const questionOptions = document.getElementById('questionOptions');
 
 function openErrorOverlay(context, error) {
   document.getElementById('errorDetailsText').textContent = `${context}\n\n${error?.message || String(error)}`;
@@ -41,8 +47,53 @@ function parseCards(file) {
 
 function setView(view) {
   flashcard.classList.toggle('is-hidden', view !== 'card');
+  questionCard.classList.toggle('is-hidden', view !== 'question');
   dayCard.classList.toggle('is-hidden', view !== 'day');
   loadingCard.classList.toggle('is-hidden', view !== 'loading');
+}
+
+function renderQuestion() {
+  if (!cards.length) return;
+  const current = cards[cardIndex];
+  const alternatives = shuffle(cards.filter(card => card !== current).map(card => card.spanish));
+  const fallbackOptions = ['No corresponde', 'Traducción no disponible', 'Otra opción'];
+  while (alternatives.length < 3) alternatives.push(fallbackOptions[alternatives.length]);
+  const useNone = Math.random() < 0.35;
+  const choices = useNone
+    ? alternatives.slice(0, 3)
+    : shuffle([current.spanish, ...alternatives.slice(0, 2)]);
+  questionCorrectIndex = useNone ? 3 : choices.indexOf(current.spanish);
+  questionPromptText.textContent = `¿Cuál es la traducción de “${current.english}”?`;
+  questionOptions.replaceChildren();
+  [...choices, 'Ninguna de las anteriores'].forEach((choice, index) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'question-option';
+    button.textContent = choice;
+    button.addEventListener('click', () => {
+      questionOptions.querySelectorAll('button').forEach(option => option.classList.remove('is-correct', 'is-wrong'));
+      button.classList.add(index === questionCorrectIndex ? 'is-correct' : 'is-wrong');
+    });
+    questionOptions.append(button);
+  });
+}
+
+function enterQuestionMode() {
+  if (questionMode || !cards.length) return;
+  questionMode = true;
+  renderQuestion();
+  setView('question');
+}
+
+function leaveQuestionMode() {
+  questionMode = false;
+  setView('card');
+  renderCard();
+}
+
+function toggleQuestionMode() {
+  if (questionMode) leaveQuestionMode();
+  else enterQuestionMode();
 }
 
 function renderCard() {
@@ -68,7 +119,18 @@ function loadFile(index) {
   renderCard();
 }
 
-function showDayCard(message = '') {
+function showDayCard(message = '', animate = false) {
+  if (animate) {
+    flashcard.classList.remove('is-flipped');
+    flashcard.classList.add('leaving-left');
+    window.setTimeout(() => {
+      setView('day');
+      dayCard.classList.add('entering-right');
+      requestAnimationFrame(() => dayCard.classList.remove('entering-right'));
+      flashcard.classList.remove('leaving-left');
+    }, 180);
+    return;
+  }
   flashcard.classList.remove('is-flipped');
   previousDay.disabled = currentFileIndex <= 0;
   nextDay.disabled = false;
@@ -79,13 +141,14 @@ function showDayCard(message = '') {
 function moveCard(direction) {
   if (!cards.length) return;
   if (direction < 0 && cardIndex === 0) return;
-  if (direction > 0 && cardIndex === cards.length - 1) { showDayCard(); return; }
+  if (direction > 0 && cardIndex === cards.length - 1) { showDayCard('', true); return; }
   flashcard.classList.remove('is-flipped');
   flashcard.classList.add(direction > 0 ? 'leaving-left' : 'leaving-right');
   window.setTimeout(() => {
     cardIndex += direction;
     renderCard();
-    flashcard.classList.remove('leaving-left', 'leaving-right');
+    flashcard.classList.remove('leaving-left', 'leaving-right', 'entering-right', 'entering-left');
+    void flashcard.offsetWidth;
     flashcard.classList.add(direction > 0 ? 'entering-right' : 'entering-left');
     requestAnimationFrame(() => flashcard.classList.remove('entering-right', 'entering-left'));
   }, 180);
@@ -129,6 +192,17 @@ flashcard.addEventListener('keydown', event => {
   if (event.key === 'ArrowRight') moveCard(1);
   if (event.key === 'ArrowLeft') moveCard(-1);
 });
+function clearQuestionHold() {
+  if (questionHoldTimer !== null) window.clearTimeout(questionHoldTimer);
+  questionHoldTimer = null;
+}
+document.body.addEventListener('pointerdown', event => {
+  if (event.target !== document.body && !event.target.classList.contains('bg-blob')) return;
+  clearQuestionHold();
+  questionHoldTimer = window.setTimeout(toggleQuestionMode, 800);
+});
+document.body.addEventListener('pointerup', clearQuestionHold);
+document.body.addEventListener('pointercancel', clearQuestionHold);
 cardStage.addEventListener('pointerdown', event => { pointerStartX = event.clientX; cardStage.setPointerCapture(event.pointerId); });
 cardStage.addEventListener('pointerup', event => {
   if (pointerStartX === null) return;
