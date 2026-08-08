@@ -37,4 +37,17 @@ class PairConfigTest {
             PairingStore.sha256Hex("abc".toByteArray()),
         )
     }
+
+    @Test
+    fun parsesProviderPairLinkSeparately() {
+        val token = "ipb1." + "a".repeat(80)
+        val config = ProviderPairLink.fromLink(
+            "inscreen://provider-pair?base_url=https%3A%2F%2Fprovider.example&token=$token"
+        )
+        assertEquals("https://provider.example", config.baseUrl)
+        assertEquals(token, config.token)
+        assertThrows(IllegalArgumentException::class.java) {
+            ProviderPairLink.fromLink("inscreen://provider-pair?base_url=http%3A%2F%2Finsecure.example&token=$token")
+        }
+    }
 }
