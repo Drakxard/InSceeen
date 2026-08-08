@@ -6,7 +6,6 @@ $signingRoot = Join-Path $androidRoot ".signing"
 $propertiesPath = Join-Path $signingRoot "keystore.properties"
 $keystorePath = Join-Path $signingRoot "inscreen-release.jks"
 $wrapperJar = Join-Path $androidRoot "gradle\wrapper\gradle-wrapper.jar"
-$providerPropertiesPath = Join-Path $androidRoot ".provider\provider.properties"
 
 function Find-Java17Home {
     $candidates = @()
@@ -58,14 +57,6 @@ if (-not (Test-Path (Join-Path $taskAndroidSdk "platforms\android-36"))) {
 
 if (-not (Test-Path $wrapperJar)) {
     throw "Falta gradle-wrapper.jar. Restaura el wrapper del proyecto antes de compilar."
-}
-
-if (-not (Test-Path $providerPropertiesPath)) {
-    throw "Falta mobile_android\.provider\provider.properties. Copia provider.properties.example y configura baseUrl y token."
-}
-$providerProperties = Get-Content $providerPropertiesPath -Raw
-if ($providerProperties -notmatch '(?m)^baseUrl=https://[^\r\n]+\r?$' -or $providerProperties -notmatch '(?m)^token=[^\r\n]+\r?$') {
-    throw "La configuración del proveedor debe incluir baseUrl HTTPS y token."
 }
 
 if (-not (Test-Path $propertiesPath)) {

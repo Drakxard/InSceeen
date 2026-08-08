@@ -11,14 +11,6 @@ if (signingPropertiesFile.exists()) {
     signingPropertiesFile.inputStream().use(signingProperties::load)
 }
 
-val providerPropertiesFile = rootProject.file(".provider/provider.properties")
-val providerProperties = Properties()
-if (providerPropertiesFile.exists()) {
-    providerPropertiesFile.inputStream().use(providerProperties::load)
-}
-fun buildConfigString(value: String): String =
-    "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
-
 android {
     namespace = "com.inscreen.mic"
     compileSdk = 36
@@ -27,19 +19,8 @@ android {
         applicationId = "com.inscreen.mic"
         minSdk = 26
         targetSdk = 36
-        versionCode = 25
-        versionName = "1.7.16"
-
-        buildConfigField(
-            "String",
-            "PROVIDER_BASE_URL",
-            buildConfigString(providerProperties.getProperty("baseUrl", "")),
-        )
-        buildConfigField(
-            "String",
-            "PROVIDER_TOKEN",
-            buildConfigString(providerProperties.getProperty("token", "")),
-        )
+        versionCode = 26
+        versionName = "1.8.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

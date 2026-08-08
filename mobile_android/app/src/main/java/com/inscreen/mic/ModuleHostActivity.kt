@@ -26,6 +26,9 @@ class ModuleHostActivity : Activity() {
     private var moduleWebView: WebView? = null
     private val providerCache by lazy { ProviderCache.from(this) }
     private val groqCredentialStore by lazy { GroqCredentialStore(this) }
+    private val providerClient by lazy {
+        ProviderCredentialStore(this).load()?.let { ProviderClient(it.baseUrl, it.token) }
+    }
     private val moduleCache by lazy { ModuleCache.from(this) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -293,7 +296,7 @@ class ModuleHostActivity : Activity() {
                     request?.url?.let(assets::shouldInterceptRequest)
             }
             addJavascriptInterface(
-                ModuleBridge(subjectId, subjectName, providerSubjectSegment, providerCache, groqCredentialStore) { requestId, payload ->
+                ModuleBridge(subjectId, subjectName, providerSubjectSegment, providerCache, groqCredentialStore, providerClient) { requestId, payload ->
                     runOnUiThread {
                         if (isFinishing || moduleWebView !== view) return@runOnUiThread
                         val quotedId = JSONObject.quote(requestId)
@@ -323,6 +326,7 @@ class ModuleHostActivity : Activity() {
         private val subjectSegment: String,
         private val cache: ProviderCache,
         private val groqCredentials: GroqCredentialStore,
+        private val providerClient: ProviderClient?,
         private val deliver: (String, String) -> Unit,
     ) {
         @JavascriptInterface fun context(): String = JSONObject()
@@ -336,7 +340,8 @@ class ModuleHostActivity : Activity() {
 
         @JavascriptInterface fun request(requestId: String, kind: String, day: Int) {
             if (requestId.length !in 1..64) return
-            ProviderClient.shared.request(kind, subjectSegment, day) { payload ->
+            val client = providerClient ?: return deliver(requestId, providerNotConfigured(day))
+            client.request(kind, subjectSegment, day) { payload ->
                 val merged = if (JSONObject(payload).optBoolean("ok", false)) {
                     cache.merge(id, kind == "traduccion", payload)
                 } else payload
@@ -346,7 +351,8 @@ class ModuleHostActivity : Activity() {
 
         @JavascriptInterface fun requestLatestTranslation(requestId: String, lastFile: String) {
             if (requestId.length !in 1..64) return
-            ProviderClient.shared.requestLatestTranslation(subjectSegment, lastFile.ifBlank { null }) { payload ->
+            val client = providerClient ?: return deliver(requestId, providerNotConfigured(-1))
+            client.requestLatestTranslation(subjectSegment, lastFile.ifBlank { null }) { payload ->
                 val merged = if (JSONObject(payload).optBoolean("ok", false)) cache.merge(id, true, payload) else payload
                 deliver(requestId, merged)
             }

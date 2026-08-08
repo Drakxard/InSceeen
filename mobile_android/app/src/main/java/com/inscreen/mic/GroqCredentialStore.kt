@@ -25,13 +25,23 @@ internal class GroqCredentialStore(context: Context) {
 
     fun save(apiKey: String, model: String) {
         require(apiKey.isNotBlank() && model.isNotBlank())
+        saveEncryptedApiKey(apiKey)
+        preferences.edit().putString(KEY_MODEL, model).apply()
+    }
+
+    fun saveApiKey(apiKey: String) {
+        require(apiKey.isNotBlank())
+        saveEncryptedApiKey(apiKey)
+        preferences.edit().remove(KEY_MODEL).apply()
+    }
+
+    private fun saveEncryptedApiKey(apiKey: String) {
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, secretKey(true))
         val encrypted = cipher.doFinal(apiKey.toByteArray(Charsets.UTF_8))
         preferences.edit()
             .putString(KEY_CIPHERTEXT, Base64.encodeToString(encrypted, Base64.NO_WRAP))
             .putString(KEY_IV, Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
-            .putString(KEY_MODEL, model)
             .apply()
     }
 

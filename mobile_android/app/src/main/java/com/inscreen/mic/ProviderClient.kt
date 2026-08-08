@@ -128,7 +128,4 @@ internal class ProviderClient(
     private fun failure(error: String): String = JSONObject()
         .put("ok", false).put("archivos", JSONArray()).put("error", error).toString()
 
-    companion object {
-        val shared by lazy { ProviderClient(BuildConfig.PROVIDER_BASE_URL, BuildConfig.PROVIDER_TOKEN) }
-    }
 }

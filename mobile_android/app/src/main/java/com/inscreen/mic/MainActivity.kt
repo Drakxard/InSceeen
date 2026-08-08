@@ -131,7 +131,7 @@ class MainActivity : ComponentActivity() {
         if (link.isNullOrBlank()) {
             refreshPairingState()
         } else {
-            handlePairLink(link)
+            handleScannedLink(link)
         }
     }
 
@@ -139,7 +139,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleNavigationIntent(intent)
-        handlePairLink(intent?.dataString)
+        handleScannedLink(intent?.dataString)
     }
 
     override fun onResume() {
@@ -389,6 +389,26 @@ class MainActivity : ComponentActivity() {
                 showState("DESCONECTADO")
             }
             content.addView(button, matchWidth())
+        }
+        terminalButton(if (ProviderCredentialStore(this).load() == null) "VINCULAR PROVEEDOR" else "PROVEEDOR VINCULADO").also { button ->
+            button.setOnClickListener {
+                if (ProviderCredentialStore(this).load() == null) {
+                    openScanner()
+                } else {
+                    AlertDialog.Builder(this)
+                        .setTitle("Proveedor InScreen")
+                        .setMessage("El proveedor esta vinculado. Podes reemplazarlo escaneando otro QR o quitarlo de este telefono.")
+                        .setPositiveButton("ESCANEAR OTRO") { _, _ -> openScanner() }
+                        .setNegativeButton("QUITAR") { _, _ ->
+                            ProviderCredentialStore(this).clear()
+                            button.text = "VINCULAR PROVEEDOR"
+                            Toast.makeText(this, "Proveedor quitado del telefono", Toast.LENGTH_SHORT).show()
+                        }
+                        .setNeutralButton("CANCELAR", null)
+                        .show()
+                }
+            }
+            content.addView(button, matchWidth(18))
         }
         mediaControlButton = terminalButton("CONTROL MULTIMEDIA").also { button ->
             button.setOnClickListener { explainMediaAccess() }
@@ -903,10 +923,10 @@ class MainActivity : ComponentActivity() {
                     .addOnSuccessListener { codes ->
                         val link = codes.firstNotNullOfOrNull { it.rawValue }
                         if (link != null && accepted.compareAndSet(false, true)) {
-                            val valid = runCatching { PairConfig.fromLink(link) }.isSuccess
+                            val valid = runCatching { PairConfig.fromLink(link) }.isSuccess || runCatching { ProviderPairLink.fromLink(link) }.isSuccess
                             if (valid) {
                                 closeScanner()
-                                handlePairLink(link)
+                                handleScannedLink(link)
                             } else accepted.set(false)
                         }
                     }
@@ -941,6 +961,39 @@ class MainActivity : ComponentActivity() {
                 runOnUiThread {
                     pairingInProgress = false
                     showState("ERROR DE VINCULACIÓN")
+                }
+            }
+        }
+    }
+
+    private fun handleScannedLink(link: String?) {
+        if (link.isNullOrBlank()) return
+        if (runCatching { ProviderPairLink.fromLink(link) }.isSuccess) handleProviderPairLink(link)
+        else handlePairLink(link)
+    }
+
+    private fun handleProviderPairLink(link: String) {
+        if (pairingInProgress) return
+        val parsed = runCatching { ProviderPairLink.fromLink(link) }.getOrNull() ?: return
+        pairingInProgress = true
+        showState("VINCULANDO PROVEEDOR...")
+        thread(name = "InScreenProviderPairing") {
+            try {
+                val store = ProviderCredentialStore(this)
+                val result = ProviderPairingClient().redeem(parsed, store.installationId())
+                store.save(result.credentials)
+                GroqCredentialStore(this).saveApiKey(result.groqApiKey)
+                runOnUiThread {
+                    pairingInProgress = false
+                    showState("PROVEEDOR VINCULADO")
+                    Toast.makeText(this, "R2 y Groq vinculados. Elegi el modelo Groq.", Toast.LENGTH_LONG).show()
+                    showGroqSettings()
+                }
+            } catch (error: Exception) {
+                runOnUiThread {
+                    pairingInProgress = false
+                    showState("ERROR DE PROVEEDOR")
+                    Toast.makeText(this, error.message ?: "No se pudo vincular el proveedor", Toast.LENGTH_LONG).show()
                 }
             }
         }

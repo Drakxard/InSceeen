@@ -220,10 +220,15 @@ materia antes de confirmar su asignación. Las aperturas posteriores —desde la
 widget— usan esa copia incluso sin conexión. La copia sólo se elimina al quitar el módulo
 con `×` desde el detalle de la materia o al eliminar la materia.
 
-La URL y el Bearer token se leen de `mobile_android/.provider/provider.properties`, que no
-se versiona. Copia `mobile_android/provider.properties.example` y completa ambos valores
-antes de compilar. El token queda incorporado al APK y no debe considerarse un secreto
-irrecuperable frente a quien tenga acceso al archivo.
+La URL y el acceso al proveedor ya no se compilan en el APK. Después de cargar Groq,
+Marker y R2 en la web, el cuarto paso muestra un QR `inscreen://provider-pair`. La APK lo
+canjea una sola vez, guarda la cápsula del proveedor y la clave Groq mediante Android
+Keystore y solicita que elijas el modelo Groq. Marker nunca se transfiere al teléfono.
+
+El QR vence a los cinco minutos. Puedes reemplazar o quitar el proveedor desde la pantalla
+de conexión; para bloquear una cápsula ya emitida, revoca el dispositivo desde la web.
+Cada usuario consume su propio R2 y su propia cuenta Groq, mientras Vercel solamente
+autoriza el dispositivo, consulta ese R2 y devuelve los TXT.
 
 Los días relativos son: `6` día de clase, `5` un día después, hasta `1` cinco días después;
 `0` representa el día anterior a la siguiente clase.

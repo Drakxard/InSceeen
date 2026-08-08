@@ -35,6 +35,7 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="inscreen" android:host="pair" />
+                <data android:scheme="inscreen" android:host="provider-pair" />
             </intent-filter>
         </activity>
         <activity
