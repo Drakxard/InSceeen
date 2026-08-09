@@ -12,6 +12,7 @@ let cardIndex = 0;
 let questionIndex = 0;
 let pointerStartX = null;
 let didSwipe = false;
+let suppressQuestionClick = false;
 let questionHoldTimer = null;
 let questionMode = false;
 let questionAnimating = false;
@@ -328,7 +329,7 @@ function loadFile(index) {
   }
   currentFileIndex = index;
   cards = shuffle(parsed);
-  questionCards = parsed;
+  questionCards = cards;
   cardIndex = 0;
   questionIndex = 0;
   questionMode = false;
@@ -401,11 +402,13 @@ function moveQuestion(direction) {
 
 async function enterQuestionMode() {
   if (questionMode || !questionCards.length) return;
+  questionIndex = cardIndex;
   questionMode = true;
   await ensureQuestion(questionIndex);
 }
 
 function leaveQuestionMode() {
+  cardIndex = questionIndex;
   questionMode = false;
   setView('card');
   renderCard();
@@ -493,12 +496,22 @@ cardStage.addEventListener('pointerup', event => {
   const delta = event.clientX - pointerStartX;
   pointerStartX = null;
   if (Math.abs(delta) <= 50 || !dayCard.classList.contains('is-hidden')) return;
-  if (!questionMode) didSwipe = true;
+  if (questionMode) {
+    suppressQuestionClick = true;
+    window.setTimeout(() => { suppressQuestionClick = false; }, 0);
+  } else didSwipe = true;
   moveActive(delta < 0 ? 1 : -1);
 });
 cardStage.addEventListener('pointercancel', () => {
   pointerStartX = null;
 });
+
+questionCard.addEventListener('click', event => {
+  if (!suppressQuestionClick) return;
+  suppressQuestionClick = false;
+  event.preventDefault();
+  event.stopPropagation();
+}, true);
 
 retryQuestions.addEventListener('click', async () => {
   generationError = '';

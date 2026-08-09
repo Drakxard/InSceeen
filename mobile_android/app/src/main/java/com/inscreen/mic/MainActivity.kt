@@ -97,15 +97,15 @@ class MainActivity : ComponentActivity() {
     }
 
     private val exportStateLauncher = registerForActivityResult(
-        ActivityResultContracts.CreateDocument("application/json")
+        ActivityResultContracts.CreateDocument("application/zip")
     ) { uri ->
-        if (uri != null) exportAprioriState(uri)
+        if (uri != null) exportAppState(uri)
     }
 
     private val importStateLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
-        if (uri != null) importAprioriState(uri)
+        if (uri != null) importAppState(uri)
     }
 
     private val stateReceiver = object : BroadcastReceiver() {
@@ -434,10 +434,10 @@ class MainActivity : ComponentActivity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             addView(backupButton("↓", "Exportar datos") {
-                exportStateLauncher.launch("InScreen-apriori.json")
+                exportStateLauncher.launch("InScreen-backup.zip")
             })
             addView(backupButton("↑", "Importar datos") {
-                importStateLauncher.launch(arrayOf("application/json", "text/json", "text/plain"))
+                importStateLauncher.launch(arrayOf("application/zip", "application/json", "text/json", "text/plain"))
             }, LinearLayout.LayoutParams(64, 64).apply { leftMargin = 10 })
         }
         page.addView(backupControls, FrameLayout.LayoutParams(-2, 72, Gravity.BOTTOM or Gravity.END).apply {
@@ -768,6 +768,66 @@ class MainActivity : ComponentActivity() {
         setBackgroundColor(Color.rgb(7, 22, 7))
         setOnClickListener { action() }
         layoutParams = LinearLayout.LayoutParams(64, 64)
+    }
+
+    private fun exportAppState(uri: Uri) {
+        val view = webViews.firstOrNull()
+        if (view == null) {
+            Toast.makeText(this, "No se pudieron leer los datos de los modulos", Toast.LENGTH_SHORT).show()
+            return
+        }
+        view.evaluateJavascript(
+            "JSON.stringify(Object.fromEntries(Array.from({length:localStorage.length},(_,i)=>{const k=localStorage.key(i);return [k,localStorage.getItem(k)]})))"
+        ) { encoded ->
+            val storage = runCatching {
+                val raw = org.json.JSONTokener(encoded).nextValue() as String
+                JSONObject(raw)
+            }.getOrElse {
+                Toast.makeText(this, "No se pudieron leer los datos de los modulos", Toast.LENGTH_SHORT).show()
+                return@evaluateJavascript
+            }
+            thread(name = "InScreenFullExport") {
+                val result = runCatching {
+                    contentResolver.openOutputStream(uri, "wt")?.use {
+                        AppBackup.export(this, it, storage)
+                    } ?: error("No se pudo abrir el archivo")
+                }
+                runOnUiThread {
+                    Toast.makeText(this, if (result.isSuccess) "Copia completa exportada" else "No se pudo exportar la copia", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    private fun importAppState(uri: Uri) {
+        thread(name = "InScreenFullImport") {
+            val result = runCatching {
+                val input = contentResolver.openInputStream(uri)?.buffered() ?: error("No se pudo abrir el archivo")
+                input.use {
+                    it.mark(4)
+                    val first = it.read()
+                    val second = it.read()
+                    it.reset()
+                    if (first == 'P'.code && second == 'K'.code) AppBackup.import(this, it)
+                    else AppBackup.Restored(
+                        AprioriStore.validateAndNormalize(it.bufferedReader(Charsets.UTF_8).readText()),
+                        JSONObject(),
+                    )
+                }
+            }
+            runOnUiThread {
+                result.onSuccess { restored ->
+                    val saved = AprioriStore.save(this, restored.apriori)
+                    if (restored.webStorage.length() > 0) {
+                        val storage = restored.webStorage.toString()
+                        val script = "(()=>{const d=$storage;localStorage.clear();Object.entries(d).forEach(([k,v])=>localStorage.setItem(k,v));return true})()"
+                        webViews.forEach { it.evaluateJavascript(script, null) }
+                    }
+                    AprioriUpdates.publish(this, saved)
+                }
+                Toast.makeText(this, if (result.isSuccess) "Copia restaurada" else "El archivo no es valido", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     private fun exportAprioriState(uri: Uri) {
