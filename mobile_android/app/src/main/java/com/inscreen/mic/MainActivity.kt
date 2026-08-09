@@ -68,6 +68,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var pager: ViewPager2
     private lateinit var stateView: TextView
     private lateinit var connectButton: Button
+    private lateinit var providerButton: Button
     private lateinit var mediaControlButton: Button
     private lateinit var updateButton: ImageButton
     private val webViews = mutableListOf<WebView>()
@@ -390,7 +391,7 @@ class MainActivity : ComponentActivity() {
             }
             content.addView(button, matchWidth())
         }
-        terminalButton(if (ProviderCredentialStore(this).load() == null) "VINCULAR PROVEEDOR" else "PROVEEDOR VINCULADO").also { button ->
+        providerButton = terminalButton(if (ProviderCredentialStore(this).load() == null) "VINCULAR PROVEEDOR" else "PROVEEDOR VINCULADO").also { button ->
             button.setOnClickListener {
                 if (ProviderCredentialStore(this).load() == null) {
                     openScanner()
@@ -985,6 +986,7 @@ class MainActivity : ComponentActivity() {
                 GroqCredentialStore(this).saveApiKey(result.groqApiKey)
                 runOnUiThread {
                     pairingInProgress = false
+                    providerButton.text = "PROVEEDOR VINCULADO"
                     showState("PROVEEDOR VINCULADO")
                     Toast.makeText(this, "R2 y Groq vinculados. Elegi el modelo Groq.", Toast.LENGTH_LONG).show()
                     showGroqSettings()
