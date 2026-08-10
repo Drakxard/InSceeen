@@ -205,10 +205,21 @@ function parseQuestionOutput(output) {
   }
 }
 
-function questionItems(parsed) {
+function questionItems(parsed, depth = 0) {
   if (Array.isArray(parsed)) return parsed;
-  if (!parsed || typeof parsed !== 'object') return null;
-  return parsed.preguntas || parsed.questions || parsed.items || parsed.data || null;
+  if (!parsed || typeof parsed !== 'object' || depth > 3) return null;
+
+  // Models often omit the array wrapper when the batch has only one item.
+  if (typeof parsed.id === 'string' && (Array.isArray(parsed.opciones) || Array.isArray(parsed.options))) {
+    return [parsed];
+  }
+
+  for (const key of ['preguntas', 'pregunta', 'questions', 'question', 'items', 'data', 'resultado', 'response']) {
+    if (!(key in parsed)) continue;
+    const nested = questionItems(parsed[key], depth + 1);
+    if (nested) return nested;
+  }
+  return null;
 }
 
 function normalizeAnswer(value) {
@@ -225,8 +236,10 @@ function promptForBatch(pending) {
 
 function validateGeneratedItem(item, requested) {
   if (!item || typeof item !== 'object' || !requested.has(item.id)) return null;
-  if (!Array.isArray(item.opciones) || item.opciones.length !== 4) return null;
-  const options = item.opciones.map(option => typeof option === 'string' ? option.trim() : '');
+  const generatedOptions = Array.isArray(item.opciones) ? item.opciones : item.options;
+  const generatedCorrect = item.correcta ?? item.correct;
+  if (!Array.isArray(generatedOptions) || generatedOptions.length !== 4) return null;
+  const options = generatedOptions.map(option => typeof option === 'string' ? option.trim() : '');
   if (options.some(option => !option || option === NONE_OPTION)) return null;
   const expectedValue = requested.get(item.id).spanish.trim();
   const expected = normalizeAnswer(expectedValue);
@@ -235,9 +248,9 @@ function validateGeneratedItem(item, requested) {
   // Trust the source TXT for the exact translation. If the model paraphrases it,
   // replace the option it marked as correct instead of discarding the question.
   if (expectedIndex < 0) {
-    if (!Number.isInteger(item.correcta) || item.correcta < 0 || item.correcta > 3) return null;
-    options[item.correcta] = expectedValue;
-    expectedIndex = item.correcta;
+    if (!Number.isInteger(generatedCorrect) || generatedCorrect < 0 || generatedCorrect > 3) return null;
+    options[generatedCorrect] = expectedValue;
+    expectedIndex = generatedCorrect;
   }
   if (new Set(options.map(normalizeAnswer)).size !== 4) return null;
   return { id: item.id, candidates: options, correct: expectedIndex };
