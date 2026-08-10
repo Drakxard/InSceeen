@@ -1108,7 +1108,9 @@ class MainActivity : ComponentActivity() {
                     .addOnSuccessListener { codes ->
                         val link = codes.firstNotNullOfOrNull { it.rawValue }
                         if (link != null && accepted.compareAndSet(false, true)) {
-                            val valid = runCatching { PairConfig.fromLink(link) }.isSuccess || runCatching { ProviderPairLink.fromLink(link) }.isSuccess
+                            val valid = runCatching { PairConfig.fromLink(link) }.isSuccess ||
+                                runCatching { ProviderPairLink.fromLink(link) }.isSuccess ||
+                                runCatching { SubjectExportLink.fromLink(link) }.isSuccess
                             if (valid) {
                                 closeScanner()
                                 handleScannedLink(link)
@@ -1153,8 +1155,34 @@ class MainActivity : ComponentActivity() {
 
     private fun handleScannedLink(link: String?) {
         if (link.isNullOrBlank()) return
-        if (runCatching { ProviderPairLink.fromLink(link) }.isSuccess) handleProviderPairLink(link)
+        if (runCatching { SubjectExportLink.fromLink(link) }.isSuccess) handleSubjectExportLink(link)
+        else if (runCatching { ProviderPairLink.fromLink(link) }.isSuccess) handleProviderPairLink(link)
         else handlePairLink(link)
+    }
+
+    private fun handleSubjectExportLink(link: String) {
+        if (pairingInProgress) return
+        val parsed = runCatching { SubjectExportLink.fromLink(link) }.getOrNull() ?: return
+        pairingInProgress = true
+        showState("IMPORTANDO MATERIAS...")
+        thread(name = "InScreenSubjectExport") {
+            try {
+                val result = SubjectExportClient().redeem(parsed)
+                val imported = AprioriStore.importSubjects(this, result.subjects)
+                require(imported > 0) { "No se importaron materias." }
+                runOnUiThread {
+                    pairingInProgress = false
+                    showState("MATERIAS IMPORTADAS")
+                    Toast.makeText(this, "$imported materia(s) importada(s) desde ${result.tabName}.", Toast.LENGTH_LONG).show()
+                }
+            } catch (error: Exception) {
+                runOnUiThread {
+                    pairingInProgress = false
+                    showState("ERROR DE IMPORTACION")
+                    Toast.makeText(this, error.message ?: "No se pudieron importar las materias.", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
     }
 
     private fun handleProviderPairLink(link: String) {
