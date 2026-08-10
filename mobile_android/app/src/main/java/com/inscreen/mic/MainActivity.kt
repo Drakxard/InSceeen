@@ -17,6 +17,7 @@ import android.os.Bundle
 import android.os.Environment
 import android.os.PowerManager
 import android.provider.Settings
+import android.provider.DocumentsContract
 import android.text.InputType
 import android.text.method.PasswordTransformationMethod
 import android.view.Gravity
@@ -35,6 +36,7 @@ import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.Spinner
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -84,6 +86,34 @@ class MainActivity : ComponentActivity() {
 
     private val updatePreferences by lazy {
         getSharedPreferences(UPDATE_PREFERENCES, Context.MODE_PRIVATE)
+    }
+
+    private val backupPreferences by lazy {
+        getSharedPreferences(BACKUP_PREFERENCES, Context.MODE_PRIVATE)
+    }
+
+    private val autoExportFolderLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri == null) return@registerForActivityResult
+        val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        val accepted = runCatching {
+            contentResolver.takePersistableUriPermission(uri, flags)
+            contentResolver.persistedUriPermissions.any { it.uri == uri && it.isWritePermission }
+        }.getOrDefault(false)
+        if (!accepted) {
+            backupPreferences.edit().remove(KEY_AUTO_EXPORT_FOLDER).remove(KEY_AUTO_EXPORT_FILE).apply()
+            refreshAutoExportSwitch(false)
+            Toast.makeText(this, "No se pudo guardar el permiso de la carpeta", Toast.LENGTH_SHORT).show()
+            return@registerForActivityResult
+        }
+        backupPreferences.edit()
+            .putString(KEY_AUTO_EXPORT_FOLDER, uri.toString())
+            .remove(KEY_AUTO_EXPORT_FILE)
+            .putBoolean(KEY_AUTO_EXPORT_ENABLED, true)
+            .apply()
+        refreshAutoExportSwitch(true)
+        exportAutomaticBackup()
     }
 
     private val updateDownloadReceiver = object : BroadcastReceiver() {
@@ -314,6 +344,9 @@ class MainActivity : ComponentActivity() {
                 val previous = JSONObject(AprioriStore.load(this@MainActivity))
                 val saved = AprioriStore.save(this@MainActivity, raw)
                 runOnUiThread { AprioriUpdates.publish(this@MainActivity, saved) }
+                if (backupPreferences.getBoolean(KEY_AUTO_EXPORT_ENABLED, false)) {
+                    runOnUiThread { exportAutomaticBackup() }
+                }
                 val current = JSONObject(saved)
                 val subjects = current.optJSONArray("subjects")
                 val subjectIds = (0 until (subjects?.length() ?: 0))
@@ -430,9 +463,29 @@ class MainActivity : ComponentActivity() {
             leftMargin = 24
             bottomMargin = 24
         })
+        val autoExportSwitch = Switch(this).apply {
+            text = "autoExport"
+            textSize = 16f
+            setTextColor(Color.WHITE)
+            isChecked = isAutoExportAvailable()
+            setOnCheckedChangeListener { _, checked ->
+                if (checked && !isAutoExportAvailable()) {
+                    isChecked = false
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle("Respaldo de emergencia")
+                        .setMessage("Seleccioná una carpeta como resguardo de emergencia. Allí se guardará una copia automática para recuperarla si desinstalás InScreen.")
+                        .setNegativeButton("Cancelar", null)
+                        .setPositiveButton("Seleccionar carpeta") { _, _ -> autoExportFolderLauncher.launch(null) }
+                        .show()
+                } else if (!checked) {
+                    backupPreferences.edit().putBoolean(KEY_AUTO_EXPORT_ENABLED, false).apply()
+                }
+            }
+        }
         val backupControls = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
+            addView(autoExportSwitch, LinearLayout.LayoutParams(-2, 64))
             addView(backupButton("↓", "Exportar datos") {
                 exportStateLauncher.launch("InScreen-backup.zip")
             })
@@ -443,6 +496,28 @@ class MainActivity : ComponentActivity() {
         page.addView(backupControls, FrameLayout.LayoutParams(-2, 72, Gravity.BOTTOM or Gravity.END).apply {
             rightMargin = 24
             bottomMargin = 24
+        })
+        if (false) page.addView(Switch(this).apply {
+            text = "autoExport ↑↓"
+            textSize = 16f
+            setTextColor(Color.WHITE)
+            isChecked = isAutoExportAvailable()
+            setOnCheckedChangeListener { _, checked ->
+                if (checked && !isAutoExportAvailable()) {
+                    isChecked = false
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle("Respaldo de emergencia")
+                        .setMessage("Seleccioná una carpeta como resguardo de emergencia. Allí se guardará una copia automática para recuperarla si desinstalás InScreen.")
+                        .setNegativeButton("Cancelar", null)
+                        .setPositiveButton("Seleccionar carpeta") { _, _ -> autoExportFolderLauncher.launch(null) }
+                        .show()
+                } else if (!checked) {
+                    backupPreferences.edit().putBoolean(KEY_AUTO_EXPORT_ENABLED, false).apply()
+                }
+            }
+        }, FrameLayout.LayoutParams(-2, 56, Gravity.BOTTOM or Gravity.START).apply {
+            leftMargin = 18
+            bottomMargin = 32
         })
         updateButton = ImageButton(this).apply {
             setImageResource(R.drawable.ic_refresh)
@@ -770,7 +845,7 @@ class MainActivity : ComponentActivity() {
         layoutParams = LinearLayout.LayoutParams(64, 64)
     }
 
-    private fun exportAppState(uri: Uri) {
+    private fun exportAppState(uri: Uri, notify: Boolean = true) {
         val view = webViews.firstOrNull()
         if (view == null) {
             Toast.makeText(this, "No se pudieron leer los datos de los modulos", Toast.LENGTH_SHORT).show()
@@ -793,10 +868,59 @@ class MainActivity : ComponentActivity() {
                     } ?: error("No se pudo abrir el archivo")
                 }
                 runOnUiThread {
-                    Toast.makeText(this, if (result.isSuccess) "Copia completa exportada" else "No se pudo exportar la copia", Toast.LENGTH_SHORT).show()
+                    if (notify) {
+                        Toast.makeText(this, if (result.isSuccess) "Copia completa exportada" else "No se pudo exportar la copia", Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
         }
+    }
+
+    private fun isAutoExportAvailable(): Boolean =
+        backupPreferences.getBoolean(KEY_AUTO_EXPORT_ENABLED, false) &&
+            backupPreferences.getString(KEY_AUTO_EXPORT_FOLDER, null)?.let { raw ->
+                val uri = Uri.parse(raw)
+                contentResolver.persistedUriPermissions.any { it.uri == uri && it.isWritePermission }
+            } == true
+
+    private fun refreshAutoExportSwitch(enabled: Boolean) {
+        val page = pager.getChildAt(2) as? ViewGroup ?: return
+        findSwitch(page)?.let { it.isChecked = enabled }
+    }
+
+    private fun findSwitch(view: View): Switch? {
+        if (view is Switch) return view
+        if (view !is ViewGroup) return null
+        for (index in 0 until view.childCount) {
+            findSwitch(view.getChildAt(index))?.let { return it }
+        }
+        return null
+    }
+
+    private fun exportAutomaticBackup() {
+        if (!isAutoExportAvailable()) {
+            backupPreferences.edit().putBoolean(KEY_AUTO_EXPORT_ENABLED, false).apply()
+            refreshAutoExportSwitch(false)
+            return
+        }
+        val folder = Uri.parse(backupPreferences.getString(KEY_AUTO_EXPORT_FOLDER, null))
+        val fileUri = backupPreferences.getString(KEY_AUTO_EXPORT_FILE, null)?.let(Uri::parse)
+        val outputUri = runCatching {
+            fileUri ?: DocumentsContract.createDocument(
+                contentResolver,
+                folder,
+                "application/zip",
+                "InScreen-backup.zip",
+            )
+        }.getOrNull()
+        if (outputUri == null) {
+            backupPreferences.edit().putBoolean(KEY_AUTO_EXPORT_ENABLED, false).apply()
+            refreshAutoExportSwitch(false)
+            runOnUiThread { Toast.makeText(this, "No se pudo crear el respaldo automático", Toast.LENGTH_SHORT).show() }
+            return
+        }
+        backupPreferences.edit().putString(KEY_AUTO_EXPORT_FILE, outputUri.toString()).apply()
+        exportAppState(outputUri, notify = false)
     }
 
     private fun importAppState(uri: Uri) {
@@ -1126,6 +1250,10 @@ class MainActivity : ComponentActivity() {
         private const val REQUEST_PERMISSIONS = 100
         private const val REQUEST_CAMERA = 101
         private const val UPDATE_PREFERENCES = "github_update"
+        private const val BACKUP_PREFERENCES = "automatic_backup"
+        private const val KEY_AUTO_EXPORT_ENABLED = "auto_export_enabled"
+        private const val KEY_AUTO_EXPORT_FOLDER = "auto_export_folder"
+        private const val KEY_AUTO_EXPORT_FILE = "auto_export_file"
         private const val KEY_UPDATE_DOWNLOAD_ID = "download_id"
         private const val KEY_AWAITING_INSTALL_PERMISSION = "awaiting_install_permission"
         private const val APK_MIME_TYPE = "application/vnd.android.package-archive"
