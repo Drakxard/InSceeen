@@ -1,6 +1,6 @@
 const QUESTION_CACHE_VERSION = 2;
-const QUESTION_BATCH_SIZE = 5;
-const QUESTION_PREFETCH_POSITION = 4;
+const QUESTION_BATCH_SIZE = 4;
+const QUESTION_PREFETCH_POSITION = 3;
 const QUESTION_CACHE_PREFIX = 'inscreen:ingles:questions:';
 const NONE_OPTION = 'Ninguna de las anteriores';
 
@@ -215,17 +215,32 @@ function normalizeAnswer(value) {
   return String(value || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('es');
 }
 
+function promptForBatch(pending) {
+  const count = pending.length;
+  const ids = pending.map(card => card.key).join(', ');
+  return `${questionPrompt}\n\nEste pedido contiene exactamente ${count} ${count === 1 ? 'objeto' : 'objetos'}. `
+    + `La respuesta debe contener exactamente ${count} ${count === 1 ? 'pregunta' : 'preguntas'}, una por cada objeto, `
+    + `y conservar literalmente estos identificadores: ${ids}. No omitas ningún objeto.`;
+}
+
 function validateGeneratedItem(item, requested) {
   if (!item || typeof item !== 'object' || !requested.has(item.id)) return null;
   if (!Array.isArray(item.opciones) || item.opciones.length !== 4) return null;
   const options = item.opciones.map(option => typeof option === 'string' ? option.trim() : '');
   if (options.some(option => !option || option === NONE_OPTION)) return null;
+  const expectedValue = requested.get(item.id).spanish.trim();
+  const expected = normalizeAnswer(expectedValue);
+  let expectedIndex = options.map(normalizeAnswer).indexOf(expected);
+
+  // Trust the source TXT for the exact translation. If the model paraphrases it,
+  // replace the option it marked as correct instead of discarding the question.
+  if (expectedIndex < 0) {
+    if (!Number.isInteger(item.correcta) || item.correcta < 0 || item.correcta > 3) return null;
+    options[item.correcta] = expectedValue;
+    expectedIndex = item.correcta;
+  }
   if (new Set(options.map(normalizeAnswer)).size !== 4) return null;
-  if (!Number.isInteger(item.correcta) || item.correcta < 0 || item.correcta > 3) return null;
-  const expected = normalizeAnswer(requested.get(item.id).spanish);
-  const expectedIndex = options.map(normalizeAnswer).indexOf(expected);
-  if (expectedIndex !== item.correcta) return null;
-  return { id: item.id, candidates: options, correct: item.correcta };
+  return { id: item.id, candidates: options, correct: expectedIndex };
 }
 
 function prepareDisplayedQuestion(item) {
@@ -268,7 +283,7 @@ async function generateQuestionBatch(startIndex, background = false) {
 
   generationPromise = (async () => {
     try {
-      const result = await window.InScreen.module.consulta(questionPrompt, content);
+      const result = await window.InScreen.module.consulta(promptForBatch(pending), content);
       if (!result?.ok) throw new Error(result?.error || 'No se pudieron generar las preguntas.');
       const parsed = parseQuestionOutput(result.contenido);
       const items = questionItems(parsed);
