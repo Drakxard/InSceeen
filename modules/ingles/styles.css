@@ -16,7 +16,7 @@ body { user-select:none; -webkit-user-select:none; }
 .question-option { border:1px solid var(--border); border-radius:12px; padding:.75rem 1rem; background:#f8fafc; color:var(--text); font-weight:700; cursor:pointer; }
 .question-option.is-correct { background:#dcfce7; border-color:#22c55e; color:#166534; }
 .question-option.is-wrong { background:#fee2e2; border-color:#ef4444; color:#991b1b; }
-.question-option:disabled { cursor:default; opacity:1; }
+.question-option:disabled { cursor:default; opacity:1; pointer-events:none; }
 .question-status { min-height:1rem; margin-top:.65rem; color:#9f1239; font-size:.75rem; font-weight:700; }
 .question-retry { align-self:center; border:0; padding:.45rem .8rem; background:transparent; color:var(--purple); font-weight:800; cursor:pointer; }
 .day-card { transition:transform .18s, opacity .18s; }

@@ -145,8 +145,10 @@ function renderQuestion() {
   if (!card || !question) return false;
 
   questionPromptText.textContent = `¿Cuál es la traducción de “${card.english}”?`;
-  questionStatus.textContent = generationError;
-  retryQuestions.classList.toggle('is-hidden', !generationError);
+  // A partial batch may still contain this question. Do not show a batch error
+  // over a usable question; it will be retried when a missing card is reached.
+  questionStatus.textContent = '';
+  retryQuestions.classList.add('is-hidden');
   questionOptions.replaceChildren();
   const selected = questionAnswers.get(card.key);
 
@@ -178,7 +180,34 @@ function answerQuestion(selectedIndex) {
 }
 
 function cleanJsonOutput(output) {
-  return String(output || '').replace(/```json/gi, '').replace(/```/g, '').trim();
+  const text = String(output || '').trim();
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  return (fenced ? fenced[1] : text).trim();
+}
+
+function parseQuestionOutput(output) {
+  const cleaned = cleanJsonOutput(output);
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    // Some models prepend a short sentence despite the JSON-only instruction.
+    const firstObject = cleaned.indexOf('{');
+    const firstArray = cleaned.indexOf('[');
+    const starts = [firstObject, firstArray].filter(index => index >= 0);
+    if (!starts.length) throw new Error('La respuesta no contiene JSON válido.');
+    const start = Math.min(...starts);
+    const lastObject = cleaned.lastIndexOf('}');
+    const lastArray = cleaned.lastIndexOf(']');
+    const end = Math.max(lastObject, lastArray);
+    if (end <= start) throw new Error('La respuesta no contiene JSON válido.');
+    return JSON.parse(cleaned.slice(start, end + 1));
+  }
+}
+
+function questionItems(parsed) {
+  if (Array.isArray(parsed)) return parsed;
+  if (!parsed || typeof parsed !== 'object') return null;
+  return parsed.preguntas || parsed.questions || parsed.items || parsed.data || null;
 }
 
 function normalizeAnswer(value) {
@@ -240,8 +269,8 @@ async function generateQuestionBatch(startIndex, background = false) {
     try {
       const result = await window.InScreen.module.consulta(questionPrompt, content);
       if (!result?.ok) throw new Error(result?.error || 'No se pudieron generar las preguntas.');
-      const parsed = JSON.parse(cleanJsonOutput(result.contenido));
-      const items = Array.isArray(parsed) ? parsed : parsed?.preguntas;
+      const parsed = parseQuestionOutput(result.contenido);
+      const items = questionItems(parsed);
       if (!Array.isArray(items)) throw new Error('La respuesta no contiene un lote de preguntas válido.');
 
       let saved = 0;
@@ -262,7 +291,10 @@ async function generateQuestionBatch(startIndex, background = false) {
         saveQuestionCache();
       }
       if (!saved) throw new Error('Groq no devolvió preguntas válidas para este lote.');
-      if (requested.size) generationError = 'Faltan preguntas del lote. Tocá para reintentar.';
+      if (requested.size) {
+        // Keep valid questions usable; the missing cards will be generated when reached.
+        generationError = 'Faltan preguntas del lote. Tocá para reintentar.';
+      }
       else generationError = '';
       return requested.size === 0;
     } catch (error) {
