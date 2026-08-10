@@ -40,6 +40,27 @@ data class ProviderPairLink(val baseUrl: String, val token: String) {
 data class ProviderCredentials(val baseUrl: String, val token: String)
 data class ProviderPairingResult(val credentials: ProviderCredentials, val groqApiKey: String)
 
+data class SubjectExportLink(val baseUrl: String, val token: String) {
+    companion object {
+        fun fromLink(link: String): SubjectExportLink {
+            val uri = URI(link)
+            require(uri.scheme == "inscreen" && uri.host == "subject-export") { "QR de materias invalido." }
+            val query = (uri.rawQuery ?: "").split("&").filter(String::isNotBlank).associate {
+                val parts = it.split("=", limit = 2)
+                URLDecoder.decode(parts[0], Charsets.UTF_8.name()) to URLDecoder.decode(parts.getOrElse(1) { "" }, Charsets.UTF_8.name())
+            }
+            val baseUrl = query["base_url"].orEmpty().trimEnd('/')
+            val token = query["token"].orEmpty()
+            val endpoint = URI(baseUrl)
+            require(endpoint.scheme == "https" && endpoint.host.isNotBlank() && endpoint.userInfo == null) { "URL de exportacion invalida." }
+            require(token.startsWith("ise1.") && token.length in 64..16_000) { "Paquete de materias invalido." }
+            return SubjectExportLink(baseUrl, token)
+        }
+    }
+}
+
+data class SubjectExportResult(val tabName: String, val subjects: JSONArray)
+
 internal class ProviderCredentialStore(private val context: Context) {
     private val preferences = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
 
@@ -112,6 +133,21 @@ internal class ProviderPairingClient(private val client: OkHttpClient = OkHttpCl
             val groqApiKey = payload.getString("groqApiKey")
             require(baseUrl == link.baseUrl && providerToken.startsWith("ipc1.") && groqApiKey.isNotBlank())
             return ProviderPairingResult(ProviderCredentials(baseUrl, providerToken), groqApiKey)
+        }
+    }
+}
+
+internal class SubjectExportClient(private val client: OkHttpClient = OkHttpClient()) {
+    fun redeem(link: SubjectExportLink): SubjectExportResult {
+        val body = JSONObject().put("token", link.token)
+            .toString().toRequestBody("application/json; charset=utf-8".toMediaType())
+        val request = Request.Builder().url("${link.baseUrl}/api/inscreen/provider/subject-export/redeem").post(body).build()
+        client.newCall(request).execute().use { response ->
+            val payload = JSONObject(response.body?.string().orEmpty())
+            require(response.isSuccessful) { payload.optString("error", "No se pudieron importar las materias.") }
+            val subjects = payload.optJSONArray("subjects") ?: error("La exportacion no contiene materias.")
+            require(subjects.length() in 1..100)
+            return SubjectExportResult(payload.optString("tabName", "Pestana"), subjects)
         }
     }
 }

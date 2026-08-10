@@ -29,6 +29,47 @@ object AprioriStore {
         return normalized
     }
 
+    internal fun importSubjects(context: Context, incoming: JSONArray): Int {
+        val updated = importSubjects(load(context), incoming) ?: return 0
+        AprioriUpdates.publish(context, save(context, updated.first))
+        return updated.second
+    }
+
+    internal fun importSubjects(raw: String, incoming: JSONArray): Pair<String, Int>? {
+        if (incoming.length() !in 1..100) return null
+        val state = runCatching { JSONObject(raw) }.getOrNull() ?: return null
+        val subjects = state.optJSONArray("subjects") ?: return null
+        val ring = state.optJSONArray("ring") ?: return null
+        val known = (0 until subjects.length()).mapNotNull { subjects.optJSONObject(it)?.optString("id")?.trim()?.takeIf(String::isNotEmpty) }.toMutableSet()
+        val imported = linkedSetOf<String>()
+        var count = 0
+        for (index in 0 until incoming.length()) {
+            val source = incoming.optJSONObject(index) ?: return null
+            val id = source.optString("id").trim()
+            val name = source.optString("name").trim()
+            val color = source.optString("color").trim()
+            if (id.isBlank() || name.isBlank() || color.isBlank() || !imported.add(id)) return null
+            val existing = (0 until subjects.length()).asSequence().mapNotNull(subjects::optJSONObject).firstOrNull { it.optString("id") == id }
+            if (existing != null) {
+                existing.put("name", name)
+                existing.put("color", color)
+            } else {
+                subjects.put(JSONObject().apply {
+                    put("id", id)
+                    put("name", name)
+                    put("color", color)
+                    put("baseWeight", 1)
+                    put("evaluations", JSONArray())
+                })
+                known.add(id)
+                ring.put(id)
+            }
+            count += 1
+        }
+        val normalized = runCatching { validateAndNormalize(state.toString()) }.getOrNull() ?: return null
+        return normalized to count
+    }
+
     internal fun validateAndNormalize(raw: String): String {
         val parsed = JSONObject(raw)
         require(parsed.optInt("version") == 3)
