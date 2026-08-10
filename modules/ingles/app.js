@@ -11,6 +11,7 @@ let questionCards = [];
 let cardIndex = 0;
 let questionIndex = 0;
 let pointerStartX = null;
+let questionPointerStartX = null;
 let didSwipe = false;
 let suppressQuestionClick = false;
 let questionHoldTimer = null;
@@ -451,11 +452,6 @@ function toggleQuestionMode() {
   else void enterQuestionMode();
 }
 
-function moveActive(direction) {
-  if (questionMode) moveQuestion(direction);
-  else moveCard(direction);
-}
-
 async function readHistory() {
   const result = await window.InScreen.module.historial(true);
   if (!result?.ok || !Array.isArray(result.archivos)) throw new Error(result?.error || 'No se pudo leer el historial local.');
@@ -520,22 +516,40 @@ document.body.addEventListener('pointerup', clearQuestionHold);
 document.body.addEventListener('pointercancel', clearQuestionHold);
 
 cardStage.addEventListener('pointerdown', event => {
+  if (questionMode) return;
   pointerStartX = event.clientX;
   cardStage.setPointerCapture(event.pointerId);
 });
 cardStage.addEventListener('pointerup', event => {
+  if (questionMode) return;
   if (pointerStartX === null) return;
   const delta = event.clientX - pointerStartX;
   pointerStartX = null;
   if (Math.abs(delta) <= 50 || !dayCard.classList.contains('is-hidden')) return;
-  if (questionMode) {
-    suppressQuestionClick = true;
-    window.setTimeout(() => { suppressQuestionClick = false; }, 0);
-  } else didSwipe = true;
-  moveActive(delta < 0 ? 1 : -1);
+  didSwipe = true;
+  moveCard(delta < 0 ? 1 : -1);
 });
 cardStage.addEventListener('pointercancel', () => {
   pointerStartX = null;
+});
+
+questionCard.addEventListener('pointerdown', event => {
+  questionPointerStartX = event.clientX;
+  questionCard.setPointerCapture(event.pointerId);
+});
+
+questionCard.addEventListener('pointerup', event => {
+  if (questionPointerStartX === null) return;
+  const delta = event.clientX - questionPointerStartX;
+  questionPointerStartX = null;
+  if (Math.abs(delta) <= 50 || !dayCard.classList.contains('is-hidden')) return;
+  suppressQuestionClick = true;
+  window.setTimeout(() => { suppressQuestionClick = false; }, 0);
+  moveQuestion(delta < 0 ? 1 : -1);
+});
+
+questionCard.addEventListener('pointercancel', () => {
+  questionPointerStartX = null;
 });
 
 questionCard.addEventListener('click', event => {

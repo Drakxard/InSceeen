@@ -1019,8 +1019,14 @@
     updateColorButton(subject.color);
     renderDetailMetrics(subject);
     elements.detailError.textContent = "";
+    // showModal() focuses the first text field by default. On Android that opens
+    // the keyboard for one frame before the dialog itself receives focus.
+    elements.detailName.readOnly = true;
     elements.detailDialog.showModal();
-    requestAnimationFrame(() => elements.detailDialog.focus({ preventScroll: true }));
+    elements.detailDialog.focus({ preventScroll: true });
+    requestAnimationFrame(() => {
+      elements.detailName.readOnly = false;
+    });
   }
 
   function renderDetailMetrics(selectedSubject = null) {
