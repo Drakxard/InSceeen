@@ -11,6 +11,7 @@ import org.junit.Test
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.Collections
+import java.io.File
 
 class ProviderClientTest {
     @Test
@@ -131,5 +132,43 @@ class ProviderClientTest {
         assertEquals("invalid_stage", JSONObject(client.normalizeResponse("""{"ok":true,"archivos":[]}""")).getString("error"))
         assertTrue(JSONObject(client.normalizeResponse("""{"ok":true,"etapa":0,"archivos":[]}""")).getBoolean("ok"))
         assertFalse(JSONObject(client.normalizeResponse("""{"ok":false,"archivos":[]}""")).getBoolean("ok"))
+    }
+
+    @Test
+    fun uploadsMarkerJpegWithProviderAuthorization() {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setBody("""{"ok":true,"markdown":"# Extraido"}"""))
+        server.start()
+        val image = File.createTempFile("marker", ".jpg").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+        try {
+            val markdown = ProviderClient(server.url("/").toString(), "ipc1.secret", OkHttpClient()).transcribeMarker(image)
+            val request = server.takeRequest()
+            assertEquals("POST", request.method)
+            assertEquals("/api/inscreen/provider/marker-transcribe", request.requestUrl?.encodedPath)
+            assertEquals("Bearer ipc1.secret", request.getHeader("Authorization"))
+            assertTrue(request.body.readUtf8().contains("name=\"file\""))
+            assertEquals("# Extraido", markdown)
+        } finally {
+            image.delete()
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun preservesMarkerRepairErrorCode() {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setResponseCode(428).setBody("""{"ok":false,"error":"provider_repair_required"}"""))
+        server.start()
+        val image = File.createTempFile("marker", ".jpg").apply { writeBytes(byteArrayOf(1)) }
+        try {
+            val error = try {
+                ProviderClient(server.url("/").toString(), "ipc1.old", OkHttpClient()).transcribeMarker(image)
+                null
+            } catch (caught: ProviderClient.MarkerException) { caught }
+            assertEquals("provider_repair_required", error?.code)
+        } finally {
+            image.delete()
+            server.shutdown()
+        }
     }
 }

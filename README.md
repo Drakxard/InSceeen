@@ -223,7 +223,15 @@ con `×` desde el detalle de la materia o al eliminar la materia.
 La URL y el acceso al proveedor ya no se compilan en el APK. Después de cargar Groq,
 Marker y R2 en la web, el cuarto paso muestra un QR `inscreen://provider-pair`. La APK lo
 canjea una sola vez, guarda la cápsula del proveedor y la clave Groq mediante Android
-Keystore y solicita que elijas el modelo Groq. Marker nunca se transfiere al teléfono.
+Keystore y solicita que elijas el modelo Groq. La clave Marker queda dentro de la cápsula
+cifrada: el teléfono almacena el token opaco y sólo Vercel puede abrirlo en memoria.
+
+En la galería de apuntes, el check de un conjunto muestra la acción `Copy`. Las fotos que
+aún no tienen extracción se optimizan y se envían individualmente al proveedor; el
+Markdown se copia recién cuando todas terminan. Cada resultado queda en el almacenamiento
+privado de la sesión, por lo que las copias posteriores no vuelven a consultar Marker.
+Los dispositivos vinculados antes de incorporar Marker a la cápsula deben volver a
+vincular el proveedor una vez para habilitar esta acción.
 
 El QR vence a los cinco minutos. Puedes reemplazar o quitar el proveedor desde la pantalla
 de conexión; para bloquear una cápsula ya emitida, revoca el dispositivo desde la web.

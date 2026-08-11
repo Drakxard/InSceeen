@@ -1,14 +1,18 @@
 package com.inscreen.mic
 
 import android.app.AlertDialog
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.graphics.Color
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.HorizontalScrollView
 import android.widget.ImageButton
 import android.widget.ImageView
@@ -20,10 +24,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.widget.ViewPager2
+import java.io.File
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import java.util.UUID
+import kotlin.concurrent.thread
 
 class SubjectNotesGalleryActivity : ComponentActivity() {
     private lateinit var subjectId: String
@@ -31,6 +38,14 @@ class SubjectNotesGalleryActivity : ComponentActivity() {
     private var sessions = emptyList<SubjectNotesStore.Session>()
     private var viewer: ViewPager2? = null
     private var viewerTitle: TextView? = null
+    private var selectedSessionId: String? = null
+    private var selectedCheckBox: CheckBox? = null
+    private var copyToolbar: View? = null
+    private var copyButton: Button? = null
+    private var copyDefaultTint: ColorStateList? = null
+    private var copyDefaultTextColors: ColorStateList? = null
+    private var copying = false
+    private val sessionChecks = mutableListOf<CheckBox>()
     private val allPhotos get() = sessions.flatMap(SubjectNotesStore.Session::photos)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -55,6 +70,9 @@ class SubjectNotesGalleryActivity : ComponentActivity() {
         viewer = null
         viewerTitle = null
         reload()
+        if (sessions.none { it.id == selectedSessionId }) selectedSessionId = null
+        selectedCheckBox = null
+        sessionChecks.clear()
         val subjectName = AprioriStore.subject(AprioriStore.load(this), subjectId)?.optString("name") ?: "Materia"
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -88,12 +106,26 @@ class SubjectNotesGalleryActivity : ComponentActivity() {
                         setPadding(0, dp(12), 0, dp(7))
                     })
                     daySessions.forEach { session ->
-                        content.addView(TextView(this).apply {
+                        val heading = LinearLayout(this).apply {
+                            orientation = LinearLayout.HORIZONTAL
+                            gravity = Gravity.CENTER_VERTICAL
+                        }
+                        heading.addView(TextView(this).apply {
                             text = "Conjunto · ${Instant.ofEpochMilli(session.createdAt).atZone(ZoneId.systemDefault()).format(timeFormatter)}"
                             textSize = 13f
                             setTextColor(Color.DKGRAY)
                             setPadding(0, dp(5), 0, dp(5))
-                        })
+                        }, LinearLayout.LayoutParams(0, -2, 1f))
+                        val check = CheckBox(this).apply {
+                            contentDescription = "Seleccionar conjunto"
+                            isChecked = session.id == selectedSessionId
+                            isEnabled = !copying
+                        }
+                        sessionChecks.add(check)
+                        if (check.isChecked) selectedCheckBox = check
+                        check.setOnCheckedChangeListener { _, checked -> selectSession(session.id, check, checked) }
+                        heading.addView(check, LinearLayout.LayoutParams(dp(48), dp(48)))
+                        content.addView(heading)
                         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
                         session.photos.forEach { photo ->
                             val globalIndex = allPhotos.indexOfFirst { it.sessionId == photo.sessionId && it.name == photo.name }
@@ -112,10 +144,133 @@ class SubjectNotesGalleryActivity : ComponentActivity() {
                     }
                 }
         }
-        setContentView(ScrollView(this).apply { setBackgroundColor(Color.WHITE); addView(content) })
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.WHITE) }
+        val actions = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(6), dp(14), dp(6))
+            setBackgroundColor(Color.rgb(245, 245, 245))
+            visibility = if (selectedSessionId == null) View.GONE else View.VISIBLE
+        }
+        val copy = Button(this).apply {
+            text = "Copy"
+            contentDescription = "Copiar conjunto con Marker"
+            isEnabled = !copying
+            setOnClickListener { copySelectedSession() }
+        }
+        copyDefaultTint = copy.backgroundTintList
+        copyDefaultTextColors = copy.textColors
+        copyButton = copy
+        copyToolbar = actions
+        actions.addView(copy, LinearLayout.LayoutParams(-2, dp(48)))
+        root.addView(actions, LinearLayout.LayoutParams(-1, dp(60)))
+        root.addView(ScrollView(this).apply { setBackgroundColor(Color.WHITE); addView(content) }, LinearLayout.LayoutParams(-1, 0, 1f))
+        setContentView(root)
+    }
+
+    private fun selectSession(sessionId: String, check: CheckBox, checked: Boolean) {
+        if (copying) return
+        if (checked) {
+            selectedSessionId = sessionId
+            selectedCheckBox?.takeIf { it !== check }?.isChecked = false
+            selectedCheckBox = check
+            copyToolbar?.visibility = View.VISIBLE
+            resetCopyButton()
+        } else if (selectedSessionId == sessionId) {
+            selectedSessionId = null
+            selectedCheckBox = null
+            copyToolbar?.visibility = View.GONE
+            resetCopyButton()
+        }
+    }
+
+    private fun copySelectedSession() {
+        if (copying) return
+        val session = sessions.firstOrNull { it.id == selectedSessionId } ?: return
+        val cached = session.photos.map { store.markerText(subjectId, session.id, it.name) }
+        if (cached.all { it != null }) {
+            copyMarkdown(cached.filterNotNull().joinToString("\n\n"))
+            return
+        }
+        val credentials = ProviderCredentialStore(this).load()
+        if (credentials == null) {
+            Toast.makeText(this, "Vinculá el proveedor para usar Marker", Toast.LENGTH_LONG).show()
+            return
+        }
+        val client = ProviderClient(credentials.baseUrl, credentials.token)
+        copying = true
+        sessionChecks.forEach { it.isEnabled = false }
+        copyButton?.apply { isEnabled = false; text = "Copy 0/${session.photos.size}"; backgroundTintList = copyDefaultTint }
+        thread(name = "InScreenMarkerCopy") {
+            try {
+                val results = session.photos.mapIndexed { index, photo ->
+                    store.markerText(subjectId, session.id, photo.name) ?: run {
+                        val temporary = File(cacheDir, "marker-${UUID.randomUUID()}.jpg")
+                        try {
+                            if (!NotesImageTools.writeMarkerJpeg(photo.file, temporary)) {
+                                throw ProviderClient.MarkerException("image_prepare_failed")
+                            }
+                            client.transcribeMarker(temporary).also {
+                                store.saveMarkerText(subjectId, session.id, photo.name, it)
+                            }
+                        } finally {
+                            temporary.delete()
+                        }
+                    }.also {
+                        runOnUiThread { copyButton?.text = "Copy ${index + 1}/${session.photos.size}" }
+                    }
+                }
+                runOnUiThread {
+                    if (!isDestroyed && !isFinishing) copyMarkdown(results.joinToString("\n\n"))
+                    finishCopying()
+                }
+            } catch (error: Exception) {
+                runOnUiThread {
+                    if (!isDestroyed && !isFinishing) {
+                        Toast.makeText(this, markerErrorMessage(error), Toast.LENGTH_LONG).show()
+                        resetCopyButton()
+                    }
+                    finishCopying()
+                }
+            }
+        }
+    }
+
+    private fun copyMarkdown(markdown: String) {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("Apuntes extraídos con Marker", markdown))
+        copyButton?.apply {
+            text = "Copy"
+            backgroundTintList = ColorStateList.valueOf(Color.rgb(36, 160, 80))
+            setTextColor(Color.WHITE)
+        }
+    }
+
+    private fun finishCopying() {
+        copying = false
+        sessionChecks.forEach { it.isEnabled = true }
+        copyButton?.isEnabled = true
+    }
+
+    private fun resetCopyButton() {
+        copyButton?.apply {
+            text = "Copy"
+            isEnabled = !copying
+            backgroundTintList = copyDefaultTint
+            copyDefaultTextColors?.let(::setTextColor)
+        }
+    }
+
+    private fun markerErrorMessage(error: Exception): String = when ((error as? ProviderClient.MarkerException)?.code) {
+        "provider_repair_required" -> "Volvé a vincular el proveedor para habilitar Marker."
+        "image_too_large", "image_prepare_failed" -> "No se pudo preparar una de las fotos."
+        "network_error" -> "No se pudo conectar con el proveedor."
+        "marker_failed", "empty_marker_result" -> "Marker no pudo extraer el contenido."
+        else -> "No se pudo copiar el conjunto."
     }
 
     private fun showViewer(startIndex: Int) {
+        if (copying) return
         reload()
         if (allPhotos.isEmpty()) return showOverview()
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.BLACK) }

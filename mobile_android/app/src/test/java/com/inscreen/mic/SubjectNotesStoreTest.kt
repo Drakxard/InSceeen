@@ -48,5 +48,25 @@ class SubjectNotesStoreTest {
         assertEquals(1, File(temporary, "notes").listFiles()?.size)
     }
 
+    @Test fun persistsMarkerTextPerPhotoAndRemovesOnlyDeletedPhotoCache() {
+        val session = store.commit("math", 1000L, listOf(source("first", "one"), source("second", "two")))
+        store.saveMarkerText("math", session.id, "0001.jpg", "# Uno")
+        store.saveMarkerText("math", session.id, "0002.jpg", "# Dos")
+
+        assertEquals("# Uno", store.markerText("math", session.id, "0001.jpg"))
+        assertEquals("# Dos", store.markerText("math", session.id, "0002.jpg"))
+        assertTrue(store.deletePhoto("math", session.id, "0001.jpg"))
+        assertEquals(null, store.markerText("math", session.id, "0001.jpg"))
+        assertEquals("# Dos", store.markerText("math", session.id, "0002.jpg"))
+    }
+
+    @Test fun rejectsMarkerCacheForUnknownPhoto() {
+        val session = store.commit("math", 1000L, listOf(source("first", "one")))
+        var failed = false
+        try { store.saveMarkerText("math", session.id, "other.jpg", "text") } catch (_: IllegalArgumentException) { failed = true }
+        assertTrue(failed)
+        assertEquals(null, store.markerText("math", session.id, "other.jpg"))
+    }
+
     private fun source(name: String, content: String) = File(temporary, "$name.jpg").apply { writeText(content) }
 }

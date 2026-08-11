@@ -4,6 +4,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.security.MessageDigest
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.util.UUID
 
 internal class SubjectNotesStore(private val root: File) {
@@ -58,9 +60,37 @@ internal class SubjectNotesStore(private val root: File) {
         } else {
             writeManifest(directory, session.id, session.createdAt, remaining)
             File(directory, photoName).delete()
+            File(File(directory, MARKER_CACHE), "$photoName.md").delete()
+            File(directory, MARKER_CACHE).let { if (it.listFiles().isNullOrEmpty()) it.delete() }
         }
         removeSubjectDirectoryIfEmpty(subjectId)
         true
+    }
+
+    fun markerText(subjectId: String, sessionId: String, photoName: String): String? = synchronized(GLOBAL_LOCK) {
+        if (!safeName(sessionId) || !safeName(photoName)) return@synchronized null
+        val directory = File(subjectDirectory(subjectId), sessionId)
+        val session = readSession(directory) ?: return@synchronized null
+        if (session.photos.none { it.name == photoName }) return@synchronized null
+        runCatching { File(File(directory, MARKER_CACHE), "$photoName.md").readText(Charsets.UTF_8).trim() }
+            .getOrNull()?.takeIf(String::isNotBlank)
+    }
+
+    fun saveMarkerText(subjectId: String, sessionId: String, photoName: String, markdown: String) = synchronized(GLOBAL_LOCK) {
+        require(safeName(sessionId) && safeName(photoName) && markdown.isNotBlank())
+        val directory = File(subjectDirectory(subjectId), sessionId)
+        val session = readSession(directory) ?: error("El conjunto ya no existe")
+        require(session.photos.any { it.name == photoName })
+        val cache = File(directory, MARKER_CACHE).apply { mkdirs() }
+        check(cache.isDirectory)
+        val target = File(cache, "$photoName.md")
+        val temporary = File(cache, "$photoName.md.tmp")
+        temporary.writeText(markdown.trim(), Charsets.UTF_8)
+        try {
+            Files.move(temporary.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+        } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
+            Files.move(temporary.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        }
     }
 
     fun reconcileSubjects(subjectIds: Set<String>) = synchronized(GLOBAL_LOCK) {
@@ -129,6 +159,7 @@ internal class SubjectNotesStore(private val root: File) {
     companion object {
         private const val FORMAT_VERSION = 1
         private const val MANIFEST = "manifest.json"
+        private const val MARKER_CACHE = ".marker"
         private val GLOBAL_LOCK = Any()
         fun from(context: android.content.Context) = SubjectNotesStore(File(context.filesDir, "subject-notes"))
     }

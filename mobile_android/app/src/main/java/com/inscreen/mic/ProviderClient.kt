@@ -2,10 +2,14 @@ package com.inscreen.mic
 
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
+import okhttp3.MultipartBody
 import okhttp3.Request
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.asRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.io.File
 import java.text.Normalizer
 import java.util.Locale
 import java.util.concurrent.TimeUnit
@@ -22,6 +26,8 @@ internal class ProviderClient(
     private val token: String,
     private val client: OkHttpClient = OkHttpClient.Builder().callTimeout(15, TimeUnit.SECONDS).build(),
 ) {
+    class MarkerException(val code: String) : IOException(code)
+
     fun request(kind: String, subjectSegment: String, day: Int, callback: (String) -> Unit) {
         val endpoint = when (kind) {
             "paginasLeidas" -> "paginas-leidas"
@@ -82,6 +88,36 @@ internal class ProviderClient(
         })
     }
 
+    @Throws(MarkerException::class)
+    fun transcribeMarker(image: File): String {
+        if (baseUrl.isBlank() || token.isBlank()) throw MarkerException("provider_not_configured")
+        if (!image.isFile || image.length() <= 0L) throw MarkerException("invalid_image")
+        if (image.length() > MAX_MARKER_IMAGE_BYTES) throw MarkerException("image_too_large")
+        val url = runCatching {
+            "${baseUrl.trimEnd('/')}/api/inscreen/provider/marker-transcribe".toHttpUrl()
+        }.getOrElse { throw MarkerException("invalid_provider_url") }
+        val body = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("file", "nota.jpg", image.asRequestBody("image/jpeg".toMediaType()))
+            .build()
+        val request = Request.Builder().url(url).header("Authorization", "Bearer $token").post(body).build()
+        val markerClient = client.newBuilder().callTimeout(300, TimeUnit.SECONDS).build()
+        return try {
+            markerClient.newCall(request).execute().use { response ->
+                val payload = runCatching { JSONObject(response.body?.string().orEmpty()) }.getOrNull()
+                    ?: throw MarkerException("invalid_response")
+                if (!response.isSuccessful || !payload.optBoolean("ok", false)) {
+                    throw MarkerException(payload.optString("error", "http_${response.code}"))
+                }
+                payload.optString("markdown").trim().ifBlank { throw MarkerException("empty_marker_result") }
+            }
+        } catch (error: MarkerException) {
+            throw error
+        } catch (_: IOException) {
+            throw MarkerException("network_error")
+        }
+    }
+
     internal fun normalizeResponse(raw: String): String {
         return runCatching {
             val source = JSONObject(raw)
@@ -127,5 +163,9 @@ internal class ProviderClient(
 
     private fun failure(error: String): String = JSONObject()
         .put("ok", false).put("archivos", JSONArray()).put("error", error).toString()
+
+    companion object {
+        const val MAX_MARKER_IMAGE_BYTES = 4L * 1024L * 1024L
+    }
 
 }
