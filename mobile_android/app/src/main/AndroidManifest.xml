@@ -41,6 +41,12 @@
         <activity
             android:name=".ModuleHostActivity"
             android:exported="false" />
+        <activity
+            android:name=".SubjectNotesCaptureActivity"
+            android:exported="false" />
+        <activity
+            android:name=".SubjectNotesGalleryActivity"
+            android:exported="false" />
 
         <service
             android:name=".InScreenService"

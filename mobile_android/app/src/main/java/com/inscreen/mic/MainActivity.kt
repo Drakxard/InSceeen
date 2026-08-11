@@ -21,6 +21,7 @@ import android.provider.DocumentsContract
 import android.text.InputType
 import android.text.method.PasswordTransformationMethod
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -365,6 +366,7 @@ class MainActivity : ComponentActivity() {
                 }
                 thread(name = "apriori-cache-cleanup") {
                     ProviderCache.from(this@MainActivity).reconcileSubjects(subjectIds)
+                    SubjectNotesStore.from(this@MainActivity).reconcileSubjects(subjectIds)
                     val moduleCache = ModuleCache.from(this@MainActivity)
                     removedModuleSubjects.forEach(moduleCache::remove)
                     moduleCache.reconcile(subjectIds)
@@ -379,6 +381,19 @@ class MainActivity : ComponentActivity() {
         @JavascriptInterface fun selectModule(subjectId: String, rawModule: String) {
             val selected = runCatching { ModuleSelection.parse(rawModule) }.getOrNull() ?: return
             runOnUiThread { ModuleHostActivity.openSelected(this@MainActivity, subjectId, selected) }
+        }
+
+        @JavascriptInterface fun openNotesCamera(subjectId: String) {
+            if (AprioriStore.subject(AprioriStore.load(this@MainActivity), subjectId) == null) return
+            runOnUiThread {
+                root.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                startActivity(SubjectNotesCaptureActivity.intent(this@MainActivity, subjectId))
+            }
+        }
+
+        @JavascriptInterface fun openNotesGallery(subjectId: String) {
+            if (AprioriStore.subject(AprioriStore.load(this@MainActivity), subjectId) == null) return
+            runOnUiThread { startActivity(SubjectNotesGalleryActivity.intent(this@MainActivity, subjectId)) }
         }
     }
 

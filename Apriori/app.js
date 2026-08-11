@@ -11,6 +11,7 @@
   const DRAG_THRESHOLD = 28;
   const CLICK_THRESHOLD = 6;
   const HOLD_DELAY = 150;
+  const NOTES_HOLD_DELAY = 500;
   const HOLD_LIFT = 8;
   const DOCK_ACTIVATION_HEIGHT = 90;
   const DOUBLE_TAP_DELAY = 350;
@@ -48,6 +49,7 @@
     detailForm: document.querySelector("#detailForm"),
     detailId: document.querySelector("#detailId"),
     detailName: document.querySelector("#detailName"),
+    notesGalleryButton: document.querySelector("#notesGalleryButton"),
     assignedModule: document.querySelector("#assignedModule"),
     assignedModuleName: document.querySelector("#assignedModuleName"),
     removeModuleButton: document.querySelector("#removeModuleButton"),
@@ -666,6 +668,7 @@
     elements.deleteButton.addEventListener("click", deleteSelectedSubject);
     elements.removeModuleButton.addEventListener("click", removeAssignedModule);
     elements.weightCycleButton.addEventListener("click", cycleSubjectWeight);
+    elements.notesGalleryButton.addEventListener("click", openSelectedNotesGallery);
     elements.addEvaluationButton.addEventListener("click", addEvaluation);
     elements.evaluationList.addEventListener("change", saveEvaluations);
     elements.evaluationList.addEventListener("click", handleEvaluationAction);
@@ -1012,6 +1015,7 @@
     if (!subject || elements.detailDialog.open) return;
     elements.detailId.value = subject.id;
     elements.detailName.value = subject.name;
+    elements.notesGalleryButton.hidden = !hasAndroidGalleryBridge();
     renderAssignedModule(subject);
     renderWeightCycle(subject);
     renderEvaluations(subject);
@@ -1027,6 +1031,20 @@
     requestAnimationFrame(() => {
       elements.detailName.readOnly = false;
     });
+  }
+
+  function hasAndroidNotesBridge() {
+    return VIEW === "queue" && typeof window.InScreenApriori?.openNotesCamera === "function";
+  }
+
+  function hasAndroidGalleryBridge() {
+    return typeof window.InScreenApriori?.openNotesGallery === "function";
+  }
+
+  function openSelectedNotesGallery() {
+    const subject = subjectById(elements.detailId.value);
+    if (!subject || typeof window.InScreenApriori?.openNotesGallery !== "function") return;
+    window.InScreenApriori.openNotesGallery(subject.id);
   }
 
   function renderDetailMetrics(selectedSubject = null) {
@@ -1414,7 +1432,10 @@
       moved: false,
       held: false,
       samples: [{ x: event.clientX, y: event.clientY, time: performance.now() }],
-      holdTimer: window.setTimeout(() => activateHold(event.pointerId), HOLD_DELAY),
+      holdTimer: window.setTimeout(
+        () => hasAndroidNotesBridge() ? activateNotesHold(event.pointerId) : activateHold(event.pointerId),
+        hasAndroidNotesBridge() ? NOTES_HOLD_DELAY : HOLD_DELAY,
+      ),
     };
     card.setPointerCapture(event.pointerId);
   }
@@ -1424,6 +1445,16 @@
     drag.held = true;
     suppressClick = true;
     drag.card.classList.add("is-held");
+  }
+
+  function activateNotesHold(pointerId) {
+    if (!drag || drag.pointerId !== pointerId || drag.moved) return;
+    const currentDrag = drag;
+    drag = null;
+    suppressClick = true;
+    if (currentDrag.card.hasPointerCapture(pointerId)) currentDrag.card.releasePointerCapture(pointerId);
+    window.InScreenApriori.openNotesCamera(currentDrag.card.dataset.subjectId);
+    window.setTimeout(() => { suppressClick = false; }, 800);
   }
 
   function handlePointerMove(event) {

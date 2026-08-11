@@ -346,6 +346,7 @@ async function main() {
       reordered: reorderedIds.at(-1) === ids[1],
       persisted: JSON.stringify(reorderedIds) === JSON.stringify(persistedIds),
       detailOpen: document.querySelector('#detailDialog').open,
+      notesGalleryHidden: document.querySelector('#notesGalleryButton').hidden,
       selectedId: document.querySelector('#detailId').value,
       clickedId: ids[1]
     };
@@ -357,6 +358,7 @@ async function main() {
     !dock.reordered ||
     !dock.persisted ||
     !dock.detailOpen ||
+    !dock.notesGalleryHidden ||
     dock.selectedId !== dock.clickedId
   ) {
     throw new Error(`Falló la bandeja inferior: ${JSON.stringify(dock)}`);
@@ -440,7 +442,14 @@ async function main() {
 
   const detail = await evaluate(`(() => {
     const queueSubjectId = document.querySelector('.queue-card[data-position="0"]').dataset.subjectId;
+    window.__notesGallerySubject = null;
+    window.InScreenApriori = { openNotesGallery: (id) => { window.__notesGallerySubject = id; } };
     document.querySelector('.subject-dock-card[data-subject-id="' + queueSubjectId + '"]').click();
+    const galleryButton = document.querySelector('#notesGalleryButton');
+    const galleryVisible = !galleryButton.hidden;
+    galleryButton.click();
+    const gallerySubject = window.__notesGallerySubject;
+    delete window.InScreenApriori;
     const input = document.querySelector('#detailName');
     input.value = 'Estructuras y Organizaciones';
     input.dispatchEvent(new Event('blur'));
@@ -514,6 +523,9 @@ async function main() {
       closedOutside,
       detectedRgb,
       rejectedInvalidFormat,
+      galleryVisible,
+      gallerySubject,
+      queueSubjectId,
       colorControl: {
         width: getComputedStyle(colorButton).width,
         height: getComputedStyle(colorButton).height,
@@ -542,6 +554,8 @@ async function main() {
     !detail.closedOutside ||
     detail.detectedRgb !== "#fdc745" ||
     !detail.rejectedInvalidFormat ||
+    !detail.galleryVisible ||
+    detail.gallerySubject !== detail.queueSubjectId ||
     detail.colorControl.width !== "42px" ||
     detail.colorControl.height !== "42px" ||
     detail.colorControl.border !== "4px" ||
@@ -804,6 +818,34 @@ async function main() {
     throw new Error(`La pestaña Cola no quedó aislada: ${JSON.stringify(queueView)}`);
   }
 
+  const notesRect = await evaluate(`(() => {
+    window.__notesCameraCalls = [];
+    window.InScreenApriori = { openNotesCamera: (id) => window.__notesCameraCalls.push(id) };
+    const value = document.querySelector('.queue-card[data-position="0"]').getBoundingClientRect();
+    return { x: value.x + value.width / 2, y: value.y + value.height / 2 };
+  })()`);
+  await send("Input.dispatchMouseEvent", { type: "mousePressed", x: notesRect.x, y: notesRect.y, button: "left", clickCount: 1 });
+  await delay(540);
+  await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: notesRect.x, y: notesRect.y, button: "left", clickCount: 1 });
+  await delay(820);
+  const notesHold = await evaluate(`(() => ({
+    calls: window.__notesCameraCalls.slice(),
+    expected: document.querySelector('.queue-card[data-position="0"]').dataset.subjectId
+  }))()`);
+  if (notesHold.calls.length !== 1 || notesHold.calls[0] !== notesHold.expected) {
+    throw new Error(`La pulsación larga no abrió la cámara correcta: ${JSON.stringify(notesHold)}`);
+  }
+  await send("Input.dispatchMouseEvent", { type: "mousePressed", x: notesRect.x, y: notesRect.y, button: "left", clickCount: 1 });
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: notesRect.x + 12, y: notesRect.y, button: "left", buttons: 1 });
+  await delay(540);
+  await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: notesRect.x + 12, y: notesRect.y, button: "left", clickCount: 1 });
+  const notesMove = await evaluate(`(() => {
+    const count = window.__notesCameraCalls.length;
+    delete window.InScreenApriori;
+    return { count };
+  })()`);
+  if (notesMove.count !== 1) throw new Error(`Mover antes del umbral abrió la cámara: ${JSON.stringify(notesMove)}`);
+
   const queueModulePicker = await evaluate(`(() => {
     const mirror = JSON.parse(localStorage.getItem('study-ticket-queue:v1'));
     const firstId = document.querySelector('.queue-card').dataset.subjectId;
@@ -905,6 +947,8 @@ async function main() {
         folderReopenedWithoutPrompt: true,
         dockView,
         queueView,
+        notesHold,
+        notesMove,
         queueModulePicker,
         queueDoubleTap,
         dockDelete,

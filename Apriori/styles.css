@@ -494,10 +494,23 @@ dialog::backdrop {
 
 .name-and-weight {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: end;
   gap: 8px;
 }
+
+.notes-gallery-button {
+  width: 48px;
+  height: 48px;
+  padding: 9px;
+  border: 2px solid #000;
+  border-radius: 0;
+  background: #fff;
+  cursor: pointer;
+}
+
+.notes-gallery-button[hidden] { display: none; }
+.notes-gallery-button svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 2; }
 
 .weight-cycle-button {
   height: 48px;
