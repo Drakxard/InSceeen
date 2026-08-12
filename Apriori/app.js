@@ -963,8 +963,13 @@
 
   async function useModule(event) {
     const remove = event.target.closest("button[data-remove-module-id]");
-    if (remove && moduleSearchSubjectId && window.InScreenApriori?.removeModule) {
-      window.InScreenApriori.removeModule(moduleSearchSubjectId, remove.dataset.removeModuleId);
+    if (remove && moduleSearchSubjectId) {
+      const subject = subjectById(moduleSearchSubjectId);
+      const module = subject?.modules?.find((item) => item.id === remove.dataset.removeModuleId);
+      if (!subject || !module || !window.confirm(`¿Quitar ${module.nombre} de esta materia?`)) return;
+      subject.modules = subject.modules.filter((item) => item.id !== module.id);
+      saveState();
+      renderModuleResults();
       return;
     }
     const button = event.target.closest("button[data-module-id]");
