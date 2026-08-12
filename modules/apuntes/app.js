@@ -359,7 +359,7 @@ studyCard.addEventListener('click', event => {
   if (event.target.closest('button,textarea')) return;
   if (cardMode === 'front') {
     if (currentCard()?.respuesta) showAnswer(); else void startVoice();
-  }
+  } else if (cardMode === 'answer') renderCard('front');
 });
 studyCard.addEventListener('keydown', event => {
   if ((event.key === 'Enter' || event.key === ' ') && cardMode === 'front') {

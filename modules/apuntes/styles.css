@@ -16,6 +16,7 @@ button,textarea { font:inherit; }
 .card-view,.status-card { padding:2rem;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center; }
 .card-view { position:absolute;inset:0; }
 .card-label { position:absolute;top:23px;left:1.5rem;right:1.5rem;letter-spacing:.13em;font-size:.72rem;font-weight:850;color:var(--muted);text-align:center; }
+#frontView > .card-label,#answerView > .card-label,.tap-hint,.deck-controls { display:none; }
 .card-title { max-width:100%;font-size:clamp(1.55rem,6vw,2.15rem);font-weight:850;line-height:1.25;word-break:break-word; }
 .tap-hint { position:absolute;bottom:20px;color:var(--muted);font-size:.8rem; }
 .listening-title { margin:1.5rem 0 .9rem;font-size:1rem;color:var(--muted);font-weight:750;line-height:1.3; }
