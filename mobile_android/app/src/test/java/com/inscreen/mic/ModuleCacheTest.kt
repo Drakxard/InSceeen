@@ -20,21 +20,22 @@ class ModuleCacheTest {
 
         assertEquals("<h1>uno</h1>", cache.read("materia-1", first))
         assertEquals("<h1>dos</h1>", cache.read("materia-2", first))
-        assertEquals("body{}", File(cache.directory("materia-1"), "styles.css").readText())
+        assertEquals("body{}", File(cache.directory("materia-1", first.id), "styles.css").readText())
         assertNull(cache.read("materia-1", second))
     }
 
-    @Test fun replacingAssignmentRemovesOldModuleAndDeleteIsPerSubject() {
+    @Test fun modulesCoexistAndDeleteIsPerSubjectAndModule() {
         val root = temporary.newFolder("modules")
         val cache = ModuleCache.at(root)
         cache.write("materia-1", first, mapOf("index.html" to "anterior".toByteArray()))
         cache.write("materia-1", second, mapOf("index.html" to "nuevo".toByteArray()))
         cache.write("materia-2", first, mapOf("index.html" to "otra".toByteArray()))
 
-        assertNull(cache.read("materia-1", first))
+        assertEquals("anterior", cache.read("materia-1", first))
         assertEquals("nuevo", cache.read("materia-1", second))
-        cache.remove("materia-1")
+        cache.remove("materia-1", second.id)
         assertNull(cache.read("materia-1", second))
+        assertEquals("anterior", cache.read("materia-1", first))
         assertEquals("otra", cache.read("materia-2", first))
     }
 

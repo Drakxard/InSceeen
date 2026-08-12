@@ -9,7 +9,7 @@ import java.security.MessageDigest
 
 internal class ModuleCache private constructor(private val root: File) {
     @Synchronized fun read(subjectId: String, module: ModuleCatalog.Module): String? {
-        val directory = subjectDirectory(subjectId)
+        val directory = moduleDirectory(subjectId, module.id)
         val metadata = runCatching { JSONObject(File(directory, METADATA).readText()) }.getOrNull() ?: return null
         if (metadata.optString("subjectId") != subjectId || metadata.optString("moduleId") != module.id || metadata.optString("entry") != module.entry) return null
         return runCatching { File(directory, module.entry.substringAfterLast('/')).readText(Charsets.UTF_8) }.getOrNull()?.takeIf(String::isNotBlank)
@@ -19,7 +19,7 @@ internal class ModuleCache private constructor(private val root: File) {
     @Synchronized fun write(subjectId: String, module: ModuleCatalog.Module, files: Map<String, ByteArray>) {
         val entry = module.entry.substringAfterLast('/')
         require(subjectId.isNotBlank() && files[entry]?.isNotEmpty() == true)
-        val directory = subjectDirectory(subjectId).apply { mkdirs() }; check(directory.isDirectory)
+        val directory = moduleDirectory(subjectId, module.id).apply { mkdirs() }; check(directory.isDirectory)
         files.forEach { (relative, bytes) ->
             require(relative.matches(Regex("[A-Za-z0-9][A-Za-z0-9._/-]{0,239}")) && !relative.split('/').any { it == "." || it == ".." }) { "Ruta de recurso inválida" }
             val target = File(directory, relative); target.parentFile?.mkdirs()
@@ -30,17 +30,18 @@ internal class ModuleCache private constructor(private val root: File) {
         replace(metadataTemporary, metadataFile)
     }
 
-    fun directory(subjectId: String): File = subjectDirectory(subjectId)
-    @Synchronized fun remove(subjectId: String) { subjectDirectory(subjectId).deleteRecursively() }
+    fun directory(subjectId: String, moduleId: String): File = moduleDirectory(subjectId, moduleId)
+    @Synchronized fun remove(subjectId: String, moduleId: String) { moduleDirectory(subjectId, moduleId).deleteRecursively() }
+    @Synchronized fun removeSubject(subjectId: String) { subjectDirectory(subjectId).deleteRecursively() }
     @Synchronized fun reconcile(subjectIds: Set<String>) {
         if (!root.exists()) return
         root.listFiles()?.filter(File::isDirectory)?.forEach { directory ->
-            val subjectId = runCatching { JSONObject(File(directory, METADATA).readText()).optString("subjectId") }.getOrDefault("")
-            if (subjectId.isBlank() || subjectId !in subjectIds) directory.deleteRecursively()
+            if (directory.name !in subjectIds.map(::sha256)) directory.deleteRecursively()
         }
     }
 
     private fun subjectDirectory(subjectId: String): File = File(root, sha256(subjectId))
+    private fun moduleDirectory(subjectId: String, moduleId: String): File = File(subjectDirectory(subjectId), sha256(moduleId))
     private fun replace(temporary: File, target: File) {
         try { Files.move(temporary.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING) }
         catch (_: Exception) { Files.move(temporary.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING) }

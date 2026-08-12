@@ -99,8 +99,8 @@ class AprioriStoreTest {
         }""".trimIndent()
 
         val subject = AprioriStore.subject(AprioriStore.validateAndNormalize(raw), "a")
-        assertEquals("algebra-vf", subject?.optJSONObject("module")?.optString("id"))
-        assertEquals("V o F", subject?.optJSONObject("module")?.optString("nombre"))
+        assertEquals("algebra-vf", subject?.optJSONArray("modules")?.optJSONObject(0)?.optString("id"))
+        assertEquals("V o F", subject?.optJSONArray("modules")?.optJSONObject(0)?.optString("nombre"))
     }
 
     @Test
@@ -112,11 +112,27 @@ class AprioriStoreTest {
         }""".trimIndent()
         val module = ModuleCatalog.Module("algebra-vf", "V o F", "modules/algebra-vf/index.html")
 
-        val assigned = AprioriStore.assignModule(raw, "a", module)
-        assertEquals("algebra-vf", AprioriStore.subject(assigned!!, "a")?.optJSONObject("module")?.optString("id"))
+        val assigned = AprioriStore.addModule(raw, "a", module)
+        assertEquals("algebra-vf", AprioriStore.subject(assigned!!, "a")?.optJSONArray("modules")?.optJSONObject(0)?.optString("id"))
 
-        val removed = AprioriStore.assignModule(assigned, "a", null)
-        assertEquals(null, AprioriStore.subject(removed!!, "a")?.optJSONObject("module"))
+        val removed = AprioriStore.removeModule(assigned, "a", module.id)
+        assertEquals(0, AprioriStore.subject(removed!!, "a")?.optJSONArray("modules")?.length())
+    }
+
+    @Test
+    fun addsMultipleModulesWithoutDuplicates() {
+        val raw = """{"version":3,"settings":{"cycleSize":20,"urgencyK":14},"subjects":[{"id":"a","name":"Álgebra"}],"ring":["a"]}"""
+        val first = ModuleCatalog.Module("first", "Primero", "modules/first/index.html")
+        val second = ModuleCatalog.Module("second", "Segundo", "modules/second/index.html")
+
+        val withFirst = AprioriStore.addModule(raw, "a", first)!!
+        val withBoth = AprioriStore.addModule(withFirst, "a", second)!!
+        val withoutDuplicate = AprioriStore.addModule(withBoth, "a", first)!!
+        val modules = AprioriStore.subject(withoutDuplicate, "a")!!.getJSONArray("modules")
+
+        assertEquals(2, modules.length())
+        assertEquals("first", modules.getJSONObject(0).getString("id"))
+        assertEquals("second", modules.getJSONObject(1).getString("id"))
     }
 
     @Test

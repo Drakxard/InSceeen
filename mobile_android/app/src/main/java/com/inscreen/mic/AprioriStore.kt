@@ -83,6 +83,21 @@ object AprioriStore {
             require(id.isNotEmpty() && name.isNotEmpty())
             require(subjectIds.add(id))
             subject.put("providerSubjectSegment", ProviderSubject.segment(name))
+            val modules = subject.optJSONArray("modules") ?: JSONArray().also { migrated ->
+                subject.optJSONObject("module")?.let(migrated::put)
+                subject.put("modules", migrated)
+            }
+            val moduleIds = mutableSetOf<String>()
+            for (moduleIndex in 0 until modules.length()) {
+                val module = modules.optJSONObject(moduleIndex) ?: error("Módulo inválido")
+                require(module.optString("id").isNotBlank() && module.optString("nombre").isNotBlank() &&
+                    module.optString("entry").matches(Regex("modules/[a-z0-9][a-z0-9-]{0,79}/index\\.html")))
+                require(moduleIds.add(module.optString("id")))
+            }
+            subject.remove("module")
+            subject.remove("moduleId")
+            subject.remove("moduleName")
+            subject.remove("moduleEntry")
             require(subject.optInt("baseWeight", 1) in 1..100)
             val evaluations = subject.optJSONArray("evaluations") ?: JSONArray()
             for (evaluationIndex in 0 until evaluations.length()) {
@@ -110,6 +125,7 @@ object AprioriStore {
                 remove("moduleName")
                 remove("moduleEntry")
                 remove("module")
+                remove("modules")
             }
         }
         return state.toString()
@@ -159,13 +175,33 @@ object AprioriStore {
         }
     }
 
-    internal fun assignModule(context: Context, subjectId: String, module: ModuleCatalog.Module?): Boolean {
-        val updated = assignModule(load(context), subjectId, module) ?: return false
+    internal fun addModule(context: Context, subjectId: String, module: ModuleCatalog.Module): Boolean {
+        val updated = addModule(load(context), subjectId, module) ?: return false
         AprioriUpdates.publish(context, save(context, updated))
         return true
     }
 
-    internal fun assignModule(raw: String, subjectId: String, module: ModuleCatalog.Module?): String? {
+    internal fun addModule(raw: String, subjectId: String, module: ModuleCatalog.Module): String? =
+        updateModules(raw, subjectId) { modules ->
+            if ((0 until modules.length()).none { modules.optJSONObject(it)?.optString("id") == module.id }) {
+                modules.put(moduleJson(module))
+            }
+        }
+
+    internal fun removeModule(context: Context, subjectId: String, moduleId: String): Boolean {
+        val updated = removeModule(load(context), subjectId, moduleId) ?: return false
+        AprioriUpdates.publish(context, save(context, updated))
+        return true
+    }
+
+    internal fun removeModule(raw: String, subjectId: String, moduleId: String): String? =
+        updateModules(raw, subjectId) { modules ->
+            for (index in modules.length() - 1 downTo 0) {
+                if (modules.optJSONObject(index)?.optString("id") == moduleId) modules.remove(index)
+            }
+        }
+
+    private fun updateModules(raw: String, subjectId: String, update: (JSONArray) -> Unit): String? {
         val state = JSONObject(raw)
         val subjects = state.optJSONArray("subjects") ?: return null
         val subject = (0 until subjects.length())
@@ -173,19 +209,13 @@ object AprioriStore {
             .mapNotNull(subjects::optJSONObject)
             .firstOrNull { it.optString("id") == subjectId }
             ?: return null
-        if (module == null) {
-            subject.remove("moduleId")
-            subject.remove("moduleName")
-            subject.remove("moduleEntry")
-            subject.remove("module")
-        } else {
-            subject.put("module", JSONObject().apply {
-                put("id", module.id)
-                put("nombre", module.name)
-                put("entry", module.entry)
-            })
-        }
+        val modules = subject.optJSONArray("modules") ?: JSONArray().also { subject.put("modules", it) }
+        update(modules)
         return validateAndNormalize(state.toString())
+    }
+
+    private fun moduleJson(module: ModuleCatalog.Module) = JSONObject().apply {
+        put("id", module.id); put("nombre", module.name); put("entry", module.entry)
     }
 
     fun queueHead(raw: String): QueueHead? {

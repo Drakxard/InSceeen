@@ -3,6 +3,7 @@ package com.inscreen.mic
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -13,6 +14,7 @@ import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.WebStorage
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -58,11 +60,7 @@ class ModuleHostActivity : Activity() {
                 return
             }
         }
-        val assignedModule = subject.optJSONObject("module")
-        val entry = assignedModule?.optString("entry").orEmpty()
-        if (entry.isBlank()) showPicker() else showModule(ModuleCatalog.Module(
-            assignedModule?.optString("id").orEmpty(), assignedModule?.optString("nombre").orEmpty(), entry,
-        ))
+        showPicker()
     }
 
     private fun showMissingSubject() {
@@ -96,17 +94,22 @@ class ModuleHostActivity : Activity() {
         val status = TextView(this).apply { text = notice ?: "Cargando módulos…"; setPadding(0, 18, 0, 8) }
         val results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         page.addView(title); page.addView(search); page.addView(status)
-        val assigned = AprioriStore.subject(AprioriStore.load(this), subjectId)
-            ?.optJSONObject("module")?.optString("id").orEmpty()
-        if (assigned.isNotBlank()) {
-            page.addView(Button(this).apply {
-                text = "Quitar módulo"
-                setOnClickListener {
-                    AprioriStore.assignModule(this@ModuleHostActivity, subjectId, null)
-                    moduleCache.remove(subjectId)
-                    text = "Módulo quitado"
-                    isEnabled = false
-                }
+        val assignedModules = assignedModules()
+        assignedModules.forEach { module ->
+            page.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(TextView(this@ModuleHostActivity).apply {
+                    text = module.name
+                    textSize = 17f
+                    setPadding(18, 22, 18, 22)
+                    setOnClickListener { showModule(module) }
+                }, LinearLayout.LayoutParams(0, -2, 1f))
+                addView(Button(this@ModuleHostActivity).apply {
+                    text = "×"
+                    contentDescription = "Quitar ${module.name}"
+                    setOnClickListener { confirmRemoveModule(module) }
+                })
             })
         }
         page.addView(ScrollView(this).apply { addView(results) }, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -114,7 +117,8 @@ class ModuleHostActivity : Activity() {
         ModuleCatalog.load { loaded -> runOnUiThread {
             loaded.fold(onSuccess = { modules ->
                 fun render(query: String = "") {
-                    val matching = modules.filter { it.name.contains(query, true) || it.id.contains(query, true) }
+                    val assignedIds = assignedModules.map { it.id }.toSet()
+                    val matching = modules.filter { it.id !in assignedIds && (it.name.contains(query, true) || it.id.contains(query, true)) }
                     results.removeAllViews()
                     status.text = when {
                         modules.isEmpty() -> "No hay módulos disponibles en GitHub."
@@ -140,6 +144,38 @@ class ModuleHostActivity : Activity() {
         }}
     }
 
+    private fun assignedModules(): List<ModuleCatalog.Module> {
+        val modules = AprioriStore.subject(AprioriStore.load(this), subjectId)?.optJSONArray("modules") ?: return emptyList()
+        return (0 until modules.length()).mapNotNull { index ->
+            modules.optJSONObject(index)?.let { item ->
+                val id = item.optString("id"); val name = item.optString("nombre"); val entry = item.optString("entry")
+                if (id.isBlank() || name.isBlank() || entry.isBlank()) null else ModuleCatalog.Module(id, name, entry)
+            }
+        }
+    }
+
+    private fun confirmRemoveModule(module: ModuleCatalog.Module) {
+        AlertDialog.Builder(this)
+            .setTitle("Quitar ${module.name}")
+            .setMessage("¿Querés conservar sus datos para recuperarlos si volvés a agregarlo?")
+            .setNegativeButton("Quitar y borrar datos") { _, _ -> removeModule(module, true) }
+            .setPositiveButton("Quitar y conservar") { _, _ -> removeModule(module, false) }
+            .setNeutralButton("Cancelar", null)
+            .show()
+    }
+
+    private fun removeModule(module: ModuleCatalog.Module, deleteData: Boolean) {
+        if (!AprioriStore.removeModule(this, subjectId, module.id)) {
+            showPicker("No se pudo quitar el módulo.")
+            return
+        }
+        if (deleteData) {
+            moduleCache.remove(subjectId, module.id)
+            WebStorage.getInstance().deleteOrigin("https://${moduleOrigin(subjectId, module.id)}")
+        }
+        showPicker("Módulo quitado.")
+    }
+
     @SuppressLint("SetJavaScriptEnabled", "AddJavascriptInterface")
     private fun showModule(module: ModuleCatalog.Module, persistAssignment: Boolean = false) {
         if (!persistAssignment) {
@@ -158,9 +194,7 @@ class ModuleHostActivity : Activity() {
                 onSuccess = { packageFiles ->
                     runCatching {
                         moduleCache.write(subjectId, module, packageFiles.files)
-                        if (persistAssignment) {
-                            check(AprioriStore.assignModule(this@ModuleHostActivity, subjectId, module))
-                        }
+                        if (persistAssignment) check(AprioriStore.addModule(this@ModuleHostActivity, subjectId, module))
                     }.fold(
                         onSuccess = { showModuleHtml(module, packageFiles.html) },
                         onFailure = { showModuleLoadError(module, persistAssignment) },
@@ -350,10 +384,12 @@ class ModuleHostActivity : Activity() {
             val quotedPayload = JSONObject.quote(payload)
             view.evaluateJavascript("window.__InScreenVoiceEvent($quotedPayload)", null)
         } }
+        val origin = moduleOrigin(subjectId, module.id)
         val assets = WebViewAssetLoader.Builder()
+            .setDomain(origin)
             .addPathHandler(
                 "/module-assets/",
-                WebViewAssetLoader.InternalStoragePathHandler(this, moduleCache.directory(subjectId)),
+                WebViewAssetLoader.InternalStoragePathHandler(this, moduleCache.directory(subjectId, module.id)),
             )
             .build()
         view.apply {
@@ -400,7 +436,7 @@ class ModuleHostActivity : Activity() {
                 },
                 "InScreenModuleNative",
             )
-            loadDataWithBaseURL("https://appassets.androidplatform.net/module-assets/", bootstrapped, "text/html", "utf-8", null)
+            loadDataWithBaseURL("https://$origin/module-assets/", bootstrapped, "text/html", "utf-8", null)
         }
         setContentView(view)
     }
@@ -585,6 +621,13 @@ class ModuleHostActivity : Activity() {
     }
 
     companion object {
+        private fun moduleOrigin(subjectId: String, moduleId: String): String {
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+                .digest("$subjectId\u0000$moduleId".toByteArray(Charsets.UTF_8))
+                .take(16).joinToString("") { "%02x".format(it.toInt() and 0xff) }
+            return "m-$digest.inscreen.local"
+        }
+
         private const val REQUEST_MODULE_AUDIO = 904
         internal const val EXTRA_SUBJECT_ID = "subject_id"
         internal const val EXTRA_NOTES_SESSION_ID = "notes_session_id"

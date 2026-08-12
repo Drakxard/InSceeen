@@ -50,9 +50,6 @@
     detailId: document.querySelector("#detailId"),
     detailName: document.querySelector("#detailName"),
     notesGalleryButton: document.querySelector("#notesGalleryButton"),
-    assignedModule: document.querySelector("#assignedModule"),
-    assignedModuleName: document.querySelector("#assignedModuleName"),
-    removeModuleButton: document.querySelector("#removeModuleButton"),
     weightCycleButton: document.querySelector("#weightCycleButton"),
     evaluationList: document.querySelector("#evaluationList"),
     addEvaluationButton: document.querySelector("#addEvaluationButton"),
@@ -282,7 +279,7 @@
       createdAt: Number.isNaN(createdAt.getTime()) ? new Date().toISOString() : createdAt.toISOString(),
       color: normalizeColor(subject.color, index),
       providerSubjectSegment: toProviderSubjectSegment(name),
-      module: normalizeModule(subject.module),
+      modules: normalizeModules(subject.modules, subject.module),
     };
   }
 
@@ -292,6 +289,12 @@
     const nombre = normalizeName(module.nombre);
     const entry = typeof module.entry === "string" ? module.entry.trim() : "";
     return id && nombre && entry ? { id, nombre, entry } : null;
+  }
+
+  function normalizeModules(modules, legacyModule = null) {
+    const source = Array.isArray(modules) ? modules : legacyModule ? [legacyModule] : [];
+    const ids = new Set();
+    return source.map(normalizeModule).filter((module) => module && !ids.has(module.id) && ids.add(module.id));
   }
 
   function normalizeEvaluations(evaluations, legacyExamDate = null) {
@@ -666,7 +669,6 @@
     elements.detailName.addEventListener("blur", saveSubjectDetails);
     elements.detailName.addEventListener("keydown", handleDetailNameKeydown);
     elements.deleteButton.addEventListener("click", deleteSelectedSubject);
-    elements.removeModuleButton.addEventListener("click", removeAssignedModule);
     elements.weightCycleButton.addEventListener("click", cycleSubjectWeight);
     elements.notesGalleryButton.addEventListener("click", openSelectedNotesGallery);
     elements.addEvaluationButton.addEventListener("click", addEvaluation);
@@ -828,7 +830,7 @@
       active: true,
       baseWeight: 1,
       evaluations: [],
-      module: null,
+      modules: [],
     };
     const priorHead = state.ring[0] || null;
     const extendLeftGroup =
@@ -880,12 +882,11 @@
     if (!card || suppressClick || isAnimating) return;
     const subject = subjectById(card.dataset.subjectId);
     if (!subject) return;
-    if (VIEW === "queue" && subject.module && window.InScreenApriori?.openModule) {
+    if (VIEW === "queue" && window.InScreenApriori?.openModule) {
       window.InScreenApriori.openModule(subject.id);
       return;
     }
-    if (subject.module) openAssignedModule(subject);
-    else openModuleSearch(subject.id);
+    openModuleSearch(subject.id);
   }
 
   async function openModuleSearch(subjectId) {
@@ -968,25 +969,15 @@
       if (!response.ok) throw new Error("No se pudo descargar el módulo.");
       const html = await response.text();
       await folderStorage.saveModule(module.id, html);
-      subject.module = module;
+      if (!subject.modules.some((item) => item.id === module.id)) subject.modules.push(module);
       await folderStorage.save(state);
       openModuleHtml(html);
     } catch (error) {
-      if (subject.module?.id === module.id) subject.module = null;
+      subject.modules = subject.modules.filter((item) => item.id !== module.id);
       row?.classList.remove("is-downloading");
       elements.moduleError.textContent = error.message || "No se pudo descargar el módulo.";
       button.textContent = "Usar";
       button.disabled = false;
-    }
-  }
-
-  async function openAssignedModule(subject) {
-    try {
-      const html = await folderStorage.readModule(subject.module.id);
-      openModuleHtml(html);
-    } catch {
-      openModuleSearch(subject.id);
-      elements.moduleError.textContent = "No se encontró la copia descargada. Volvé a elegir el módulo.";
     }
   }
 
@@ -996,27 +987,12 @@
     window.location.assign(url);
   }
 
-  function renderAssignedModule(subject) {
-    const module = subject.module;
-    elements.assignedModule.hidden = !module;
-    elements.assignedModuleName.textContent = module?.nombre || "";
-  }
-
-  function removeAssignedModule() {
-    const subject = subjectById(elements.detailId.value);
-    if (!subject?.module) return;
-    subject.module = null;
-    saveState();
-    renderAssignedModule(subject);
-  }
-
   function openDetails(id) {
     const subject = subjectById(id);
     if (!subject || elements.detailDialog.open) return;
     elements.detailId.value = subject.id;
     elements.detailName.value = subject.name;
     elements.notesGalleryButton.hidden = !hasAndroidGalleryBridge();
-    renderAssignedModule(subject);
     renderWeightCycle(subject);
     renderEvaluations(subject);
     elements.detailColor.value = subject.color;
@@ -1701,7 +1677,7 @@
   window.InScreenOpenSubjectModule = function openAndroidSubjectModule(subjectId) {
     const subject = subjectById(subjectId);
     if (!subject || VIEW !== "queue") return false;
-    if (subject.module && window.InScreenApriori?.openModule) {
+    if (window.InScreenApriori?.openModule) {
       window.InScreenApriori.openModule(subject.id);
     } else {
       openModuleSearch(subject.id);

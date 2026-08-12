@@ -84,6 +84,7 @@ class MainActivity : ComponentActivity() {
     private var lastState = "SIN CONEXIÓN"
     private var updateReceiverRegistered = false
     private var edgeGesture: EdgeGesture? = null
+    private var autoExportSwitch: Switch? = null
 
     private val updatePreferences by lazy {
         getSharedPreferences(UPDATE_PREFERENCES, Context.MODE_PRIVATE)
@@ -108,9 +109,17 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, "No se pudo guardar el permiso de la carpeta", Toast.LENGTH_SHORT).show()
             return@registerForActivityResult
         }
+        val outputUri = createAutomaticBackupDocument(uri)
+        if (outputUri == null) {
+            backupPreferences.edit().remove(KEY_AUTO_EXPORT_FOLDER).remove(KEY_AUTO_EXPORT_FILE)
+                .putBoolean(KEY_AUTO_EXPORT_ENABLED, false).apply()
+            refreshAutoExportSwitch(false)
+            Toast.makeText(this, "La carpeta no permite crear el respaldo", Toast.LENGTH_LONG).show()
+            return@registerForActivityResult
+        }
         backupPreferences.edit()
             .putString(KEY_AUTO_EXPORT_FOLDER, uri.toString())
-            .remove(KEY_AUTO_EXPORT_FILE)
+            .putString(KEY_AUTO_EXPORT_FILE, outputUri.toString())
             .putBoolean(KEY_AUTO_EXPORT_ENABLED, true)
             .apply()
         refreshAutoExportSwitch(true)
@@ -342,7 +351,6 @@ class MainActivity : ComponentActivity() {
 
         @JavascriptInterface fun saveState(raw: String) {
             try {
-                val previous = JSONObject(AprioriStore.load(this@MainActivity))
                 val saved = AprioriStore.save(this@MainActivity, raw)
                 runOnUiThread { AprioriUpdates.publish(this@MainActivity, saved) }
                 if (backupPreferences.getBoolean(KEY_AUTO_EXPORT_ENABLED, false)) {
@@ -353,23 +361,10 @@ class MainActivity : ComponentActivity() {
                 val subjectIds = (0 until (subjects?.length() ?: 0))
                     .mapNotNull { subjects?.optJSONObject(it)?.optString("id")?.takeIf(String::isNotBlank) }
                     .toSet()
-                val currentModules = (0 until (subjects?.length() ?: 0)).associate { index ->
-                    val subject = subjects?.optJSONObject(index)
-                    subject?.optString("id").orEmpty() to subject?.optJSONObject("module")?.optString("id").orEmpty()
-                }
-                val previousSubjects = previous.optJSONArray("subjects")
-                val removedModuleSubjects = (0 until (previousSubjects?.length() ?: 0)).mapNotNull { index ->
-                    val subject = previousSubjects?.optJSONObject(index) ?: return@mapNotNull null
-                    val id = subject.optString("id")
-                    val oldModule = subject.optJSONObject("module")?.optString("id").orEmpty()
-                    id.takeIf { oldModule.isNotBlank() && currentModules[id] != oldModule }
-                }
                 thread(name = "apriori-cache-cleanup") {
                     ProviderCache.from(this@MainActivity).reconcileSubjects(subjectIds)
                     SubjectNotesStore.from(this@MainActivity).reconcileSubjects(subjectIds)
-                    val moduleCache = ModuleCache.from(this@MainActivity)
-                    removedModuleSubjects.forEach(moduleCache::remove)
-                    moduleCache.reconcile(subjectIds)
+                    ModuleCache.from(this@MainActivity).reconcile(subjectIds)
                 }
             } catch (_: Exception) { }
         }
@@ -478,7 +473,7 @@ class MainActivity : ComponentActivity() {
             leftMargin = 24
             bottomMargin = 24
         })
-        val autoExportSwitch = Switch(this).apply {
+        val exportSwitch = Switch(this).apply {
             text = "autoExport"
             textSize = 16f
             setTextColor(Color.WHITE)
@@ -497,10 +492,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        autoExportSwitch = exportSwitch
         val backupControls = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            addView(autoExportSwitch, LinearLayout.LayoutParams(-2, 64))
+            addView(exportSwitch, LinearLayout.LayoutParams(-2, 64))
             addView(backupButton("↓", "Exportar datos") {
                 exportStateLauncher.launch("InScreen-backup.zip")
             })
@@ -899,17 +895,7 @@ class MainActivity : ComponentActivity() {
             } == true
 
     private fun refreshAutoExportSwitch(enabled: Boolean) {
-        val page = pager.getChildAt(2) as? ViewGroup ?: return
-        findSwitch(page)?.let { it.isChecked = enabled }
-    }
-
-    private fun findSwitch(view: View): Switch? {
-        if (view is Switch) return view
-        if (view !is ViewGroup) return null
-        for (index in 0 until view.childCount) {
-            findSwitch(view.getChildAt(index))?.let { return it }
-        }
-        return null
+        autoExportSwitch?.isChecked = enabled
     }
 
     private fun exportAutomaticBackup() {
@@ -923,7 +909,7 @@ class MainActivity : ComponentActivity() {
         val outputUri = runCatching {
             fileUri ?: DocumentsContract.createDocument(
                 contentResolver,
-                folder,
+                DocumentsContract.buildDocumentUriUsingTree(folder, DocumentsContract.getTreeDocumentId(folder)),
                 "application/zip",
                 "InScreen-backup.zip",
             )
@@ -937,6 +923,19 @@ class MainActivity : ComponentActivity() {
         backupPreferences.edit().putString(KEY_AUTO_EXPORT_FILE, outputUri.toString()).apply()
         exportAppState(outputUri, notify = false)
     }
+
+    private fun createAutomaticBackupDocument(folder: Uri): Uri? = runCatching {
+        val rootDocument = DocumentsContract.buildDocumentUriUsingTree(
+            folder,
+            DocumentsContract.getTreeDocumentId(folder),
+        )
+        DocumentsContract.createDocument(
+            contentResolver,
+            rootDocument,
+            "application/zip",
+            "InScreen-backup.zip",
+        )
+    }.getOrNull()
 
     private fun importAppState(uri: Uri) {
         thread(name = "InScreenFullImport") {

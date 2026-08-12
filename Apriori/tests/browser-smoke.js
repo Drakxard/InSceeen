@@ -850,7 +850,7 @@ async function main() {
     const mirror = JSON.parse(localStorage.getItem('study-ticket-queue:v1'));
     const firstId = document.querySelector('.queue-card').dataset.subjectId;
     const subject = mirror.subjects.find(item => item.id === firstId);
-    subject.module = null;
+    subject.modules = [];
     window.InScreenApplyState?.(JSON.stringify(mirror));
     const routed = window.InScreenOpenSubjectModule?.(firstId) === true;
     const opened = document.querySelector('#moduleDialog').open;
