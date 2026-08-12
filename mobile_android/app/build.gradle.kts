@@ -19,8 +19,8 @@ android {
         applicationId = "com.inscreen.mic"
         minSdk = 26
         targetSdk = 36
-        versionCode = 36
-        versionName = "2.0.9"
+        versionCode = 37
+        versionName = "2.0.10"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
