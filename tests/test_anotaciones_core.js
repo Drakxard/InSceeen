@@ -1,0 +1,4 @@
+const test=require('node:test'),assert=require('node:assert/strict'),core=require('../modules/anotaciones/core.js');
+test('starts with one blank card',()=>{const state=core.normalize(null);assert.equal(state.tarjetas.length,1);assert.equal(state.tarjetas[0].cabecera,'')});
+test('advances only after a header and keeps a single trailing blank',()=>{const state=core.normalize(null);assert.equal(core.advance(state,0),0);state.tarjetas[0].cabecera='Tema';assert.equal(core.advance(state,0),1);assert.equal(state.tarjetas.length,2);assert.equal(core.normalize(state).tarjetas.length,2)});
+test('deletes cards and always leaves one',()=>{const state=core.normalize(null);state.tarjetas[0].cabecera='Tema';core.advance(state,0);assert.equal(core.remove(state,0),0);assert.equal(state.tarjetas.length,1);core.remove(state,0);assert.equal(state.tarjetas.length,1)});

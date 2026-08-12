@@ -1,0 +1,8 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Anotaciones</title><link rel="stylesheet" href="styles.css"></head>
+<body><main><header><span>Anotaciones</span><span id="position"></span></header><section id="stage">
+<article id="card" tabindex="0"><div id="front" class="face"><small>CABECERA</small><h1 id="headerText"></h1><p id="frontHint"></p></div><div id="back" class="face hidden"><small>RESPUESTA</small><p id="answerText"></p><p id="backHint"></p></div><div id="listening" class="face hidden"><small class="recording">● ESCUCHANDO</small><p id="transcript">Escuchando…</p><button id="stop">Detener</button></div></article>
+</section><nav><button id="previous">‹</button><span>Deslizá para navegar</span><button id="next">›</button></nav></main><div id="toast" role="status" hidden>No hay más tarjetas por ahora</div>
+<div id="menu" class="overlay" hidden><div class="sheet"><button id="edit">Editar texto</button><button id="rerecord">Regrabar</button><button id="remove" class="danger">Eliminar tarjeta</button><button id="cancelMenu">Cancelar</button></div></div>
+<div id="editorOverlay" class="overlay" hidden><div class="dialog"><textarea id="editor" maxlength="50000"></textarea><div><button id="cancelEdit">Cancelar</button><button id="saveEdit">Guardar</button></div></div></div>
+<div id="consent" class="overlay" hidden><div class="dialog"><p>El reconocimiento local no está disponible. Android puede usar el servicio configurado en el teléfono.</p><div><button id="deny">Cancelar</button><button id="allow">Continuar</button></div></div></div>
+<script src="core.js"></script><script src="app.js"></script></body></html>
