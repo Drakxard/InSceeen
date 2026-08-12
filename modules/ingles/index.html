@@ -11,6 +11,17 @@
   <div id="errorOverlay" class="error-overlay" role="alertdialog" aria-modal="true">
     <div class="error-card"><h2>Error de ejecución</h2><p id="errorDetailsText" class="error-details-box"></p><button class="primary-btn" onclick="closeErrorOverlay()">Cerrar</button></div>
   </div>
+  <div id="deleteOverlay" class="delete-overlay" role="dialog" aria-modal="true" aria-labelledby="deleteTitle" hidden>
+    <div class="delete-dialog">
+      <h2 id="deleteTitle">Borrar</h2>
+      <p>¿Querés borrar esta línea del TXT?</p>
+      <p id="deletePreview" class="delete-preview"></p>
+      <div class="delete-actions">
+        <button id="cancelDelete" class="day-btn" type="button">No</button>
+        <button id="confirmDelete" class="day-btn delete-confirm" type="button">Sí</button>
+      </div>
+    </div>
+  </div>
 
   <main class="wrapper">
     <section id="cardStage" class="card-stage" aria-live="polite">

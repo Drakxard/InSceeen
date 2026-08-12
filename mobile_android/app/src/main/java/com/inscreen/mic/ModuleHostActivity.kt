@@ -1,9 +1,11 @@
 package com.inscreen.mic
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Bundle
 import android.view.Gravity
@@ -23,17 +25,22 @@ class ModuleHostActivity : Activity() {
     private lateinit var subjectId: String
     private var subjectName = ""
     private var providerSubjectSegment = ""
+    private var notesSessionId: String? = null
     private var moduleWebView: WebView? = null
+    private var moduleSpeech: ModuleSpeechController? = null
+    private var pendingVoiceStart: PendingVoiceStart? = null
     private val providerCache by lazy { ProviderCache.from(this) }
     private val groqCredentialStore by lazy { GroqCredentialStore(this) }
     private val providerClient by lazy {
         ProviderCredentialStore(this).load()?.let { ProviderClient(it.baseUrl, it.token) }
     }
     private val moduleCache by lazy { ModuleCache.from(this) }
+    private val notesStore by lazy { SubjectNotesStore.from(this) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         subjectId = intent.getStringExtra(EXTRA_SUBJECT_ID).orEmpty()
+        notesSessionId = intent.getStringExtra(EXTRA_NOTES_SESSION_ID)?.trim()?.takeIf(String::isNotEmpty)
         val subject = AprioriStore.subject(AprioriStore.load(this), subjectId)
         if (subject == null) {
             showMissingSubject()
@@ -229,6 +236,50 @@ class ModuleHostActivity : Activity() {
                 native.cachedHistory(id,type);
               });
             };
+            const notes=(operation,number)=>{
+              if(operation==="apunte"&&(typeof number!=="number"||!Number.isInteger(number)||number<=0)){
+                return Promise.resolve({ok:false,archivos:[],error:"invalid_file_number"});
+              }
+              return new Promise((resolve)=>{
+                const id=String(++sequence);
+                pending.set(id,resolve);
+                if(operation==="apuntes")native.noteFiles(id);
+                else native.noteFile(id,number);
+              });
+            };
+            const studyState=(operation,state)=>{
+              if(operation==="guardar"){
+                let serialized;
+                try{serialized=JSON.stringify(state);}catch(_){return Promise.resolve({ok:false,error:"invalid_study_state"});}
+                if(serialized.length>1048576)return Promise.resolve({ok:false,error:"study_state_too_large"});
+                return new Promise((resolve)=>{
+                  const id=String(++sequence);pending.set(id,resolve);native.saveNoteStudyState(id,serialized);
+                });
+              }
+              return new Promise((resolve)=>{
+                const id=String(++sequence);pending.set(id,resolve);native.noteStudyState(id);
+              });
+            };
+            const voice=(operation,options)=>new Promise((resolve)=>{
+              const id=String(++sequence);pending.set(id,resolve);
+              if(operation==="estado")native.voiceStatus(id);
+              else if(operation==="iniciar")native.voiceStart(id,options?.permitirServicioSistema===true);
+              else if(operation==="detener")native.voiceStop(id);
+              else native.voiceCancel(id);
+            });
+            const deleteCachedLine=(type,stage,number,line)=>{
+              if(typeof type!=="boolean")return Promise.resolve({ok:false,archivos:[],error:"invalid_type"});
+              const validInteger=(value,positive)=>typeof value==="number"&&Number.isSafeInteger(value)&&
+                value<2147483648&&(positive?value>0:value>=0);
+              if(!validInteger(stage,false))return Promise.resolve({ok:false,archivos:[],error:"invalid_stage"});
+              if(!validInteger(number,true))return Promise.resolve({ok:false,archivos:[],error:"invalid_file_number"});
+              if(!validInteger(line,true))return Promise.resolve({ok:false,archivos:[],error:"invalid_line_number"});
+              return new Promise((resolve)=>{
+                const id=String(++sequence);
+                pending.set(id,resolve);
+                native.deleteCachedLine(id,type,stage,number,line);
+              });
+            };
             const latestTranslation=(lastFile)=>{
               if(lastFile!==false&&lastFile!==null&&lastFile!==undefined&&
                  (typeof lastFile!=="string"||!/^[1-9][0-9]*\.txt$/.test(lastFile))){
@@ -261,6 +312,10 @@ class ModuleHostActivity : Activity() {
               try{resolve(JSON.parse(payload));}
               catch(_){resolve({ok:false,archivos:[],error:"invalid_response"});}
             };
+            window.__InScreenVoiceEvent=(payload)=>{
+              try{window.dispatchEvent(new CustomEvent("inscreen:voz",{detail:JSON.parse(payload)}));}
+              catch(_){window.dispatchEvent(new CustomEvent("inscreen:voz",{detail:{estado:"error",texto:"",error:"invalid_voice_event"}}));}
+            };
             window.InScreen={module:{
               context:()=>JSON.parse(native.context()),
               respyPreg:unavailable,
@@ -268,7 +323,16 @@ class ModuleHostActivity : Activity() {
               traduccion:(cursor)=>typeof cursor==="number"?request("traduccion",cursor):latestTranslation(cursor),
               archivos:(type,stage)=>cached("archivos",type,stage),
               archivo:(type,stage,number)=>cached("archivo",type,stage,number),
+              borrarLinea:(type,stage,number,line)=>deleteCachedLine(type,stage,number,line),
               historial:(type)=>history(type),
+              apuntes:()=>notes("apuntes"),
+              apunte:(number)=>notes("apunte",number),
+              apuntesEstado:()=>studyState("leer"),
+              guardarApuntesEstado:(state)=>studyState("guardar",state),
+              vozEstado:()=>voice("estado"),
+              vozIniciar:(options={})=>voice("iniciar",options),
+              vozDetener:()=>voice("detener"),
+              vozCancelar:()=>voice("cancelar"),
               consulta:(question,content)=>query(question,content)
             }};
             delete window.InScreenModuleNative;
@@ -277,8 +341,15 @@ class ModuleHostActivity : Activity() {
         val head = Regex("(?i)<head[^>]*>").find(html)
         val bootstrapped = if (head == null) bootstrap + html else
             html.substring(0, head.range.last + 1) + bootstrap + html.substring(head.range.last + 1)
+        moduleSpeech?.destroy()
+        moduleSpeech = null
         val view = WebView(this)
         moduleWebView = view
+        moduleSpeech = ModuleSpeechController(this) { payload -> runOnUiThread {
+            if (isFinishing || moduleWebView !== view) return@runOnUiThread
+            val quotedPayload = JSONObject.quote(payload)
+            view.evaluateJavascript("window.__InScreenVoiceEvent($quotedPayload)", null)
+        } }
         val assets = WebViewAssetLoader.Builder()
             .addPathHandler(
                 "/module-assets/",
@@ -296,7 +367,27 @@ class ModuleHostActivity : Activity() {
                     request?.url?.let(assets::shouldInterceptRequest)
             }
             addJavascriptInterface(
-                ModuleBridge(subjectId, subjectName, providerSubjectSegment, providerCache, groqCredentialStore, providerClient) { requestId, payload ->
+                ModuleBridge(
+                    subjectId,
+                    subjectName,
+                    providerSubjectSegment,
+                    module.id,
+                    notesSessionId,
+                    notesStore,
+                    providerCache,
+                    groqCredentialStore,
+                    providerClient,
+                    voiceStatusAction = { reply -> runOnUiThread { reply(voiceStatus()) } },
+                    voiceStartAction = { requestId, allowSystem, deliver ->
+                        runOnUiThread { startVoice(requestId, allowSystem, deliver) }
+                    },
+                    voiceStopAction = { reply -> runOnUiThread {
+                        reply(moduleSpeech?.stop() ?: voiceFailure("recognizer_unavailable"))
+                    } },
+                    voiceCancelAction = { reply -> runOnUiThread {
+                        reply(moduleSpeech?.cancel() ?: JSONObject().put("ok", true).toString())
+                    } },
+                ) { requestId, payload ->
                     runOnUiThread {
                         if (isFinishing || moduleWebView !== view) return@runOnUiThread
                         val quotedId = JSONObject.quote(requestId)
@@ -315,18 +406,64 @@ class ModuleHostActivity : Activity() {
     }
 
     override fun onDestroy() {
+        pendingVoiceStart = null
+        moduleSpeech?.destroy()
+        moduleSpeech = null
         moduleWebView?.destroy()
         moduleWebView = null
         super.onDestroy()
     }
 
+    override fun onStop() {
+        moduleSpeech?.stopForBackground()
+        super.onStop()
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != REQUEST_MODULE_AUDIO) return
+        val pending = pendingVoiceStart ?: return
+        pendingVoiceStart = null
+        val granted = grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED
+        val payload = if (granted) moduleSpeech?.start(pending.allowSystemRecognizer)
+            ?: voiceFailure("recognizer_unavailable")
+        else voiceFailure("microphone_permission_denied")
+        pending.deliver(pending.requestId, payload)
+    }
+
+    private fun voiceStatus(): String = moduleSpeech?.status(
+        checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED,
+    ) ?: voiceFailure("recognizer_unavailable")
+
+    private fun startVoice(requestId: String, allowSystemRecognizer: Boolean, deliver: (String, String) -> Unit) {
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            deliver(requestId, moduleSpeech?.start(allowSystemRecognizer) ?: voiceFailure("recognizer_unavailable"))
+            return
+        }
+        if (pendingVoiceStart != null) {
+            deliver(requestId, voiceFailure("voice_busy"))
+            return
+        }
+        pendingVoiceStart = PendingVoiceStart(requestId, allowSystemRecognizer, deliver)
+        requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_MODULE_AUDIO)
+    }
+
+    private fun voiceFailure(error: String) = JSONObject().put("ok", false).put("error", error).toString()
+
     private class ModuleBridge(
         private val id: String,
         private val name: String,
         private val subjectSegment: String,
+        private val moduleId: String,
+        private val notesSessionId: String?,
+        private val notesStore: SubjectNotesStore,
         private val cache: ProviderCache,
         private val groqCredentials: GroqCredentialStore,
         private val providerClient: ProviderClient?,
+        private val voiceStatusAction: ((String) -> Unit) -> Unit,
+        private val voiceStartAction: (String, Boolean, (String, String) -> Unit) -> Unit,
+        private val voiceStopAction: ((String) -> Unit) -> Unit,
+        private val voiceCancelAction: ((String) -> Unit) -> Unit,
         private val deliver: (String, String) -> Unit,
     ) {
         @JavascriptInterface fun context(): String = JSONObject()
@@ -373,6 +510,58 @@ class ModuleHostActivity : Activity() {
             deliver(requestId, cache.history(id, type))
         }
 
+        @JavascriptInterface fun deleteCachedLine(requestId: String, type: Boolean, stage: Int, number: Int, line: Int) {
+            if (requestId.length !in 1..64) return
+            deliver(requestId, cache.deleteLine(id, type, stage, number, line))
+        }
+
+        @JavascriptInterface fun noteFiles(requestId: String) {
+            if (requestId.length !in 1..64) return
+            val sessionId = notesSessionId ?: return deliver(requestId, notesFailure("notes_session_not_selected"))
+            deliver(requestId, notesStore.markerInventory(id, sessionId))
+        }
+
+        @JavascriptInterface fun noteFile(requestId: String, number: Int) {
+            if (requestId.length !in 1..64) return
+            val sessionId = notesSessionId ?: return deliver(requestId, notesFailure("notes_session_not_selected"))
+            deliver(requestId, notesStore.markerFile(id, sessionId, number))
+        }
+
+        @JavascriptInterface fun noteStudyState(requestId: String) {
+            if (requestId.length !in 1..64) return
+            val sessionId = notesSessionId ?: return deliver(requestId, notesFailure("notes_session_not_selected"))
+            deliver(requestId, notesStore.studyState(id, sessionId, moduleId))
+        }
+
+        @JavascriptInterface fun saveNoteStudyState(requestId: String, state: String) {
+            if (requestId.length !in 1..64) return
+            val sessionId = notesSessionId ?: return deliver(requestId, notesFailure("notes_session_not_selected"))
+            deliver(requestId, notesStore.saveStudyState(id, sessionId, moduleId, state))
+        }
+
+        @JavascriptInterface fun voiceStatus(requestId: String) {
+            if (requestId.length !in 1..64) return
+            voiceStatusAction { deliver(requestId, it) }
+        }
+
+        @JavascriptInterface fun voiceStart(requestId: String, allowSystemRecognizer: Boolean) {
+            if (requestId.length !in 1..64) return
+            voiceStartAction(requestId, allowSystemRecognizer, deliver)
+        }
+
+        @JavascriptInterface fun voiceStop(requestId: String) {
+            if (requestId.length !in 1..64) return
+            voiceStopAction { deliver(requestId, it) }
+        }
+
+        @JavascriptInterface fun voiceCancel(requestId: String) {
+            if (requestId.length !in 1..64) return
+            voiceCancelAction { deliver(requestId, it) }
+        }
+
+        private fun notesFailure(error: String): String = JSONObject()
+            .put("ok", false).put("archivos", org.json.JSONArray()).put("error", error).toString()
+
         @JavascriptInterface fun groqQuery(requestId: String, question: String, content: String) {
             if (requestId.length !in 1..64) return
             val normalizedQuestion = question.trim()
@@ -396,7 +585,9 @@ class ModuleHostActivity : Activity() {
     }
 
     companion object {
+        private const val REQUEST_MODULE_AUDIO = 904
         internal const val EXTRA_SUBJECT_ID = "subject_id"
+        internal const val EXTRA_NOTES_SESSION_ID = "notes_session_id"
         private const val EXTRA_SELECTED_MODULE = "selected_module"
         internal fun intent(context: Context, subjectId: String): Intent =
             Intent(context, ModuleHostActivity::class.java)
@@ -405,11 +596,23 @@ class ModuleHostActivity : Activity() {
 
         fun open(context: Context, subjectId: String) = context.startActivity(intent(context, subjectId))
 
+        internal fun notesIntent(context: Context, subjectId: String, sessionId: String): Intent =
+            intent(context, subjectId).putExtra(EXTRA_NOTES_SESSION_ID, sessionId)
+
+        fun openFromNotes(context: Context, subjectId: String, sessionId: String) =
+            context.startActivity(notesIntent(context, subjectId, sessionId))
+
         internal fun openSelected(context: Context, subjectId: String, module: ModuleCatalog.Module) = context.startActivity(
             intent(context, subjectId)
                 .putExtra(EXTRA_SELECTED_MODULE, ModuleSelection.serialize(module))
         )
     }
+
+    private data class PendingVoiceStart(
+        val requestId: String,
+        val allowSystemRecognizer: Boolean,
+        val deliver: (String, String) -> Unit,
+    )
 }
 
 internal object ModuleSelection {

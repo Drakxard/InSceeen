@@ -5,6 +5,10 @@
       "nombre": "Vocabulario de Inglés",
       "entry": "modules/ingles/index.html"
     },{
+      "id": "apuntes",
+      "nombre": "Apuntes",
+      "entry": "modules/apuntes/index.html"
+    },{
       "id": "test",
       "nombre": "Testeo",
       "entry": "modules/test/index.html"

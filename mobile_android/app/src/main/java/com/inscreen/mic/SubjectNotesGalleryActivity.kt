@@ -42,9 +42,11 @@ class SubjectNotesGalleryActivity : ComponentActivity() {
     private var selectedCheckBox: CheckBox? = null
     private var copyToolbar: View? = null
     private var copyButton: Button? = null
+    private var startButton: Button? = null
     private var copyDefaultTint: ColorStateList? = null
     private var copyDefaultTextColors: ColorStateList? = null
-    private var copying = false
+    private var markerProgressDialog: AlertDialog? = null
+    private var processing = false
     private val sessionChecks = mutableListOf<CheckBox>()
     private val allPhotos get() = sessions.flatMap(SubjectNotesStore.Session::photos)
 
@@ -119,7 +121,7 @@ class SubjectNotesGalleryActivity : ComponentActivity() {
                         val check = CheckBox(this).apply {
                             contentDescription = "Seleccionar conjunto"
                             isChecked = session.id == selectedSessionId
-                            isEnabled = !copying
+                            isEnabled = !processing
                         }
                         sessionChecks.add(check)
                         if (check.isChecked) selectedCheckBox = check
@@ -155,7 +157,7 @@ class SubjectNotesGalleryActivity : ComponentActivity() {
         val copy = Button(this).apply {
             text = "Copy"
             contentDescription = "Copiar conjunto con Marker"
-            isEnabled = !copying
+            isEnabled = !processing
             setOnClickListener { copySelectedSession() }
         }
         copyDefaultTint = copy.backgroundTintList
@@ -163,13 +165,21 @@ class SubjectNotesGalleryActivity : ComponentActivity() {
         copyButton = copy
         copyToolbar = actions
         actions.addView(copy, LinearLayout.LayoutParams(-2, dp(48)))
-        root.addView(actions, LinearLayout.LayoutParams(-1, dp(60)))
+        val start = Button(this).apply {
+            text = "Start"
+            contentDescription = "Iniciar módulo con este conjunto"
+            isEnabled = !processing
+            setOnClickListener { startSelectedSession() }
+        }
+        startButton = start
+        actions.addView(start, LinearLayout.LayoutParams(-2, dp(48)).apply { marginStart = dp(8) })
         root.addView(ScrollView(this).apply { setBackgroundColor(Color.WHITE); addView(content) }, LinearLayout.LayoutParams(-1, 0, 1f))
+        root.addView(actions, LinearLayout.LayoutParams(-1, dp(60)))
         setContentView(root)
     }
 
     private fun selectSession(sessionId: String, check: CheckBox, checked: Boolean) {
-        if (copying) return
+        if (processing) return
         if (checked) {
             selectedSessionId = sessionId
             selectedCheckBox?.takeIf { it !== check }?.isChecked = false
@@ -185,7 +195,7 @@ class SubjectNotesGalleryActivity : ComponentActivity() {
     }
 
     private fun copySelectedSession() {
-        if (copying) return
+        if (processing) return
         val session = sessions.firstOrNull { it.id == selectedSessionId } ?: return
         val cached = session.photos.map { store.markerText(subjectId, session.id, it.name) }
         if (cached.all { it != null }) {
@@ -198,12 +208,77 @@ class SubjectNotesGalleryActivity : ComponentActivity() {
             return
         }
         val client = ProviderClient(credentials.baseUrl, credentials.token)
-        copying = true
-        sessionChecks.forEach { it.isEnabled = false }
-        copyButton?.apply { isEnabled = false; text = "Copy 0/${session.photos.size}"; backgroundTintList = copyDefaultTint }
-        thread(name = "InScreenMarkerCopy") {
+        beginProcessing()
+        copyButton?.apply {
+            isEnabled = false
+            text = "Copy ${cached.count { it != null }}/${session.photos.size}"
+            backgroundTintList = copyDefaultTint
+        }
+        processMarkerSession(
+            session,
+            client,
+            onProgress = { completed -> copyButton?.text = "Copy $completed/${session.photos.size}" },
+            onSuccess = { results -> copyMarkdown(results.joinToString("\n\n")); finishProcessing() },
+            onFailure = { error ->
+                Toast.makeText(this, markerErrorMessage(error), Toast.LENGTH_LONG).show()
+                resetActionButtons()
+                finishProcessing()
+            },
+        )
+    }
+
+    private fun startSelectedSession() {
+        if (processing) return
+        val session = sessions.firstOrNull { it.id == selectedSessionId } ?: return
+        val cached = session.photos.map { store.markerText(subjectId, session.id, it.name) }
+        if (cached.all { it != null }) {
+            ModuleHostActivity.openFromNotes(this, subjectId, session.id)
+            return
+        }
+        val credentials = ProviderCredentialStore(this).load()
+        if (credentials == null) {
+            Toast.makeText(this, "Vinculá el proveedor para usar Marker", Toast.LENGTH_LONG).show()
+            return
+        }
+        val client = ProviderClient(credentials.baseUrl, credentials.token)
+        beginProcessing()
+        markerProgressDialog = AlertDialog.Builder(this)
+            .setTitle("Preparando apuntes")
+            .setMessage("${cached.count { it != null }} / ${session.photos.size}")
+            .setCancelable(false)
+            .create()
+            .also { it.show() }
+        processMarkerSession(
+            session,
+            client,
+            onProgress = { completed -> markerProgressDialog?.setMessage("$completed / ${session.photos.size}") },
+            onSuccess = {
+                markerProgressDialog?.dismiss()
+                markerProgressDialog = null
+                finishProcessing()
+                ModuleHostActivity.openFromNotes(this, subjectId, session.id)
+            },
+            onFailure = { error ->
+                markerProgressDialog?.dismiss()
+                markerProgressDialog = null
+                Toast.makeText(this, markerErrorMessage(error), Toast.LENGTH_LONG).show()
+                resetActionButtons()
+                finishProcessing()
+            },
+        )
+    }
+
+    private fun processMarkerSession(
+        session: SubjectNotesStore.Session,
+        client: ProviderClient,
+        onProgress: (Int) -> Unit,
+        onSuccess: (List<String>) -> Unit,
+        onFailure: (Exception) -> Unit,
+    ) {
+        thread(name = "InScreenMarkerSession") {
             try {
-                val results = session.photos.mapIndexed { index, photo ->
+                var completed = session.photos.count { store.markerText(subjectId, session.id, it.name) != null }
+                val results = session.photos.map { photo ->
                     store.markerText(subjectId, session.id, photo.name) ?: run {
                         val temporary = File(cacheDir, "marker-${UUID.randomUUID()}.jpg")
                         try {
@@ -212,26 +287,20 @@ class SubjectNotesGalleryActivity : ComponentActivity() {
                             }
                             client.transcribeMarker(temporary).also {
                                 store.saveMarkerText(subjectId, session.id, photo.name, it)
+                                completed += 1
+                                val progress = completed
+                                runOnUiThread {
+                                    if (!isDestroyed && !isFinishing) onProgress(progress)
+                                }
                             }
                         } finally {
                             temporary.delete()
                         }
-                    }.also {
-                        runOnUiThread { copyButton?.text = "Copy ${index + 1}/${session.photos.size}" }
                     }
                 }
-                runOnUiThread {
-                    if (!isDestroyed && !isFinishing) copyMarkdown(results.joinToString("\n\n"))
-                    finishCopying()
-                }
+                runOnUiThread { if (!isDestroyed && !isFinishing) onSuccess(results) }
             } catch (error: Exception) {
-                runOnUiThread {
-                    if (!isDestroyed && !isFinishing) {
-                        Toast.makeText(this, markerErrorMessage(error), Toast.LENGTH_LONG).show()
-                        resetCopyButton()
-                    }
-                    finishCopying()
-                }
+                runOnUiThread { if (!isDestroyed && !isFinishing) onFailure(error) }
             }
         }
     }
@@ -246,19 +315,36 @@ class SubjectNotesGalleryActivity : ComponentActivity() {
         }
     }
 
-    private fun finishCopying() {
-        copying = false
+    private fun beginProcessing() {
+        processing = true
+        sessionChecks.forEach { it.isEnabled = false }
+        copyButton?.isEnabled = false
+        startButton?.isEnabled = false
+    }
+
+    private fun finishProcessing() {
+        processing = false
         sessionChecks.forEach { it.isEnabled = true }
         copyButton?.isEnabled = true
+        startButton?.isEnabled = true
     }
 
     private fun resetCopyButton() {
         copyButton?.apply {
             text = "Copy"
-            isEnabled = !copying
+            isEnabled = !processing
             backgroundTintList = copyDefaultTint
             copyDefaultTextColors?.let(::setTextColor)
         }
+        startButton?.apply { text = "Start"; isEnabled = !processing }
+    }
+
+    private fun resetActionButtons() = resetCopyButton()
+
+    override fun onDestroy() {
+        markerProgressDialog?.dismiss()
+        markerProgressDialog = null
+        super.onDestroy()
     }
 
     private fun markerErrorMessage(error: Exception): String = when ((error as? ProviderClient.MarkerException)?.code) {
@@ -270,7 +356,7 @@ class SubjectNotesGalleryActivity : ComponentActivity() {
     }
 
     private fun showViewer(startIndex: Int) {
-        if (copying) return
+        if (processing) return
         reload()
         if (allPhotos.isEmpty()) return showOverview()
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.BLACK) }

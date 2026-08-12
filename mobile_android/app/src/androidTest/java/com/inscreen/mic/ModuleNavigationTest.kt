@@ -18,6 +18,15 @@ class ModuleNavigationTest {
         assertEquals(ModuleHostActivity::class.java.name, intent.component?.className)
         assertEquals("materia-1", intent.getStringExtra(ModuleHostActivity.EXTRA_SUBJECT_ID))
         assertFalse(intent.flags and Intent.FLAG_ACTIVITY_SINGLE_TOP != 0)
+        assertFalse(intent.hasExtra(ModuleHostActivity.EXTRA_NOTES_SESSION_ID))
+    }
+
+    @Test fun notesIntentCarriesSessionOnlyForThatModuleOpening() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val intent = ModuleHostActivity.notesIntent(context, "materia-1", "session-1")
+
+        assertEquals("materia-1", intent.getStringExtra(ModuleHostActivity.EXTRA_SUBJECT_ID))
+        assertEquals("session-1", intent.getStringExtra(ModuleHostActivity.EXTRA_NOTES_SESSION_ID))
     }
 
     @Test fun moduleSearchIntentReusesMainActivityAndCarriesSubject() {

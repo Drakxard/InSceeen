@@ -120,6 +120,41 @@ internal class ProviderCache(private val root: File) {
         }.getOrElse { failure("storage_error") }
     }
 
+    fun deleteLine(subjectId: String, transcription: Boolean, stage: Int, number: Int, line: Int): String = synchronized(lock) {
+        if (stage < 0) return@synchronized failure("invalid_stage")
+        if (number <= 0) return@synchronized failure("invalid_file_number")
+        if (line <= 0) return@synchronized failure("invalid_line_number")
+        val file = File(stageDirectory(subjectId, transcription, stage), "$number.txt")
+        if (!file.isFile) return@synchronized failure("file_not_found")
+        runCatching {
+            val original = file.readText(Charsets.UTF_8)
+            val delimiter = if (original.contains("\r\n")) "\r\n" else "\n"
+            val terminalNewline = original.endsWith("\n")
+            val lines = if (original.isEmpty()) mutableListOf<String>() else
+                original.split(Regex("\\r?\\n")).toMutableList().apply {
+                    if (terminalNewline && lastOrNull() == "") removeAt(lastIndex)
+                }
+            if (line > lines.size) return@synchronized failure("line_not_found")
+            lines.removeAt(line - 1)
+            val updated = buildString {
+                append(lines.joinToString(delimiter))
+                if (terminalNewline && lines.isNotEmpty()) append(delimiter)
+            }
+            val temporary = File(file.parentFile, ".${file.name}.${System.nanoTime()}.tmp")
+            try {
+                temporary.writeText(updated, Charsets.UTF_8)
+                move(temporary, file)
+            } finally {
+                temporary.delete()
+            }
+            JSONObject().put("ok", true)
+                .put("tipo", if (transcription) "transcripcion" else "pagina")
+                .put("etapa", stage).put("lineaEliminada", line)
+                .put("archivo", JSONObject().put("numero", number).put("nombre", file.name).put("contenido", updated))
+                .toString()
+        }.getOrElse { failure("storage_error") }
+    }
+
     fun history(subjectId: String, transcription: Boolean): String = synchronized(lock) {
         runCatching {
             val items = JSONArray()

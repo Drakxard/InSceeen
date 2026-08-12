@@ -3,6 +3,8 @@ const QUESTION_BATCH_SIZE = 4;
 const QUESTION_PREFETCH_POSITION = 3;
 const QUESTION_CACHE_PREFIX = 'inscreen:ingles:questions:';
 const NONE_OPTION = 'Ninguna de las anteriores';
+const DELETE_HOLD_MS = 800;
+const DELETE_MOVE_TOLERANCE = 12;
 
 let historyFiles = [];
 let currentFileIndex = -1;
@@ -15,6 +17,10 @@ let questionPointerStartX = null;
 let didSwipe = false;
 let suppressQuestionClick = false;
 let questionHoldTimer = null;
+let deleteHold = null;
+let pendingDeleteCard = null;
+let deleteBusy = false;
+let suppressObjectClickUntil = 0;
 let questionMode = false;
 let questionAnimating = false;
 let generationPromise = null;
@@ -39,6 +45,10 @@ const nextDay = document.getElementById('nextDay');
 const retryDay = document.getElementById('retryDay');
 const dayNotice = document.getElementById('dayNotice');
 const questionPrompt = document.getElementById('questionPrompt').textContent.trim();
+const deleteOverlay = document.getElementById('deleteOverlay');
+const deletePreview = document.getElementById('deletePreview');
+const cancelDelete = document.getElementById('cancelDelete');
+const confirmDelete = document.getElementById('confirmDelete');
 
 function openErrorOverlay(context, error) {
   document.getElementById('errorDetailsText').textContent = `${context}\n\n${error?.message || String(error)}`;
@@ -81,6 +91,17 @@ function parseCards(file) {
     const source = normalizeSource(english, spanish);
     return [{ english, spanish, source, key: hashSource(source), line: lineIndex + 1 }];
   });
+}
+
+function usableFileIndex(startIndex, direction) {
+  for (let index = startIndex; index >= 0 && index < historyFiles.length; index += direction) {
+    if (parseCards(historyFiles[index]).length) return index;
+  }
+  return -1;
+}
+
+function latestHistoryFile() {
+  return historyFiles.length ? historyFiles[historyFiles.length - 1] : null;
 }
 
 function subjectCacheKey() {
@@ -385,6 +406,16 @@ function loadFile(index) {
   if (!file) return;
   const parsed = parseCards(file);
   if (!parsed.length) {
+    if (!String(file.contenido || '').trim()) {
+      currentFileIndex = index;
+      cards = [];
+      questionCards = cards;
+      cardIndex = 0;
+      questionIndex = 0;
+      questionMode = false;
+      showDayCard('Este día no tiene tarjetas.');
+      return;
+    }
     openErrorOverlay(`No se pudo abrir ${file.nombre}.`, new Error('El TXT no contiene líneas válidas con formato inglés:español.'));
     return;
   }
@@ -402,10 +433,10 @@ function loadFile(index) {
 }
 
 function configureDayCard(message) {
-  previousDay.disabled = currentFileIndex <= 0;
-  const hasLocalNext = currentFileIndex >= 0 && currentFileIndex + 1 < historyFiles.length;
-  const currentId = historyFiles[currentFileIndex]?.id || null;
-  nextDay.disabled = !hasLocalNext && unavailableNextFileId === currentId;
+  previousDay.disabled = usableFileIndex(currentFileIndex - 1, -1) < 0;
+  const hasLocalNext = usableFileIndex(currentFileIndex + 1, 1) >= 0;
+  const latestId = latestHistoryFile()?.id || null;
+  nextDay.disabled = !hasLocalNext && unavailableNextFileId === latestId;
   dayNotice.textContent = message;
 }
 
@@ -506,14 +537,121 @@ async function initialize() {
       showDayCard('Sigue leyendo para más 👍');
       return;
     }
-    loadFile(historyFiles.length - 1);
+    const latestUsable = usableFileIndex(historyFiles.length - 1, -1);
+    if (latestUsable >= 0) loadFile(latestUsable);
+    else {
+      currentFileIndex = historyFiles.length - 1;
+      showDayCard('Este día no tiene tarjetas.');
+    }
   } catch (error) {
     showDayCard();
     openErrorOverlay('No se pudo iniciar el módulo.', error);
   }
 }
 
+function closeDeleteDialog() {
+  if (deleteBusy) return;
+  pendingDeleteCard = null;
+  deleteOverlay.hidden = true;
+}
+
+function openDeleteDialog(card) {
+  if (!card || deleteBusy || !deleteOverlay.hidden) return;
+  pendingDeleteCard = card;
+  deletePreview.textContent = card.source;
+  deleteOverlay.hidden = false;
+  cancelDelete.focus({ preventScroll: true });
+}
+
+function cancelDeleteHold() {
+  if (!deleteHold) return;
+  window.clearTimeout(deleteHold.timer);
+  deleteHold = null;
+}
+
+function beginDeleteHold(event, card) {
+  if (!card || deleteBusy || !deleteOverlay.hidden || event.button !== 0) return;
+  cancelDeleteHold();
+  const hold = {
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    timer: null,
+  };
+  hold.timer = window.setTimeout(() => {
+    if (deleteHold !== hold) return;
+    deleteHold = null;
+    suppressObjectClickUntil = Date.now() + 700;
+    openDeleteDialog(card);
+  }, DELETE_HOLD_MS);
+  deleteHold = hold;
+}
+
+function deleteCurrentCard(card, updatedContent) {
+  const file = historyFiles[currentFileIndex];
+  if (file) file.contenido = updatedContent;
+  const removedIndex = cards.indexOf(card);
+  if (removedIndex < 0) return;
+  cards.splice(removedIndex, 1);
+  cards.forEach(item => { if (item.line > card.line) item.line -= 1; });
+  questionCards = cards;
+  questionAnswers.delete(card.key);
+  if (!cards.some(item => item.key === card.key)) delete questionCache.entries[card.key];
+  saveQuestionCache();
+
+  if (!cards.length) {
+    cardIndex = 0;
+    questionIndex = 0;
+    questionMode = false;
+    showDayCard('Línea borrada.');
+    return;
+  }
+
+  const nextIndex = Math.min(removedIndex, cards.length - 1);
+  cardIndex = nextIndex;
+  questionIndex = nextIndex;
+  if (questionMode) void ensureQuestion(questionIndex);
+  else {
+    setView('card');
+    renderCard();
+  }
+}
+
+async function confirmCurrentDelete() {
+  const card = pendingDeleteCard;
+  const file = historyFiles[currentFileIndex];
+  if (!card || !file || deleteBusy) return;
+  if (typeof window.InScreen?.module?.borrarLinea !== 'function') {
+    closeDeleteDialog();
+    openErrorOverlay('No se pudo borrar la línea.', new Error('Actualizá InScreen para habilitar el borrado.'));
+    return;
+  }
+  deleteBusy = true;
+  cancelDelete.disabled = true;
+  confirmDelete.disabled = true;
+  confirmDelete.textContent = 'Borrando…';
+  try {
+    const result = await window.InScreen.module.borrarLinea(true, file.etapa, file.numero, card.line);
+    if (!result?.ok || typeof result.archivo?.contenido !== 'string') {
+      throw new Error(result?.error || 'No se pudo actualizar el TXT.');
+    }
+    pendingDeleteCard = null;
+    deleteOverlay.hidden = true;
+    deleteCurrentCard(card, result.archivo.contenido);
+  } catch (error) {
+    pendingDeleteCard = null;
+    deleteOverlay.hidden = true;
+    openErrorOverlay('No se pudo borrar la línea.', error);
+  } finally {
+    deleteBusy = false;
+    cancelDelete.disabled = false;
+    confirmDelete.disabled = false;
+    confirmDelete.textContent = 'Sí';
+  }
+}
+
 flashcard.addEventListener('click', () => {
+  if (Date.now() < suppressObjectClickUntil) return;
   if (didSwipe) {
     didSwipe = false;
     return;
@@ -542,6 +680,22 @@ document.body.addEventListener('pointerdown', event => {
 });
 document.body.addEventListener('pointerup', clearQuestionHold);
 document.body.addEventListener('pointercancel', clearQuestionHold);
+
+flashcard.addEventListener('pointerdown', event => beginDeleteHold(event, cards[cardIndex]));
+questionCard.addEventListener('pointerdown', event => beginDeleteHold(event, questionCards[questionIndex]));
+flashcard.addEventListener('contextmenu', event => event.preventDefault());
+questionCard.addEventListener('contextmenu', event => event.preventDefault());
+document.addEventListener('pointermove', event => {
+  if (!deleteHold || event.pointerId !== deleteHold.pointerId) return;
+  const moved = Math.hypot(event.clientX - deleteHold.startX, event.clientY - deleteHold.startY);
+  if (moved > DELETE_MOVE_TOLERANCE) cancelDeleteHold();
+});
+document.addEventListener('pointerup', event => {
+  if (deleteHold?.pointerId === event.pointerId) cancelDeleteHold();
+});
+document.addEventListener('pointercancel', event => {
+  if (deleteHold?.pointerId === event.pointerId) cancelDeleteHold();
+});
 
 cardStage.addEventListener('pointerdown', event => {
   if (questionMode) return;
@@ -581,11 +735,17 @@ questionCard.addEventListener('pointercancel', () => {
 });
 
 questionCard.addEventListener('click', event => {
-  if (!suppressQuestionClick) return;
+  if (!suppressQuestionClick && Date.now() >= suppressObjectClickUntil) return;
   suppressQuestionClick = false;
   event.preventDefault();
   event.stopPropagation();
 }, true);
+
+cancelDelete.addEventListener('click', closeDeleteDialog);
+confirmDelete.addEventListener('click', confirmCurrentDelete);
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && !deleteOverlay.hidden && !deleteBusy) closeDeleteDialog();
+});
 
 retryQuestions.addEventListener('click', async () => {
   generationError = '';
@@ -593,25 +753,29 @@ retryQuestions.addEventListener('click', async () => {
   await ensureQuestion(questionIndex);
 });
 previousDay.addEventListener('click', () => {
-  if (currentFileIndex > 0) loadFile(currentFileIndex - 1);
+  const previous = usableFileIndex(currentFileIndex - 1, -1);
+  if (previous >= 0) loadFile(previous);
 });
 retryDay.addEventListener('click', () => loadFile(currentFileIndex));
 nextDay.addEventListener('click', async () => {
-  if (currentFileIndex + 1 < historyFiles.length) {
-    loadFile(currentFileIndex + 1);
+  const localNext = usableFileIndex(currentFileIndex + 1, 1);
+  if (localNext >= 0) {
+    loadFile(localNext);
     return;
   }
   const currentId = historyFiles[currentFileIndex]?.id;
+  const cursor = latestHistoryFile();
   nextDay.disabled = true;
   dayNotice.textContent = 'Buscando un nuevo día…';
   try {
-    const result = await requestMore(historyFiles[currentFileIndex]?.nombre || false);
+    const result = await requestMore(cursor?.nombre || false);
     await readHistory();
     const refreshedIndex = historyFiles.findIndex(file => file.id === currentId);
     currentFileIndex = refreshedIndex >= 0 ? refreshedIndex : Math.max(0, historyFiles.length - 1);
-    if ((result.nuevos || 0) > 0 && currentFileIndex + 1 < historyFiles.length) loadFile(currentFileIndex + 1);
+    const refreshedNext = usableFileIndex(currentFileIndex + 1, 1);
+    if ((result.nuevos || 0) > 0 && refreshedNext >= 0) loadFile(refreshedNext);
     else {
-      unavailableNextFileId = historyFiles[currentFileIndex]?.id || null;
+      unavailableNextFileId = latestHistoryFile()?.id || null;
       showDayCard('Sigue leyendo para más 👍');
     }
   } catch (error) {

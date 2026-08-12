@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Apuntes</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="bg-blob blob-1"></div><div class="bg-blob blob-2"></div><div class="bg-blob blob-3"></div>
+
+  <div id="errorOverlay" class="overlay" role="alertdialog" aria-modal="true" hidden>
+    <div class="dialog"><h2 id="errorTitle">No se pudo continuar</h2><p id="errorText" class="error-text"></p><button id="closeError" class="primary-btn">Cerrar</button></div>
+  </div>
+  <div id="consentOverlay" class="overlay" role="dialog" aria-modal="true" hidden>
+    <div class="dialog">
+      <h2>Reconocimiento del sistema</h2>
+      <p>Este teléfono no tiene reconocimiento de voz local disponible. El servicio de Android puede enviar el audio al proveedor configurado en el dispositivo.</p>
+      <div class="dialog-actions"><button id="denySystemVoice" class="secondary-btn">Cancelar</button><button id="allowSystemVoice" class="primary-btn">Continuar</button></div>
+    </div>
+  </div>
+
+  <main class="wrapper">
+    <header class="deck-header"><span id="pagePosition">Apuntes</span><span id="cardPosition"></span></header>
+    <section id="cardStage" class="card-stage" aria-live="polite">
+      <article id="studyCard" class="study-card is-hidden" tabindex="0" role="button">
+        <section id="frontView" class="card-view">
+          <span class="card-label">BLOQUE CONCEPTUAL</span>
+          <h1 id="cardHeader" class="card-title"></h1>
+          <p id="frontHint" class="tap-hint">Tocá para responder</p>
+        </section>
+        <section id="listeningView" class="card-view is-hidden">
+          <span class="card-label recording-label"><span class="recording-dot"></span> ESCUCHANDO</span>
+          <h2 id="listeningHeader" class="listening-title"></h2>
+          <p id="liveTranscript" class="transcript live-transcript">Escuchando…</p>
+          <button id="stopVoice" class="stop-btn" type="button">Detener</button>
+        </section>
+        <section id="answerView" class="card-view answer-view is-hidden">
+          <span class="card-label">TU RESPUESTA</span>
+          <p id="answerText" class="transcript"></p>
+          <div class="answer-actions">
+            <button id="showFront" class="secondary-btn" type="button">Frente</button>
+            <button id="editAnswer" class="secondary-btn" type="button">Editar</button>
+            <button id="rerecordAnswer" class="primary-btn" type="button">Regrabar</button>
+          </div>
+        </section>
+        <section id="editView" class="card-view is-hidden">
+          <span class="card-label">EDITAR RESPUESTA</span>
+          <textarea id="answerEditor" maxlength="50000" aria-label="Respuesta transcrita"></textarea>
+          <div class="answer-actions"><button id="cancelEdit" class="secondary-btn" type="button">Cancelar</button><button id="saveEdit" class="primary-btn" type="button">Guardar</button></div>
+        </section>
+      </article>
+
+      <article id="loadingCard" class="status-card"><span class="loader"></span><p id="loadingText">Preparando apuntes…</p></article>
+      <article id="retryCard" class="status-card is-hidden"><h2>No se pudo crear esta página</h2><p id="retryText"></p><button id="retryPage" class="primary-btn">Reintentar</button></article>
+      <article id="emptyCard" class="status-card is-hidden"><h2 id="emptyTitle">Abrí un conjunto de apuntes</h2><p id="emptyText">Volvé a la galería, elegí un conjunto y tocá Start.</p></article>
+      <article id="completeCard" class="status-card is-hidden"><span class="card-label">COMPLETADO</span><h2>Terminaste el conjunto</h2><p>Podés volver a cualquier tarjeta con Anterior.</p></article>
+    </section>
+    <nav class="deck-controls" aria-label="Navegación de tarjetas">
+      <button id="previousCard" class="round-btn" type="button" aria-label="Anterior">‹</button>
+      <span id="navigationHint">Deslizá para avanzar</span>
+      <button id="nextCard" class="round-btn" type="button" aria-label="Siguiente">›</button>
+    </nav>
+  </main>
+
+  <script type="text/plain" id="conceptPrompt">PROMPT_VERSION=1
+Recibirás el Markdown extraído de una única foto de apuntes de clase. Convertí el contenido en Bloques Conceptuales para usar como frentes de tarjetas de evocación activa.
+
+Reglas obligatorias:
+- Conservá exactamente el orden en que las ideas aparecen en la página.
+- Un bloque representa una idea completa. Agrupá líneas, oraciones, ejemplos y elementos contiguos que pertenezcan al mismo concepto.
+- No conviertas cada línea física, viñeta o renglón en una tarjeta independiente.
+- La cabecera debe ser breve y servir solamente como disparador. Puede ser un título o una pregunta.
+- No incluyas definiciones, desarrollos, explicaciones, ejemplos, pistas separadas ni la respuesta al concepto.
+- Si el material enumera una cantidad significativa, podés indicarla, por ejemplo: "Causas de la inflación (3 puntos)".
+- No hay una cantidad mínima ni máxima de bloques. Si no hay contenido conceptual útil, devolvé un arreglo vacío.
+- Devolvé únicamente JSON válido. Cada objeto debe contener solo "orden" y "cabecera". "orden" empieza en 1 y es consecutivo.
+
+Formato exacto: {"bloques":[{"orden":1,"cabecera":"Causas de la inflación (3 puntos)"}]}</script>
+  <script src="core.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

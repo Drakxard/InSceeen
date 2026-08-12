@@ -122,6 +122,45 @@ class ProviderCacheTest {
         assertFalse(JSONObject(cache.read("remove", false, 1, 1)).getBoolean("ok"))
     }
 
+    @Test
+    fun deletesExactLogicalLineAndPreservesCrLfAndBlankLines() {
+        val cache = ProviderCache(temporary.newFolder("cache"))
+        cache.merge("subject", true, payload(14, mapOf(2 to "one\r\n\r\ntwo\r\n")))
+
+        val withoutBlank = JSONObject(cache.deleteLine("subject", true, 14, 2, 2))
+        assertTrue(withoutBlank.getBoolean("ok"))
+        assertEquals(2, withoutBlank.getInt("lineaEliminada"))
+        assertEquals("one\r\ntwo\r\n", withoutBlank.getJSONObject("archivo").getString("contenido"))
+
+        val withoutFirst = JSONObject(cache.deleteLine("subject", true, 14, 2, 1))
+        assertEquals("two\r\n", withoutFirst.getJSONObject("archivo").getString("contenido"))
+        val empty = JSONObject(cache.deleteLine("subject", true, 14, 2, 1))
+        assertEquals("", empty.getJSONObject("archivo").getString("contenido"))
+    }
+
+    @Test
+    fun emptyTxtRemainsAsTombstoneAndIsNotMergedAgain() {
+        val cache = ProviderCache(temporary.newFolder("cache"))
+        cache.merge("subject", true, payload(14, mapOf(1 to "only")))
+        cache.deleteLine("subject", true, 14, 1, 1)
+
+        val merged = JSONObject(cache.merge("subject", true, payload(14, mapOf(1 to "restored"))))
+        assertEquals(0, merged.getInt("nuevos"))
+        assertEquals("", content(cache.read("subject", true, 14, 1)))
+    }
+
+    @Test
+    fun deleteLineReportsNormalizedValidationErrors() {
+        val cache = ProviderCache(temporary.newFolder("cache"))
+        cache.merge("subject", true, payload(1, mapOf(1 to "one")))
+
+        assertEquals("invalid_stage", JSONObject(cache.deleteLine("subject", true, -1, 1, 1)).getString("error"))
+        assertEquals("invalid_file_number", JSONObject(cache.deleteLine("subject", true, 1, 0, 1)).getString("error"))
+        assertEquals("invalid_line_number", JSONObject(cache.deleteLine("subject", true, 1, 1, 0)).getString("error"))
+        assertEquals("file_not_found", JSONObject(cache.deleteLine("subject", true, 1, 2, 1)).getString("error"))
+        assertEquals("line_not_found", JSONObject(cache.deleteLine("subject", true, 1, 1, 2)).getString("error"))
+    }
+
     private fun payload(stage: Int, files: Map<Int, String>): String = JSONObject()
         .put("ok", true).put("etapa", stage)
         .put("archivos", files.entries.fold(org.json.JSONArray()) { items, (number, value) ->

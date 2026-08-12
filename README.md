@@ -204,6 +204,16 @@ ordenado sin contenidos y la segunda devuelve un TXT concreto con su contenido. 
 de red no elimina lo guardado. `respyPreg(dia)` permanece reservado y devuelve
 `provider_not_configured`.
 
+`borrarLinea(tipo, etapa, numero, linea)` elimina de forma atómica una línea numerada desde
+uno en uno de esos TXT locales y devuelve el archivo actualizado. El archivo se conserva
+aunque quede vacío, para que siga actuando como cursor de sincronización y el proveedor no
+vuelva a descargarlo. Esta operación no modifica R2 ni ningún archivo remoto.
+
+En el módulo de inglés, una pulsación de 800 ms sobre la FlashCard o la pregunta visible
+abre la confirmación `Borrar` con `No` y `Sí`. Confirmar elimina la línea `inglés:español`
+del TXT y retira el mismo objeto de ambos modos; deslizar cancela la pulsación larga y los
+TXT vacíos se omiten al navegar por el mazo.
+
 La carpeta del proveedor se deriva automáticamente del nombre de la materia: se convierte
 a minúsculas y se eliminan tildes, espacios y símbolos (`Álgebra 2` se envía como
 `algebra2`). El valor queda disponible como `context().providerSubjectSegment`.
@@ -232,6 +242,38 @@ Markdown se copia recién cuando todas terminan. Cada resultado queda en el alma
 privado de la sesión, por lo que las copias posteriores no vuelven a consultar Marker.
 Los dispositivos vinculados antes de incorporar Marker a la cápsula deben volver a
 vincular el proveedor una vez para habilitar esta acción.
+
+El mismo check también muestra `Start` a la derecha de la barra inferior. Esta acción
+completa solamente las extracciones Marker que falten, muestra el progreso total `x/n` y
+abre el módulo asignado; si la materia todavía no tiene uno, abre primero el selector. El
+conjunto se adjunta únicamente a esa apertura. Dentro del módulo, `apuntes()` lista sus
+transcripciones como `1.txt`, `2.txt`, etc. y `apunte(numero)` devuelve una de ellas con el
+Markdown intacto:
+
+```js
+const inventario = await InScreen.module.apuntes();
+const primera = await InScreen.module.apunte(1);
+```
+
+`apuntes()` responde `{ ok, conjunto: { id, createdAt }, archivos: [{ numero, nombre, id }] }`
+y `apunte(numero)` responde
+`{ ok, conjuntoId, archivo: { numero, nombre, id, hash, contenido } }`. `id` identifica la
+foto de forma estable aunque se borre una anterior y `hash` es el SHA-256 del Markdown.
+Estas funciones son independientes de `archivos(tipo, etapa)`, que continúa representando
+la caché semanal descargada del proveedor.
+
+El módulo `Apuntes` procesa esos TXT uno por uno y en orden. Groq solamente genera las
+cabeceras breves de los bloques conceptuales; no genera respuestas. El progreso de un
+conjunto puede leerse con `apuntesEstado()` y guardarse atómicamente con
+`guardarApuntesEstado(estado)`. El estado queda aislado por materia, conjunto y módulo y se
+elimina junto con la sesión de fotos.
+
+Para respuestas habladas, el puente ofrece `vozEstado()`,
+`vozIniciar({ permitirServicioSistema })`, `vozDetener()` y `vozCancelar()`. El módulo
+recibe resultados mediante eventos `inscreen:voz` con `{ estado, texto, error? }`. Android
+usa primero su reconocedor local; si no existe, el HTML debe obtener consentimiento antes
+de permitir el servicio de reconocimiento normal. Este flujo no crea archivos de audio ni
+envía voz a Groq o al proveedor de InScreen.
 
 El QR vence a los cinco minutos. Puedes reemplazar o quitar el proveedor desde la pantalla
 de conexión; para bloquear una cápsula ya emitida, revoca el dispositivo desde la web.
