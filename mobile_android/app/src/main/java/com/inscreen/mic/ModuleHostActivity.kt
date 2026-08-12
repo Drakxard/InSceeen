@@ -3,7 +3,6 @@ package com.inscreen.mic
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
-import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -14,10 +13,7 @@ import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.webkit.WebStorage
-import android.widget.EditText
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Button
 import androidx.webkit.WebViewAssetLoader
@@ -60,7 +56,8 @@ class ModuleHostActivity : Activity() {
                 return
             }
         }
-        showPicker()
+        startActivity(MainActivity.moduleSearchIntent(this, subjectId))
+        finish()
     }
 
     private fun showMissingSubject() {
@@ -81,99 +78,6 @@ class ModuleHostActivity : Activity() {
                 }
             })
         })
-    }
-
-    private fun showPicker(notice: String? = null) {
-        val page = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(28, 36, 28, 28)
-            setBackgroundColor(Color.WHITE)
-        }
-        val title = TextView(this).apply { text = "Buscar módulo para $subjectName"; textSize = 21f }
-        val search = EditText(this).apply { hint = "Buscar"; isSingleLine = true }
-        val status = TextView(this).apply { text = notice ?: "Cargando módulos…"; setPadding(0, 18, 0, 8) }
-        val results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        page.addView(title); page.addView(search); page.addView(status)
-        val assignedModules = assignedModules()
-        assignedModules.forEach { module ->
-            page.addView(LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                addView(TextView(this@ModuleHostActivity).apply {
-                    text = module.name
-                    textSize = 17f
-                    setPadding(18, 22, 18, 22)
-                    setOnClickListener { showModule(module) }
-                }, LinearLayout.LayoutParams(0, -2, 1f))
-                addView(Button(this@ModuleHostActivity).apply {
-                    text = "×"
-                    contentDescription = "Quitar ${module.name}"
-                    setOnClickListener { confirmRemoveModule(module) }
-                })
-            })
-        }
-        page.addView(ScrollView(this).apply { addView(results) }, LinearLayout.LayoutParams(-1, 0, 1f))
-        setContentView(page)
-        ModuleCatalog.load { loaded -> runOnUiThread {
-            loaded.fold(onSuccess = { modules ->
-                fun render(query: String = "") {
-                    val assignedIds = assignedModules.map { it.id }.toSet()
-                    val matching = modules.filter { it.id !in assignedIds && (it.name.contains(query, true) || it.id.contains(query, true)) }
-                    results.removeAllViews()
-                    status.text = when {
-                        modules.isEmpty() -> "No hay módulos disponibles en GitHub."
-                        matching.isEmpty() -> "No se encontraron módulos."
-                        else -> "${matching.size} módulo(s)"
-                    }
-                    matching.forEach { module ->
-                        val item = TextView(this).apply {
-                            text = "${module.name}\nUSAR"
-                            textSize = 17f
-                            setPadding(18, 22, 18, 22)
-                            setOnClickListener {
-                                showModule(module, persistAssignment = true)
-                            }
-                        }
-                        results.addView(item)
-                    }
-                }
-                search.setOnEditorActionListener { _, _, _ -> render(search.text.toString()); true }
-                search.addTextChangedListener(SimpleTextWatcher { render(it) })
-                render()
-            }, onFailure = { error -> status.text = "No se pudo cargar el catálogo: ${error.message ?: "error"}" })
-        }}
-    }
-
-    private fun assignedModules(): List<ModuleCatalog.Module> {
-        val modules = AprioriStore.subject(AprioriStore.load(this), subjectId)?.optJSONArray("modules") ?: return emptyList()
-        return (0 until modules.length()).mapNotNull { index ->
-            modules.optJSONObject(index)?.let { item ->
-                val id = item.optString("id"); val name = item.optString("nombre"); val entry = item.optString("entry")
-                if (id.isBlank() || name.isBlank() || entry.isBlank()) null else ModuleCatalog.Module(id, name, entry)
-            }
-        }
-    }
-
-    private fun confirmRemoveModule(module: ModuleCatalog.Module) {
-        AlertDialog.Builder(this)
-            .setTitle("Quitar ${module.name}")
-            .setMessage("¿Querés conservar sus datos para recuperarlos si volvés a agregarlo?")
-            .setNegativeButton("Quitar y borrar datos") { _, _ -> removeModule(module, true) }
-            .setPositiveButton("Quitar y conservar") { _, _ -> removeModule(module, false) }
-            .setNeutralButton("Cancelar", null)
-            .show()
-    }
-
-    private fun removeModule(module: ModuleCatalog.Module, deleteData: Boolean) {
-        if (!AprioriStore.removeModule(this, subjectId, module.id)) {
-            showPicker("No se pudo quitar el módulo.")
-            return
-        }
-        if (deleteData) {
-            moduleCache.remove(subjectId, module.id)
-            WebStorage.getInstance().deleteOrigin("https://${moduleOrigin(subjectId, module.id)}")
-        }
-        showPicker("Módulo quitado.")
     }
 
     @SuppressLint("SetJavaScriptEnabled", "AddJavascriptInterface")
@@ -222,7 +126,10 @@ class ModuleHostActivity : Activity() {
             })
             addView(Button(this@ModuleHostActivity).apply {
                 text = "ELEGIR OTRO MÓDULO"
-                setOnClickListener { showPicker() }
+                setOnClickListener {
+                    startActivity(MainActivity.moduleSearchIntent(this@ModuleHostActivity, subjectId))
+                    finish()
+                }
             })
         })
     }
@@ -627,6 +534,8 @@ class ModuleHostActivity : Activity() {
                 .take(16).joinToString("") { "%02x".format(it.toInt() and 0xff) }
             return "m-$digest.inscreen.local"
         }
+
+        internal fun moduleOriginUrl(subjectId: String, moduleId: String) = "https://${moduleOrigin(subjectId, moduleId)}"
 
         private const val REQUEST_MODULE_AUDIO = 904
         internal const val EXTRA_SUBJECT_ID = "subject_id"

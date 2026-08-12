@@ -882,10 +882,6 @@
     if (!card || suppressClick || isAnimating) return;
     const subject = subjectById(card.dataset.subjectId);
     if (!subject) return;
-    if (VIEW === "queue" && window.InScreenApriori?.openModule) {
-      window.InScreenApriori.openModule(subject.id);
-      return;
-    }
     openModuleSearch(subject.id);
   }
 
@@ -917,16 +913,35 @@
   function renderModuleResults() {
     elements.moduleResults.replaceChildren();
     const query = normalizeName(elements.moduleSearch.value).toLocaleLowerCase("es");
+    const subject = subjectById(moduleSearchSubjectId);
+    for (const module of subject?.modules || []) {
+      const row = document.createElement("div");
+      row.className = "module-result assigned-module-result";
+      const open = document.createElement("button");
+      open.type = "button";
+      open.className = "assigned-module-open";
+      open.textContent = module.nombre;
+      open.dataset.moduleId = module.id;
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.textContent = "×";
+      remove.dataset.removeModuleId = module.id;
+      remove.setAttribute("aria-label", `Quitar ${module.nombre}`);
+      row.append(open, remove);
+      elements.moduleResults.append(row);
+    }
     if (!moduleCatalog) return;
     if (!moduleCatalog.length) {
       elements.moduleError.textContent = "No hay módulos disponibles.";
       return;
     }
     if (!query) {
-      elements.moduleError.textContent = "Escribí para buscar un módulo.";
+      elements.moduleError.textContent = subject?.modules?.length ? "" : "Escribí para buscar un módulo.";
       return;
     }
-    const matches = moduleCatalog.filter((module) => module.nombre.toLocaleLowerCase("es").includes(query));
+    const assignedIds = new Set((subject?.modules || []).map((module) => module.id));
+    const matches = moduleCatalog.filter((module) =>
+      !assignedIds.has(module.id) && module.nombre.toLocaleLowerCase("es").includes(query));
     if (!matches.length) {
       elements.moduleError.textContent = "No se encontraron módulos.";
       return;
@@ -947,10 +962,16 @@
   }
 
   async function useModule(event) {
+    const remove = event.target.closest("button[data-remove-module-id]");
+    if (remove && moduleSearchSubjectId && window.InScreenApriori?.removeModule) {
+      window.InScreenApriori.removeModule(moduleSearchSubjectId, remove.dataset.removeModuleId);
+      return;
+    }
     const button = event.target.closest("button[data-module-id]");
     if (!button || !moduleSearchSubjectId) return;
     const subject = subjectById(moduleSearchSubjectId);
-    const module = moduleCatalog?.find((item) => item.id === button.dataset.moduleId);
+    const module = subject?.modules?.find((item) => item.id === button.dataset.moduleId) ||
+      moduleCatalog?.find((item) => item.id === button.dataset.moduleId);
     if (!subject || !module) return;
     const row = button.closest(".module-result");
     button.disabled = true;
@@ -1677,11 +1698,7 @@
   window.InScreenOpenSubjectModule = function openAndroidSubjectModule(subjectId) {
     const subject = subjectById(subjectId);
     if (!subject || VIEW !== "queue") return false;
-    if (window.InScreenApriori?.openModule) {
-      window.InScreenApriori.openModule(subject.id);
-    } else {
-      openModuleSearch(subject.id);
-    }
+    openModuleSearch(subject.id);
     return true;
   };
 

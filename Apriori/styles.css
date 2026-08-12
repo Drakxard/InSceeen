@@ -588,6 +588,13 @@ dialog::backdrop {
   cursor: pointer;
 }
 
+.module-result .assigned-module-open {
+  flex: 1;
+  border: 0;
+  text-align: left;
+  font: inherit;
+}
+
 .module-result.is-downloading {
   overflow: hidden;
 }
