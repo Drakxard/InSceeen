@@ -40,7 +40,7 @@ Luego inicia la aplicación:
 
 ## Instalar y conectar el celular por primera vez
 
-Instala `mobile\InScreenMic.apk` y abre la app con ambos dispositivos en la misma red
+Descarga `InScreenMic.apk` desde la [última release de GitHub](https://github.com/Drakxard/InSceeen/releases/latest), instálala y abre la app con ambos dispositivos en la misma red
 Wi-Fi. Pulsa **CONECTAR** o el botón de cámara: el celular solicitará la vinculación y
 recién entonces Windows mostrará el QR. Léelo con la cámara integrada, concede
 micrófono y notificaciones y acepta excluir InScreen de la optimización de batería.
