@@ -52,7 +52,7 @@ internal class ModuleSpeechController(
 
         return runCatching {
             usingOnDevice = decision == SpeechRecognitionPolicy.Decision.ON_DEVICE
-            recognizer = if (usingOnDevice) {
+            recognizer = if (usingOnDevice && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
             } else {
                 SpeechRecognizer.createSpeechRecognizer(context)
