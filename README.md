@@ -301,6 +301,27 @@ usada en versiones anteriores:
 - `INSCREEN_KEY_ALIAS`
 - `INSCREEN_KEY_PASSWORD`
 
+Para publicar correctamente una nueva versión, primero incrementa `versionCode` y
+`versionName` en `mobile_android/app/build.gradle.kts`. Luego confirma y sube ese cambio
+a `main`; sólo cuando `main` esté actualizado crea una etiqueta que coincida exactamente
+con `versionName`, agregando el prefijo `v`:
+
+```powershell
+git switch main
+git pull --ff-only origin main
+git add mobile_android/app/build.gradle.kts
+git commit -m "Release 2.0.12"
+git push origin main
+git tag -a v2.0.12 -m "Release 2.0.12"
+git push origin v2.0.12
+```
+
+El push de la etiqueta inicia `.github/workflows/android-release.yml`. El workflow
+comprueba que la etiqueta y `versionName` coincidan, ejecuta las pruebas y el lint,
+compila el APK firmado y crea el Release `InScreen vX.Y.Z` con el archivo
+`InScreenMic.apk`. No reutilices una etiqueta publicada: para cada corrección incrementa
+otra vez ambas versiones y crea una etiqueta nueva.
+
 Si Groq responde con un límite temporal (`429`), el panel muestra únicamente una cuenta
 regresiva numérica pequeña y reintenta una vez. `|` también cancela esta espera.
 

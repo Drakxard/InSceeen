@@ -27,6 +27,16 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Verify release version
+        shell: bash
+        run: |
+          version_name="$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts)"
+          test -n "$version_name"
+          test "$GITHUB_REF_NAME" = "v$version_name" || {
+            echo "La etiqueta $GITHUB_REF_NAME no coincide con versionName $version_name"
+            exit 1
+          }
+
       - name: Restore release signing
         env:
           KEYSTORE_BASE64: ${{ secrets.INSCREEN_KEYSTORE_BASE64 }}
