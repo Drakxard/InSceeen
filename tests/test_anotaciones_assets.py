@@ -21,10 +21,13 @@ class AnotacionesAssetsTest(unittest.TestCase):
         html = (MODULE / "index.html").read_text(encoding="utf-8")
         script = (MODULE / "app.js").read_text(encoding="utf-8")
         apriori = (ROOT / "Apriori" / "app.js").read_text(encoding="utf-8")
+        main_activity = (ROOT / "mobile_android" / "app" / "src" / "main" / "java" / "com" / "inscreen" / "mic" / "MainActivity.kt").read_text(encoding="utf-8")
         self.assertIn('id="headerEditor"', html)
         self.assertNotIn('id="editorOverlay"', html)
         self.assertIn("visualViewport", script)
         self.assertIn("InScreenApriori?.removeModule", apriori)
+        bridge = main_activity.split("private inner class AprioriBridge", 1)[1].split("private fun createConnectionPage", 1)[0]
+        self.assertIn("@JavascriptInterface fun removeModule", bridge)
 
 
 if __name__ == "__main__":

@@ -378,6 +378,23 @@ class MainActivity : ComponentActivity() {
             runOnUiThread { ModuleHostActivity.openSelected(this@MainActivity, subjectId, selected) }
         }
 
+        @JavascriptInterface fun removeModule(subjectId: String, moduleId: String) {
+            val subject = AprioriStore.subject(AprioriStore.load(this@MainActivity), subjectId) ?: return
+            val modules = subject.optJSONArray("modules") ?: return
+            val module = (0 until modules.length()).mapNotNull(modules::optJSONObject)
+                .firstOrNull { it.optString("id") == moduleId } ?: return
+            val name = module.optString("nombre", "módulo")
+            runOnUiThread {
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Quitar $name")
+                    .setMessage("¿Querés conservar sus datos para recuperarlos si volvés a agregarlo?")
+                    .setNegativeButton("Quitar y borrar datos") { _, _ -> removeSubjectModule(subjectId, moduleId, true) }
+                    .setPositiveButton("Quitar y conservar") { _, _ -> removeSubjectModule(subjectId, moduleId, false) }
+                    .setNeutralButton("Cancelar", null)
+                    .show()
+            }
+        }
+
         @JavascriptInterface fun openNotesCamera(subjectId: String) {
             if (AprioriStore.subject(AprioriStore.load(this@MainActivity), subjectId) == null) return
             runOnUiThread {
@@ -493,22 +510,6 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        @JavascriptInterface fun removeModule(subjectId: String, moduleId: String) {
-            val subject = AprioriStore.subject(AprioriStore.load(this@MainActivity), subjectId) ?: return
-            val modules = subject.optJSONArray("modules") ?: return
-            val module = (0 until modules.length()).mapNotNull(modules::optJSONObject)
-                .firstOrNull { it.optString("id") == moduleId } ?: return
-            val name = module.optString("nombre", "módulo")
-            runOnUiThread {
-                AlertDialog.Builder(this@MainActivity)
-                    .setTitle("Quitar $name")
-                    .setMessage("¿Querés conservar sus datos para recuperarlos si volvés a agregarlo?")
-                    .setNegativeButton("Quitar y borrar datos") { _, _ -> removeSubjectModule(subjectId, moduleId, true) }
-                    .setPositiveButton("Quitar y conservar") { _, _ -> removeSubjectModule(subjectId, moduleId, false) }
-                    .setNeutralButton("Cancelar", null)
-                    .show()
-            }
-        }
         autoExportSwitch = exportSwitch
         val backupControls = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
