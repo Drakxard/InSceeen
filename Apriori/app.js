@@ -966,7 +966,12 @@
     if (remove && moduleSearchSubjectId) {
       const subject = subjectById(moduleSearchSubjectId);
       const module = subject?.modules?.find((item) => item.id === remove.dataset.removeModuleId);
-      if (!subject || !module || !window.confirm(`¿Quitar ${module.nombre} de esta materia?`)) return;
+      if (!subject || !module) return;
+      if (window.InScreenApriori?.removeModule) {
+        window.InScreenApriori.removeModule(subject.id, module.id);
+        return;
+      }
+      if (!window.confirm(`¿Quitar ${module.nombre} de esta materia?`)) return;
       subject.modules = subject.modules.filter((item) => item.id !== module.id);
       saveState();
       renderModuleResults();
