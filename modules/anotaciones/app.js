@@ -2,7 +2,7 @@ const core=window.AnotacionesCore,$=id=>document.getElementById(id);
 const STATE_KEY='anotaciones:v1',MODE_KEY='anotaciones:modo:v1',SYSTEM_VOICE_KEY='anotaciones:voz-sistema:v1',card=$('card');
 const SWIPE_THRESHOLD=50,DRAG_TOLERANCE=12,ANIMATION_MS=180;
 let state,index=0,side='front',mode=localStorage.getItem(MODE_KEY)==='text'?'text':'voice';
-let voice=false,voiceSide='front',editing=false,pointer=null,hold=null,held=false;
+let voice=false,voiceSide='front',editing=false,pointer=null,hold=null,held=false,heldAction=null;
 let consentResolve=null,allowSystem=localStorage.getItem(SYSTEM_VOICE_KEY)==='allowed',persistTimer=null,undoOperation=null,toastTimer=null,transitioning=false;
 
 function current(){return state.tarjetas[index]}
@@ -142,12 +142,13 @@ function interactiveTarget(target){return Boolean(target.closest('button,textare
 
 card.addEventListener('pointerdown',e=>{
   if(interactiveTarget(e.target)||voice||transitioning)return;
-  pointer={x:e.clientX,y:e.clientY,id:e.pointerId,axis:null,deleteArmed:false};held=false;
+  pointer={x:e.clientX,y:e.clientY,id:e.pointerId,axis:null,deleteArmed:false};held=false;heldAction=null;
   card.setPointerCapture?.(e.pointerId);
-  hold=setTimeout(()=>{held=true;pointer=null;if(mode==='text')beginEditing();else void startVoice(side)},550);
+  hold=setTimeout(()=>{held=true;heldAction=mode==='text'?'edit':'voice'},550);
 });
 card.addEventListener('pointermove',e=>{
   if(!pointer)return;
+  if(held)return;
   const dx=e.clientX-pointer.x,dy=e.clientY-pointer.y;
   if(Math.hypot(dx,dy)>DRAG_TOLERANCE){
     clearTimeout(hold);
@@ -167,7 +168,11 @@ card.addEventListener('pointerup',e=>{
   if(!pointer){held=false;return;}
   clearTimeout(hold);
   const dx=e.clientX-pointer.x,dy=e.clientY-pointer.y,axis=pointer.axis,deleteArmed=pointer.deleteArmed;pointer=null;
-  if(held){held=false;return;}
+  if(held){
+    const action=heldAction;held=false;heldAction=null;
+    if(action==='edit')beginEditing();else if(action==='voice')void startVoice(side);
+    return;
+  }
   if(axis==='vertical'){
     if(deleteArmed&&dy<0){void removeCurrent();return;}
     resetDeleteIndicator(true);return;
@@ -177,7 +182,8 @@ card.addEventListener('pointerup',e=>{
   if(Math.hypot(dx,dy)<DRAG_TOLERANCE){resetCardStyle();tap();return;}
   springBack();
 });
-card.addEventListener('pointercancel',()=>{clearTimeout(hold);pointer=null;held=false;resetDeleteIndicator(true);springBack()});
+card.addEventListener('pointercancel',()=>{clearTimeout(hold);pointer=null;held=false;heldAction=null;resetDeleteIndicator(true);springBack()});
+card.addEventListener('contextmenu',e=>{if(!editing)e.preventDefault()});
 
 $('modeToggle').onclick=()=>{
   if(voice)return;
