@@ -24,7 +24,12 @@ class AnotacionesAssetsTest(unittest.TestCase):
         main_activity = (ROOT / "mobile_android" / "app" / "src" / "main" / "java" / "com" / "inscreen" / "mic" / "MainActivity.kt").read_text(encoding="utf-8")
         self.assertIn('id="headerEditor"', html)
         self.assertNotIn('id="editorOverlay"', html)
+        self.assertNotIn('id="options"', html)
+        self.assertNotIn('id="menu"', html)
+        self.assertIn('<body>\n  <button id="modeToggle"', html)
+        self.assertIn('id="undo"', html)
         self.assertIn("visualViewport", script)
+        self.assertIn("removeUndoable", script)
         self.assertIn("InScreenApriori?.removeModule", apriori)
         bridge = main_activity.split("private inner class AprioriBridge", 1)[1].split("private fun createConnectionPage", 1)[0]
         self.assertIn("@JavascriptInterface fun removeModule", bridge)

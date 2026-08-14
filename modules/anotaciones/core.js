@@ -11,5 +11,18 @@
   function canAdvance(state,index){return index<state.tarjetas.length-1||Boolean(state.tarjetas[index]?.cabecera);}
   function advance(state,index){if(index<state.tarjetas.length-1)return index+1;if(!canAdvance(state,index))return index;state.tarjetas.push(blank());return index+1;}
   function remove(state,index){state.tarjetas.splice(index,1);if(!state.tarjetas.length)state.tarjetas.push(blank());return Math.min(index,state.tarjetas.length-1);}
-  return {VERSION,clean,blank,normalize,canAdvance,advance,remove};
+  function removeUndoable(state,index){
+    const removed=state.tarjetas.splice(index,1)[0]||null;
+    let replacementId=null;
+    if(!state.tarjetas.length||state.tarjetas[state.tarjetas.length-1].cabecera){const replacement=blank();replacementId=replacement.id;state.tarjetas.push(replacement);}
+    return {index:Math.min(index,state.tarjetas.length-1),removed,originalIndex:index,replacementId};
+  }
+  function restoreRemoved(state,operation){
+    if(!operation?.removed)return 0;
+    if(operation.replacementId){const replacement=state.tarjetas.findIndex(card=>card.id===operation.replacementId);if(replacement>=0)state.tarjetas.splice(replacement,1);}
+    const index=Math.max(0,Math.min(Number(operation.originalIndex)||0,state.tarjetas.length));
+    state.tarjetas.splice(index,0,operation.removed);
+    return index;
+  }
+  return {VERSION,clean,blank,normalize,canAdvance,advance,remove,removeUndoable,restoreRemoved};
 }));
