@@ -29,7 +29,7 @@ function applyFontScale(){
   Object.entries(values).forEach(([name,value])=>card.style.setProperty(name,value));
   const activeScale=fontScales[side];
   $('fontDecrease').disabled=activeScale<=.7;$('fontIncrease').disabled=activeScale>=1.8;
-  $('fontControls').setAttribute('aria-label',`Tamaño de tipografía ${Math.round(fontScale*100)}%`);
+  $('fontControls').setAttribute('aria-label',`Tamaño de tipografía ${side==='front'?'de la portada':'de la respuesta'} ${Math.round(activeScale*100)}%`);
 }
 function changeFontScale(delta){
   fontScales[side]=clampFontScale(Math.round((fontScales[side]+delta)*10)/10);
