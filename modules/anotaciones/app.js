@@ -4,7 +4,9 @@ const SWIPE_THRESHOLD=50,DRAG_TOLERANCE=12,ANIMATION_MS=180;
 let state,index=0,side='front',mode=localStorage.getItem(MODE_KEY)==='text'?'text':'voice';
 let voice=false,voiceSide='front',editing=false,pointer=null,hold=null,held=false,heldAction=null;
 let consentResolve=null,allowSystem=localStorage.getItem(SYSTEM_VOICE_KEY)==='allowed',persistTimer=null,undoOperation=null,toastTimer=null,transitioning=false,keyboardWasOpen=false;
-let fontScale=Math.max(.7,Math.min(1.8,Number(localStorage.getItem(FONT_SCALE_KEY))||1));
+const storedFontScale=(()=>{try{return JSON.parse(localStorage.getItem(FONT_SCALE_KEY)||'null')}catch{return null}})();
+const clampFontScale=value=>Math.max(.7,Math.min(1.8,Number(value)||1));
+let fontScales=typeof storedFontScale==='number'?{front:clampFontScale(storedFontScale),back:clampFontScale(storedFontScale)}:{front:clampFontScale(storedFontScale?.front),back:clampFontScale(storedFontScale?.back)};
 
 function current(){return state.tarjetas[index]}
 function editorFor(target=side){return $(target==='front'?'headerEditor':'answerEditor')}
@@ -18,18 +20,20 @@ function renderMode(){
   applyFontScale();
 }
 function applyFontScale(){
+  const frontScale=fontScales.front,backScale=fontScales.back;
   const values={
-    '--front-font-min':`${1.6*fontScale}rem`,'--front-font-fluid':`${7*fontScale}vw`,'--front-font-max':`${2.3*fontScale}rem`,
-    '--answer-font-size':`${fontScale}rem`,'--editor-font-min':`${1.35*fontScale}rem`,'--editor-font-fluid':`${6*fontScale}vw`,
-    '--editor-font-max':`${2*fontScale}rem`,'--back-editor-font-min':`${1.05*fontScale}rem`,'--back-editor-font-fluid':`${4.8*fontScale}vw`,'--back-editor-font-max':`${1.4*fontScale}rem`
+    '--front-font-min':`${1.6*frontScale}rem`,'--front-font-fluid':`${7*frontScale}vw`,'--front-font-max':`${2.3*frontScale}rem`,
+    '--answer-font-size':`${backScale}rem`,'--editor-font-min':`${1.35*frontScale}rem`,'--editor-font-fluid':`${6*frontScale}vw`,
+    '--editor-font-max':`${2*frontScale}rem`,'--back-editor-font-min':`${1.05*backScale}rem`,'--back-editor-font-fluid':`${4.8*backScale}vw`,'--back-editor-font-max':`${1.4*backScale}rem`
   };
   Object.entries(values).forEach(([name,value])=>card.style.setProperty(name,value));
-  $('fontDecrease').disabled=fontScale<=.7;$('fontIncrease').disabled=fontScale>=1.8;
+  const activeScale=fontScales[side];
+  $('fontDecrease').disabled=activeScale<=.7;$('fontIncrease').disabled=activeScale>=1.8;
   $('fontControls').setAttribute('aria-label',`Tamaño de tipografía ${Math.round(fontScale*100)}%`);
 }
 function changeFontScale(delta){
-  fontScale=Math.max(.7,Math.min(1.8,Math.round((fontScale+delta)*10)/10));
-  localStorage.setItem(FONT_SCALE_KEY,String(fontScale));applyFontScale();
+  fontScales[side]=clampFontScale(Math.round((fontScales[side]+delta)*10)/10);
+  localStorage.setItem(FONT_SCALE_KEY,JSON.stringify(fontScales));applyFontScale();
 }
 function selectMode(next){
   if(mode===next){renderMode();return;}
