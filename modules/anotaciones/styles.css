@@ -2,32 +2,27 @@
 *{box-sizing:border-box;font-family:Inter,system-ui,sans-serif}
 html,body{height:100%;overscroll-behavior:none}
 body{margin:0;min-height:var(--viewport-height);display:grid;place-items:center;padding:1rem;background:linear-gradient(145deg,#fdf2f8,#eff6ff);color:var(--text);user-select:none;transition:padding .18s}
-main{width:min(100%,480px);max-height:var(--viewport-height);display:flex;flex-direction:column}
-header{position:relative;display:flex;justify-content:space-between;align-items:center;gap:.55rem;min-height:58px;padding:.4rem 0;color:var(--muted);font-weight:750}
-header>span:first-child{color:var(--text)}
+main{width:min(100%,480px);height:min(calc(var(--viewport-height) - 2rem),540px);display:flex;flex-direction:column}
 .icon-button{display:grid;place-items:center;width:44px;height:44px;padding:7px;border:1px solid #dbe1ea;border-radius:14px;background:#ffffffd9;color:var(--text);box-shadow:0 5px 14px #3341551c;touch-action:manipulation}
 .mode-toggle{position:fixed;z-index:12;top:max(12px,env(safe-area-inset-top));left:max(12px,env(safe-area-inset-left))}
 .mode-toggle img{display:block;width:100%;height:100%;object-fit:contain;transform:rotateY(0);transition:transform .22s ease}
 .mode-toggle.flipping img{transform:rotateY(90deg)}
-#stage{height:min(72vh,470px);height:min(calc(var(--viewport-height) - 122px),470px);min-height:260px;touch-action:none;transition:height .18s}
-#card{position:relative;width:100%;height:100%;border:1px solid #e5e7eb;border-radius:26px;background:#fff;box-shadow:0 20px 38px -20px #33415566;overflow:hidden;outline:0;transition:height .18s,transform .18s,opacity .18s}
+#stage{height:100%;min-height:260px;touch-action:none;transition:height .18s}
+#card{position:relative;width:100%;height:100%;border:1px solid #e5e7eb;border-radius:26px;background:#fff;box-shadow:0 20px 38px -20px #33415566;overflow:hidden;outline:0;will-change:transform,opacity;transition:transform .18s ease,opacity .18s ease}
 .face{position:absolute;inset:0;padding:2rem;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
 .hidden{display:none!important}
 #front>small,#back>small{display:none}
 small{position:absolute;top:24px;letter-spacing:.14em;color:var(--muted);font-weight:850}
 h1{font-size:clamp(1.6rem,7vw,2.3rem);word-break:break-word}
 p{white-space:pre-wrap;word-break:break-word;line-height:1.5}
-#frontHint,#backHint{position:absolute;bottom:22px;color:var(--muted);font-size:.85rem}
-#frontHint:empty,#backHint:empty{display:none}
 .card-editor{display:none;width:100%;height:100%;min-height:0;padding:3rem .35rem 2.5rem;border:0;outline:0;background:transparent;color:var(--text);font:inherit;font-size:clamp(1.35rem,6vw,2rem);font-weight:700;line-height:1.35;text-align:center;resize:none;user-select:text;caret-color:var(--purple)}
 #back .card-editor{font-size:clamp(1.05rem,4.8vw,1.4rem);font-weight:500}
 .text-mode.editing .face{padding:.7rem 1.35rem}
 .text-mode.editing .card-editor{display:block}
-.text-mode.editing #headerText,.text-mode.editing #answerText,.text-mode.editing #frontHint,.text-mode.editing #backHint{display:none}
+.text-mode.editing #headerText,.text-mode.editing #answerText{display:none}
 .text-mode.editing .face>small{display:block;top:20px;z-index:1}
 .recording{color:var(--danger)}
 #stop{margin-top:1rem;border:0;border-radius:99px;padding:.8rem 1.5rem;background:var(--danger);color:#fff;font-weight:800}
-nav{display:none}
 .overlay{position:fixed;inset:0;z-index:20;display:grid;place-items:end center;padding:1rem;background:#0f172a99}
 .overlay[hidden]{display:none}
 .dialog{width:min(100%,430px);display:grid;gap:.7rem;padding:1rem;border-radius:20px;background:#fff}
@@ -38,8 +33,7 @@ nav{display:none}
 #toast[hidden]{display:none}
 #toast button{padding:0;border:0;background:transparent;color:#c4b5fd;font-weight:850;text-transform:uppercase}
 body.keyboard-open{place-items:start center;padding-top:.35rem;padding-bottom:.35rem}
-body.keyboard-open header{min-height:48px}
-body.keyboard-open #stage{height:max(210px,calc(var(--viewport-height) - 58px))}
+body.keyboard-open main{height:max(210px,calc(var(--viewport-height) - .7rem))}
 body.keyboard-open .card-editor{padding-top:2.65rem;padding-bottom:.75rem}
-@media(max-height:520px){body{padding:.35rem}header{min-height:48px}#stage{min-height:210px}}
-@media(max-width:560px){header{padding-left:52px}}
+@media(max-height:520px){body{padding:.35rem}#stage{min-height:210px}}
+@media(prefers-reduced-motion:reduce){#card,.mode-toggle img{transition-duration:1ms!important}}

@@ -1,8 +1,9 @@
 const core=window.AnotacionesCore,$=id=>document.getElementById(id);
-const STATE_KEY='anotaciones:v1',MODE_KEY='anotaciones:modo:v1',card=$('card');
+const STATE_KEY='anotaciones:v1',MODE_KEY='anotaciones:modo:v1',SYSTEM_VOICE_KEY='anotaciones:voz-sistema:v1',card=$('card');
+const SWIPE_THRESHOLD=50,DRAG_TOLERANCE=12,ANIMATION_MS=180;
 let state,index=0,side='front',mode=localStorage.getItem(MODE_KEY)==='text'?'text':'voice';
 let voice=false,voiceSide='front',editing=false,pointer=null,hold=null,held=false;
-let consentResolve=null,allowSystem=false,persistTimer=null,undoOperation=null,toastTimer=null;
+let consentResolve=null,allowSystem=localStorage.getItem(SYSTEM_VOICE_KEY)==='allowed',persistTimer=null,undoOperation=null,toastTimer=null,transitioning=false;
 
 function current(){return state.tarjetas[index]}
 function editorFor(target=side){return $(target==='front'?'headerEditor':'answerEditor')}
@@ -16,12 +17,9 @@ function renderMode(){
 }
 function render(){
   const c=current();
-  $('position').textContent=`${index+1} de ${state.tarjetas.length}`;
   $('headerText').textContent=c.cabecera;$('answerText').textContent=c.respuesta;
-  $('frontHint').textContent=c.cabecera?'':'Mantené para completar la cabecera';
-  $('backHint').textContent=c.respuesta?'':'Mantené para completar la respuesta';
   $('front').classList.toggle('hidden',side!=='front');$('back').classList.toggle('hidden',side!=='back');
-  $('listening').classList.add('hidden');$('previous').disabled=index===0;
+  $('listening').classList.add('hidden');
   syncEditors();renderMode();
 }
 function persist(){localStorage.setItem(STATE_KEY,JSON.stringify(state));return Promise.resolve()}
@@ -39,6 +37,41 @@ function finishEditing(){
 function showToast(message,{undo=false}={}){
   const view=$('toast');$('toastText').textContent=message;$('undo').hidden=!undo;view.hidden=false;
   clearTimeout(toastTimer);toastTimer=setTimeout(()=>{view.hidden=true;undoOperation=null},3000);
+}
+function reducedMotion(){return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches===true}
+function waitForAnimation(){return new Promise(resolve=>setTimeout(resolve,reducedMotion()?0:ANIMATION_MS))}
+function resetCardStyle(){card.style.transition='';card.style.transform='';card.style.opacity=''}
+function springBack(){
+  card.style.transition=reducedMotion()?'none':`transform ${ANIMATION_MS}ms ease, opacity ${ANIMATION_MS}ms ease`;
+  card.style.transform='translate(0,0) rotate(0deg)';card.style.opacity='1';
+  setTimeout(resetCardStyle,reducedMotion()?0:ANIMATION_MS);
+}
+async function transitionCard(exitX,exitY,mutate){
+  if(transitioning)return;
+  transitioning=true;
+  try{
+    const rotation=exitX?Math.sign(exitX)*7:0;
+    card.style.transition=reducedMotion()?'none':`transform ${ANIMATION_MS}ms ease, opacity ${ANIMATION_MS}ms ease`;
+    card.style.transform=`translate(${exitX}px,${exitY}px) rotate(${rotation}deg)`;card.style.opacity='0';
+    await waitForAnimation();await mutate();render();
+    card.style.transition='none';card.style.transform=`translate(${window.innerWidth+80}px,0) rotate(7deg)`;card.style.opacity='0';
+    void card.offsetWidth;
+    card.style.transition=reducedMotion()?'none':`transform ${ANIMATION_MS}ms ease, opacity ${ANIMATION_MS}ms ease`;
+    card.style.transform='translate(0,0) rotate(0deg)';card.style.opacity='1';
+    await waitForAnimation();
+  }finally{resetCardStyle();transitioning=false;}
+}
+async function enterFromRight(mutate){
+  if(transitioning)return;
+  transitioning=true;
+  try{
+    await mutate();render();
+    card.style.transition='none';card.style.transform=`translate(${window.innerWidth+80}px,0) rotate(7deg)`;card.style.opacity='0';
+    void card.offsetWidth;
+    card.style.transition=reducedMotion()?'none':`transform ${ANIMATION_MS}ms ease, opacity ${ANIMATION_MS}ms ease`;
+    card.style.transform='translate(0,0) rotate(0deg)';card.style.opacity='1';
+    await waitForAnimation();
+  }finally{resetCardStyle();transitioning=false;}
 }
 async function startVoice(target=side){
   if(voice)return;
@@ -65,46 +98,58 @@ function tap(){
   if(editing)finishEditing();
   side=side==='front'?'back':'front';render();
 }
-async function move(direction){
-  if(voice)return;
+async function changeCard(direction){
   finishEditing();
-  if(direction<0){if(index===0)return;index--;side='front';render();return;}
-  if(!core.canAdvance(state,index)){showToast('No hay más tarjetas por ahora');return;}
-  index=core.advance(state,index);side='front';await persist();render();
+  if(direction<0)index--;
+  else index=core.advance(state,index);
+  side='front';await persist();
 }
-async function removeCurrent(){
-  if(voice)return;
+async function navigate(direction,exitSign){
+  if(voice||transitioning)return;
+  if(direction<0&&index===0){springBack();return;}
+  if(direction>0&&!core.canAdvance(state,index)){springBack();showToast('No hay más tarjetas por ahora');return;}
+  await transitionCard(exitSign*(window.innerWidth+80),0,()=>changeCard(direction));
+}
+async function removeCurrent(exitSign){
+  if(voice||transitioning)return;
   finishEditing();
-  undoOperation=core.removeUndoable(state,index);index=undoOperation.index;side='front';editing=false;
-  await persist();render();showToast('Tarjeta eliminada',{undo:true});
+  await transitionCard(0,exitSign*(window.innerHeight+80),async()=>{
+    undoOperation=core.removeUndoable(state,index);index=undoOperation.index;side='front';editing=false;await persist();
+  });
+  showToast('Tarjeta eliminada',{undo:true});
 }
 async function undoRemove(){
-  if(!undoOperation)return;
-  index=core.restoreRemoved(state,undoOperation);undoOperation=null;side='front';editing=false;
-  clearTimeout(toastTimer);$('toast').hidden=true;await persist();render();
+  if(!undoOperation||transitioning)return;
+  clearTimeout(toastTimer);$('toast').hidden=true;
+  await enterFromRight(async()=>{index=core.restoreRemoved(state,undoOperation);undoOperation=null;side='front';editing=false;await persist()});
 }
 function interactiveTarget(target){return Boolean(target.closest('button,textarea'))}
 
 card.addEventListener('pointerdown',e=>{
-  if(interactiveTarget(e.target)||voice)return;
-  pointer={x:e.clientX,y:e.clientY};held=false;
+  if(interactiveTarget(e.target)||voice||transitioning)return;
+  pointer={x:e.clientX,y:e.clientY,id:e.pointerId};held=false;
+  card.setPointerCapture?.(e.pointerId);
   hold=setTimeout(()=>{held=true;pointer=null;if(mode==='text')beginEditing();else void startVoice(side)},550);
 });
 card.addEventListener('pointermove',e=>{
   if(!pointer)return;
   const dx=e.clientX-pointer.x,dy=e.clientY-pointer.y;
-  if(Math.hypot(dx,dy)>12)clearTimeout(hold);
+  if(Math.hypot(dx,dy)>DRAG_TOLERANCE)clearTimeout(hold);
+  card.style.transition='none';card.style.transform=`translate(${dx}px,${dy}px) rotate(${dx/35}deg)`;
+  card.style.opacity=String(Math.max(.68,1-Math.hypot(dx,dy)/(Math.max(window.innerWidth,window.innerHeight)*1.8)));
 });
 card.addEventListener('pointerup',e=>{
   if(!pointer){held=false;return;}
   clearTimeout(hold);
   const dx=e.clientX-pointer.x,dy=e.clientY-pointer.y;pointer=null;
   if(held){held=false;return;}
-  if(Math.abs(dy)>70&&Math.abs(dy)>Math.abs(dx)*1.15){void removeCurrent();return;}
-  if(Math.abs(dx)>50&&Math.abs(dx)>Math.abs(dy)*1.15){void move(dx<0?1:-1);return;}
-  if(Math.hypot(dx,dy)<12)tap();
+  const swipe=core.classifySwipe(dx,dy,SWIPE_THRESHOLD);
+  if(swipe==='up'||swipe==='down'){void removeCurrent(swipe==='up'?-1:1);return;}
+  if(swipe==='left'||swipe==='right'){void navigate(swipe==='left'?1:-1,swipe==='left'?-1:1);return;}
+  if(Math.hypot(dx,dy)<DRAG_TOLERANCE){resetCardStyle();tap();return;}
+  springBack();
 });
-card.addEventListener('pointercancel',()=>{clearTimeout(hold);pointer=null;held=false});
+card.addEventListener('pointercancel',()=>{clearTimeout(hold);pointer=null;held=false;springBack()});
 
 $('modeToggle').onclick=()=>{
   if(voice)return;
@@ -112,10 +157,9 @@ $('modeToggle').onclick=()=>{
   const button=$('modeToggle');button.classList.add('flipping');
   setTimeout(()=>{mode=mode==='voice'?'text':'voice';localStorage.setItem(MODE_KEY,mode);render();button.classList.remove('flipping')},110);
 };
-$('previous').onclick=()=>void move(-1);$('next').onclick=()=>void move(1);
 $('stop').onclick=()=>void InScreen.module.vozDetener();$('undo').onclick=()=>void undoRemove();
 $('deny').onclick=()=>{$('consent').hidden=true;consentResolve?.(false);consentResolve=null};
-$('allow').onclick=()=>{allowSystem=true;$('consent').hidden=true;consentResolve?.(true);consentResolve=null};
+$('allow').onclick=()=>{allowSystem=true;localStorage.setItem(SYSTEM_VOICE_KEY,'allowed');$('consent').hidden=true;consentResolve?.(true);consentResolve=null};
 
 for(const target of ['front','back']){
   const editor=editorFor(target);

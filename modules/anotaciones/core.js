@@ -24,5 +24,10 @@
     state.tarjetas.splice(index,0,operation.removed);
     return index;
   }
-  return {VERSION,clean,blank,normalize,canAdvance,advance,remove,removeUndoable,restoreRemoved};
+  function classifySwipe(dx,dy,threshold=50,dominance=1.15){
+    if(Math.abs(dy)>threshold&&Math.abs(dy)>Math.abs(dx)*dominance)return dy<0?'up':'down';
+    if(Math.abs(dx)>threshold&&Math.abs(dx)>Math.abs(dy)*dominance)return dx<0?'left':'right';
+    return null;
+  }
+  return {VERSION,clean,blank,normalize,canAdvance,advance,remove,removeUndoable,restoreRemoved,classifySwipe};
 }));
