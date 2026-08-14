@@ -52,7 +52,7 @@ class ModuleHostActivity : Activity() {
         intent.getStringExtra(EXTRA_SELECTED_MODULE)?.let { raw ->
             val selected = runCatching { ModuleSelection.parse(raw) }.getOrNull()
             if (selected != null) {
-                showModule(selected, persistAssignment = true)
+                showModule(selected, persistAssignment = intent.getBooleanExtra(EXTRA_PERSIST_ASSIGNMENT, true))
                 return
             }
         }
@@ -82,8 +82,9 @@ class ModuleHostActivity : Activity() {
 
     @SuppressLint("SetJavaScriptEnabled", "AddJavascriptInterface")
     private fun showModule(module: ModuleCatalog.Module, persistAssignment: Boolean = false) {
-        if (!persistAssignment) {
-            moduleCache.read(subjectId, module)?.let { cached ->
+        moduleCache.read(subjectId, module)?.let { cached ->
+            val assignmentReady = !persistAssignment || AprioriStore.addModule(this, subjectId, module)
+            if (assignmentReady) {
                 showModuleHtml(module, cached)
                 return
             }
@@ -115,7 +116,11 @@ class ModuleHostActivity : Activity() {
             gravity = Gravity.CENTER
             setPadding(32, 32, 32, 32)
             addView(TextView(this@ModuleHostActivity).apply {
-                text = "No se pudo descargar y guardar el módulo. La asignación anterior no fue modificada."
+                text = if (persistAssignment) {
+                    "No se pudo descargar y guardar el módulo. La asignación anterior no fue modificada."
+                } else {
+                    "La copia local del módulo no está disponible y no se pudo descargar nuevamente."
+                }
                 textSize = 17f
                 gravity = Gravity.CENTER
                 setPadding(0, 0, 0, 18)
@@ -541,6 +546,7 @@ class ModuleHostActivity : Activity() {
         internal const val EXTRA_SUBJECT_ID = "subject_id"
         internal const val EXTRA_NOTES_SESSION_ID = "notes_session_id"
         private const val EXTRA_SELECTED_MODULE = "selected_module"
+        private const val EXTRA_PERSIST_ASSIGNMENT = "persist_assignment"
         internal fun intent(context: Context, subjectId: String): Intent =
             Intent(context, ModuleHostActivity::class.java)
                 .putExtra(EXTRA_SUBJECT_ID, subjectId)
@@ -557,6 +563,13 @@ class ModuleHostActivity : Activity() {
         internal fun openSelected(context: Context, subjectId: String, module: ModuleCatalog.Module) = context.startActivity(
             intent(context, subjectId)
                 .putExtra(EXTRA_SELECTED_MODULE, ModuleSelection.serialize(module))
+                .putExtra(EXTRA_PERSIST_ASSIGNMENT, true)
+        )
+
+        internal fun openAssigned(context: Context, subjectId: String, module: ModuleCatalog.Module) = context.startActivity(
+            intent(context, subjectId)
+                .putExtra(EXTRA_SELECTED_MODULE, ModuleSelection.serialize(module))
+                .putExtra(EXTRA_PERSIST_ASSIGNMENT, false)
         )
     }
 

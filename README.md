@@ -283,6 +283,21 @@ autoriza el dispositivo, consulta ese R2 y devuelve los TXT.
 Los días relativos son: `6` día de clase, `5` un día después, hasta `1` cinco días después;
 `0` representa el día anterior a la siguiente clase.
 
+## Política de compilación y publicación del APK
+
+El APK oficial siempre se compila y publica mediante GitHub Actions. No se debe compilar
+localmente para crear una release, subir un APK manualmente ni reutilizar una etiqueta.
+El flujo canónico es:
+
+1. Incrementar `versionCode` y `versionName` en `mobile_android/app/build.gradle.kts`.
+2. Confirmar y subir ese cambio a `main`.
+3. Crear una etiqueta nueva con el formato exacto `v` + `versionName`.
+4. Subir la etiqueta; GitHub Actions ejecutará pruebas, lint, compilación firmada y creará
+   el Release con `InScreenMic.apk`.
+
+Para cada corrección se deben incrementar nuevamente ambas versiones. Nunca se reutiliza
+una etiqueta publicada.
+
 ## Actualizaciones del APK
 
 En la pestaña de Conexiones, el ícono verde de recarga de la esquina superior derecha busca
@@ -310,10 +325,10 @@ con `versionName`, agregando el prefijo `v`:
 git switch main
 git pull --ff-only origin main
 git add mobile_android/app/build.gradle.kts
-git commit -m "Release 2.0.12"
+git commit -m "Release 2.0.13"
 git push origin main
-git tag -a v2.0.12 -m "Release 2.0.12"
-git push origin v2.0.12
+git tag -a v2.0.13 -m "Release 2.0.13"
+git push origin v2.0.13
 ```
 
 El push de la etiqueta inicia `.github/workflows/android-release.yml`. El workflow
@@ -325,7 +340,10 @@ otra vez ambas versiones y crea una etiqueta nueva.
 Si Groq responde con un límite temporal (`429`), el panel muestra únicamente una cuenta
 regresiva numérica pequeña y reintenta una vez. `|` también cancela esta espera.
 
-## Crear el `.exe` portable
+## Crear el `.exe` portable localmente
+
+Esta sección no publica el APK ni reemplaza GitHub Actions. Sólo sirve para generar una
+copia local del portable de Windows para pruebas o distribución interna.
 
 El build completo requiere JDK 17 y Android SDK Platform 36. La primera compilación crea
 una firma local en `mobile_android/.signing`; guarda una copia de seguridad de esa
@@ -336,13 +354,7 @@ existente.
 powershell -ExecutionPolicy Bypass -File .\build_portable.ps1
 ```
 
-Para compilar únicamente el APK:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\build_android.ps1
-```
-
-Si el APK ya existe y solo quieres rehacer Windows, ejecuta
+Si el APK oficial ya fue descargado desde GitHub y solo quieres rehacer Windows, ejecuta
 `powershell -ExecutionPolicy Bypass -File .\build_portable.ps1 -SkipAndroidBuild`.
 
 El resultado queda en:

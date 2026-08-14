@@ -49,6 +49,9 @@ class AnotacionesAssetsTest(unittest.TestCase):
         self.assertIn("InScreenApriori?.removeModule", apriori)
         bridge = main_activity.split("private inner class AprioriBridge", 1)[1].split("private fun createConnectionPage", 1)[0]
         self.assertIn("@JavascriptInterface fun removeModule", bridge)
+        self.assertIn("@JavascriptInterface fun openAssignedModule", bridge)
+        self.assertIn("@JavascriptInterface fun removeSubjectData", bridge)
+        self.assertNotIn("ModuleCache.from(this@MainActivity).reconcile(subjectIds)", bridge)
 
 
 if __name__ == "__main__":

@@ -364,7 +364,6 @@ class MainActivity : ComponentActivity() {
                 thread(name = "apriori-cache-cleanup") {
                     ProviderCache.from(this@MainActivity).reconcileSubjects(subjectIds)
                     SubjectNotesStore.from(this@MainActivity).reconcileSubjects(subjectIds)
-                    ModuleCache.from(this@MainActivity).reconcile(subjectIds)
                 }
             } catch (_: Exception) { }
         }
@@ -376,6 +375,20 @@ class MainActivity : ComponentActivity() {
         @JavascriptInterface fun selectModule(subjectId: String, rawModule: String) {
             val selected = runCatching { ModuleSelection.parse(rawModule) }.getOrNull() ?: return
             runOnUiThread { ModuleHostActivity.openSelected(this@MainActivity, subjectId, selected) }
+        }
+
+        @JavascriptInterface fun openAssignedModule(subjectId: String, moduleId: String) {
+            val subject = AprioriStore.subject(AprioriStore.load(this@MainActivity), subjectId) ?: return
+            val modules = subject.optJSONArray("modules") ?: return
+            val raw = (0 until modules.length()).mapNotNull(modules::optJSONObject)
+                .firstOrNull { it.optString("id") == moduleId } ?: return
+            val module = runCatching { ModuleSelection.parse(raw.toString()) }.getOrNull() ?: return
+            runOnUiThread { ModuleHostActivity.openAssigned(this@MainActivity, subjectId, module) }
+        }
+
+        @JavascriptInterface fun removeSubjectData(subjectId: String) {
+            val subject = AprioriStore.subject(AprioriStore.load(this@MainActivity), subjectId) ?: return
+            deleteSubjectModuleData(subjectId, subject)
         }
 
         @JavascriptInterface fun removeModule(subjectId: String, moduleId: String) {
@@ -950,6 +963,30 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun deleteSubjectModuleData(subjectId: String, subject: JSONObject) {
+        val modules = subject.optJSONArray("modules")
+        val moduleIds = (0 until (modules?.length() ?: 0)).mapNotNull { index ->
+            modules?.optJSONObject(index)?.optString("id")?.takeIf(String::isNotBlank)
+        }
+        ModuleCache.from(this).removeSubject(subjectId)
+        moduleIds.forEach { moduleId ->
+            android.webkit.WebStorage.getInstance().deleteOrigin(ModuleHostActivity.moduleOriginUrl(subjectId, moduleId))
+        }
+    }
+
+    private fun cleanupRemovedSubjectModules(previousRaw: String, currentRaw: String) {
+        val currentSubjects = JSONObject(currentRaw).optJSONArray("subjects")
+        val currentIds = (0 until (currentSubjects?.length() ?: 0)).mapNotNull { index ->
+            currentSubjects?.optJSONObject(index)?.optString("id")?.takeIf(String::isNotBlank)
+        }.toSet()
+        val previousSubjects = JSONObject(previousRaw).optJSONArray("subjects")
+        for (index in 0 until (previousSubjects?.length() ?: 0)) {
+            val subject = previousSubjects?.optJSONObject(index) ?: continue
+            val subjectId = subject.optString("id").takeIf(String::isNotBlank) ?: continue
+            if (subjectId !in currentIds) deleteSubjectModuleData(subjectId, subject)
+        }
+    }
+
     private fun createAutomaticBackupDocument(folder: Uri): Uri? = runCatching {
         val rootDocument = DocumentsContract.buildDocumentUriUsingTree(
             folder,
@@ -981,7 +1018,9 @@ class MainActivity : ComponentActivity() {
             }
             runOnUiThread {
                 result.onSuccess { restored ->
+                    val previous = AprioriStore.load(this)
                     val saved = AprioriStore.save(this, restored.apriori)
+                    cleanupRemovedSubjectModules(previous, saved)
                     if (restored.webStorage.length() > 0) {
                         val storage = restored.webStorage.toString()
                         val script = "(()=>{const d=$storage;localStorage.clear();Object.entries(d).forEach(([k,v])=>localStorage.setItem(k,v));return true})()"
@@ -1014,6 +1053,7 @@ class MainActivity : ComponentActivity() {
 
     private fun importAprioriState(uri: Uri) {
         thread(name = "InScreenStateImport") {
+            val previous = AprioriStore.load(this)
             val result = runCatching {
                 val raw = contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use {
                     it.readText()
@@ -1022,6 +1062,7 @@ class MainActivity : ComponentActivity() {
             }
             runOnUiThread {
                 result.onSuccess { saved ->
+                    cleanupRemovedSubjectModules(previous, saved)
                     AprioriUpdates.publish(this, saved)
                 }
                 Toast.makeText(

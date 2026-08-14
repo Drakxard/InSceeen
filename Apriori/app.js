@@ -980,8 +980,8 @@
     const button = event.target.closest("button[data-module-id]");
     if (!button || !moduleSearchSubjectId) return;
     const subject = subjectById(moduleSearchSubjectId);
-    const module = subject?.modules?.find((item) => item.id === button.dataset.moduleId) ||
-      moduleCatalog?.find((item) => item.id === button.dataset.moduleId);
+    const assignedModule = subject?.modules?.find((item) => item.id === button.dataset.moduleId);
+    const module = assignedModule || moduleCatalog?.find((item) => item.id === button.dataset.moduleId);
     if (!subject || !module) return;
     const row = button.closest(".module-result");
     button.disabled = true;
@@ -990,6 +990,11 @@
     row?.style.setProperty("--download-color", subject.color);
     elements.moduleError.textContent = "";
     try {
+      if (assignedModule && window.InScreenApriori?.openAssignedModule) {
+        window.InScreenApriori.openAssignedModule(subject.id, assignedModule.id);
+        elements.moduleDialog.close();
+        return;
+      }
       if (window.InScreenApriori?.selectModule) {
         window.InScreenApriori.selectModule(subject.id, JSON.stringify(module));
         elements.moduleDialog.close();
@@ -1407,6 +1412,7 @@
       return;
     }
 
+    window.InScreenApriori?.removeSubjectData?.(subject.id);
     const subjectIndex = state.subjects.findIndex((item) => item.id === subject.id);
     if (subjectIndex >= 0 && subjectIndex < state.dockSplitIndex) {
       state.dockSplitIndex -= 1;

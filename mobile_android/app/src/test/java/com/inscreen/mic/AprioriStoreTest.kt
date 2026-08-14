@@ -48,6 +48,23 @@ class AprioriStoreTest {
     }
 
     @Test
+    fun rotatingQueuePreservesEveryModuleAssignment() {
+        val raw = """{
+            "version":3,"settings":{"cycleSize":20,"urgencyK":14},
+            "subjects":[
+                {"id":"a","name":"Álgebra","modules":[{"id":"one","nombre":"Uno","entry":"modules/one/index.html"}]},
+                {"id":"b","name":"Física","modules":[{"id":"two","nombre":"Dos","entry":"modules/two/index.html"}]}
+            ],
+            "ring":["a","b","a"]
+        }""".trimIndent()
+
+        val rotated = AprioriStore.consumeHead(raw)
+
+        assertEquals("one", AprioriStore.subject(rotated, "a")?.getJSONArray("modules")?.getJSONObject(0)?.getString("id"))
+        assertEquals("two", AprioriStore.subject(rotated, "b")?.getJSONArray("modules")?.getJSONObject(0)?.getString("id"))
+    }
+
+    @Test
     fun peeksNextQueueHeadWithoutChangingTheState() {
         val raw = """{
             "version":3,"settings":{"cycleSize":20,"urgencyK":14},
