@@ -15,6 +15,7 @@ main{width:min(100%,480px);height:min(calc(var(--viewport-height) - 2rem),540px)
 #card.delete-dragging #deleteIndicator svg{transition:none}
 #card.delete-armed #deleteIndicator{opacity:1;background:linear-gradient(180deg,#fb7185 0%,#ef4444 34%,#dc2626 100%)}
 .face{position:absolute;inset:0;padding:2rem;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+#front::before{content:"";position:absolute;top:16px;left:50%;width:64px;height:8px;transform:translateX(-50%);border-radius:2px;background:#7898c4;box-shadow:0 1px 0 #5f80ad33}
 .hidden{display:none!important}
 #front>small,#back>small{display:none}
 small{position:absolute;top:24px;letter-spacing:.14em;color:var(--muted);font-weight:850}

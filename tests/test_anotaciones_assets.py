@@ -20,6 +20,7 @@ class AnotacionesAssetsTest(unittest.TestCase):
     def test_inline_editor_and_native_module_removal_are_wired(self):
         html = (MODULE / "index.html").read_text(encoding="utf-8")
         script = (MODULE / "app.js").read_text(encoding="utf-8")
+        styles = (MODULE / "styles.css").read_text(encoding="utf-8")
         apriori = (ROOT / "Apriori" / "app.js").read_text(encoding="utf-8")
         main_activity = (ROOT / "mobile_android" / "app" / "src" / "main" / "java" / "com" / "inscreen" / "mic" / "MainActivity.kt").read_text(encoding="utf-8")
         self.assertIn('id="headerEditor"', html)
@@ -39,6 +40,7 @@ class AnotacionesAssetsTest(unittest.TestCase):
         self.assertIn("SYSTEM_VOICE_KEY", script)
         self.assertIn("SWIPE_THRESHOLD=50", script)
         self.assertIn("setDeleteProgress", script)
+        self.assertIn("#front::before", styles)
         self.assertIn("InScreenApriori?.removeModule", apriori)
         bridge = main_activity.split("private inner class AprioriBridge", 1)[1].split("private fun createConnectionPage", 1)[0]
         self.assertIn("@JavascriptInterface fun removeModule", bridge)
