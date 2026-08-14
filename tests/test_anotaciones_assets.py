@@ -42,6 +42,9 @@ class AnotacionesAssetsTest(unittest.TestCase):
         self.assertIn("setDeleteProgress", script)
         self.assertIn("heldAction=mode==='text'?'edit':'voice'", script)
         self.assertIn("if(!editing)e.preventDefault()", script)
+        self.assertIn("keyboardWasOpen&&!keyboard&&activeEditor", script)
+        self.assertIn("$('listening').addEventListener('click'", script)
+        self.assertIn("entrySign=exitX?-Math.sign(exitX):1", script)
         self.assertIn("#front::before", styles)
         self.assertIn("InScreenApriori?.removeModule", apriori)
         bridge = main_activity.split("private inner class AprioriBridge", 1)[1].split("private fun createConnectionPage", 1)[0]

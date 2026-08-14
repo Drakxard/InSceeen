@@ -3,7 +3,7 @@ const STATE_KEY='anotaciones:v1',MODE_KEY='anotaciones:modo:v1',SYSTEM_VOICE_KEY
 const SWIPE_THRESHOLD=50,DRAG_TOLERANCE=12,ANIMATION_MS=180;
 let state,index=0,side='front',mode=localStorage.getItem(MODE_KEY)==='text'?'text':'voice';
 let voice=false,voiceSide='front',editing=false,pointer=null,hold=null,held=false,heldAction=null;
-let consentResolve=null,allowSystem=localStorage.getItem(SYSTEM_VOICE_KEY)==='allowed',persistTimer=null,undoOperation=null,toastTimer=null,transitioning=false;
+let consentResolve=null,allowSystem=localStorage.getItem(SYSTEM_VOICE_KEY)==='allowed',persistTimer=null,undoOperation=null,toastTimer=null,transitioning=false,keyboardWasOpen=false;
 
 function current(){return state.tarjetas[index]}
 function editorFor(target=side){return $(target==='front'?'headerEditor':'answerEditor')}
@@ -68,7 +68,8 @@ async function transitionCard(exitX,exitY,mutate){
     card.style.transition=reducedMotion()?'none':`transform ${ANIMATION_MS}ms ease, opacity ${ANIMATION_MS}ms ease`;
     card.style.transform=`translate(${exitX}px,${exitY}px) rotate(${rotation}deg)`;card.style.opacity='0';
     await waitForAnimation();await mutate();render();
-    card.style.transition='none';card.style.transform=`translate(${window.innerWidth+80}px,0) rotate(7deg)`;card.style.opacity='0';
+    const entrySign=exitX?-Math.sign(exitX):1,entryX=entrySign*(window.innerWidth+80);
+    card.style.transition='none';card.style.transform=`translate(${entryX}px,0) rotate(${entrySign*7}deg)`;card.style.opacity='0';
     void card.offsetWidth;
     card.style.transition=reducedMotion()?'none':`transform ${ANIMATION_MS}ms ease, opacity ${ANIMATION_MS}ms ease`;
     card.style.transform='translate(0,0) rotate(0deg)';card.style.opacity='1';
@@ -139,6 +140,7 @@ async function undoRemove(){
   await enterFromRight(async()=>{index=core.restoreRemoved(state,undoOperation);undoOperation=null;side='front';editing=false;await persist()});
 }
 function interactiveTarget(target){return Boolean(target.closest('button,textarea'))}
+function stopVoice(){if(voice)void InScreen.module.vozDetener()}
 
 card.addEventListener('pointerdown',e=>{
   if(interactiveTarget(e.target)||voice||transitioning)return;
@@ -191,7 +193,9 @@ $('modeToggle').onclick=()=>{
   const button=$('modeToggle');button.classList.add('flipping');
   setTimeout(()=>{mode=mode==='voice'?'text':'voice';localStorage.setItem(MODE_KEY,mode);render();button.classList.remove('flipping')},110);
 };
-$('stop').onclick=()=>void InScreen.module.vozDetener();$('undo').onclick=()=>void undoRemove();
+$('stop').onclick=stopVoice;
+$('listening').addEventListener('click',e=>{if(!e.target.closest('#stop'))stopVoice()});
+$('undo').onclick=()=>void undoRemove();
 $('deny').onclick=()=>{$('consent').hidden=true;consentResolve?.(false);consentResolve=null};
 $('allow').onclick=()=>{allowSystem=true;localStorage.setItem(SYSTEM_VOICE_KEY,'allowed');$('consent').hidden=true;consentResolve?.(true);consentResolve=null};
 
@@ -204,8 +208,11 @@ for(const target of ['front','back']){
 
 function updateViewport(){
   const viewport=window.visualViewport,height=Math.round(viewport?.height||window.innerHeight),keyboard=Boolean(viewport&&window.innerHeight-height>120);
+  const activeEditor=document.activeElement?.classList?.contains('card-editor')?document.activeElement:null;
   document.documentElement.style.setProperty('--viewport-height',`${height}px`);document.body.classList.toggle('keyboard-open',keyboard);
-  if(keyboard&&document.activeElement?.classList?.contains('card-editor'))requestAnimationFrame(()=>document.activeElement.scrollIntoView({block:'center'}));
+  if(keyboard&&activeEditor)requestAnimationFrame(()=>activeEditor.scrollIntoView({block:'center'}));
+  if(keyboardWasOpen&&!keyboard&&activeEditor)activeEditor.blur();
+  keyboardWasOpen=keyboard;
 }
 window.visualViewport?.addEventListener('resize',updateViewport);window.visualViewport?.addEventListener('scroll',updateViewport);window.addEventListener('resize',updateViewport);updateViewport();
 
