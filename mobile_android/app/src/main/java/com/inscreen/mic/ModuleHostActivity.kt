@@ -52,7 +52,7 @@ class ModuleHostActivity : Activity() {
         intent.getStringExtra(EXTRA_SELECTED_MODULE)?.let { raw ->
             val selected = runCatching { ModuleSelection.parse(raw) }.getOrNull()
             if (selected != null) {
-                showModule(selected, persistAssignment = intent.getBooleanExtra(EXTRA_PERSIST_ASSIGNMENT, true))
+                showModule(selected, persistAssignment = intent.getBooleanExtra(EXTRA_PERSIST_ASSIGNMENT, true), forceRefresh = intent.getBooleanExtra(EXTRA_FORCE_REFRESH, false))
                 return
             }
         }
@@ -81,8 +81,8 @@ class ModuleHostActivity : Activity() {
     }
 
     @SuppressLint("SetJavaScriptEnabled", "AddJavascriptInterface")
-    private fun showModule(module: ModuleCatalog.Module, persistAssignment: Boolean = false) {
-        moduleCache.read(subjectId, module)?.let { cached ->
+    private fun showModule(module: ModuleCatalog.Module, persistAssignment: Boolean = false, forceRefresh: Boolean = false) {
+        if (!forceRefresh) moduleCache.read(subjectId, module)?.let { cached ->
             val assignmentReady = !persistAssignment || AprioriStore.addModule(this, subjectId, module)
             if (assignmentReady) {
                 showModuleHtml(module, cached)
@@ -102,21 +102,23 @@ class ModuleHostActivity : Activity() {
                         if (persistAssignment) check(AprioriStore.addModule(this@ModuleHostActivity, subjectId, module))
                     }.fold(
                         onSuccess = { showModuleHtml(module, packageFiles.html) },
-                        onFailure = { showModuleLoadError(module, persistAssignment) },
+                         onFailure = { showModuleLoadError(module, persistAssignment, forceRefresh) },
                     )
                 },
-                onFailure = { showModuleLoadError(module, persistAssignment) },
+                onFailure = { showModuleLoadError(module, persistAssignment, forceRefresh) },
             )
         }}
     }
 
-    private fun showModuleLoadError(module: ModuleCatalog.Module, persistAssignment: Boolean) {
+    private fun showModuleLoadError(module: ModuleCatalog.Module, persistAssignment: Boolean, forceRefresh: Boolean = false) {
         setContentView(LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             setPadding(32, 32, 32, 32)
             addView(TextView(this@ModuleHostActivity).apply {
-                text = if (persistAssignment) {
+                text = if (forceRefresh) {
+                    "No se pudo actualizar el módulo. La copia anterior se conservó."
+                } else if (persistAssignment) {
                     "No se pudo descargar y guardar el módulo. La asignación anterior no fue modificada."
                 } else {
                     "La copia local del módulo no está disponible y no se pudo descargar nuevamente."
@@ -127,7 +129,7 @@ class ModuleHostActivity : Activity() {
             })
             addView(Button(this@ModuleHostActivity).apply {
                 text = "REINTENTAR"
-                setOnClickListener { showModule(module, persistAssignment) }
+                setOnClickListener { showModule(module, persistAssignment, forceRefresh) }
             })
             addView(Button(this@ModuleHostActivity).apply {
                 text = "ELEGIR OTRO MÓDULO"
@@ -547,6 +549,7 @@ class ModuleHostActivity : Activity() {
         internal const val EXTRA_NOTES_SESSION_ID = "notes_session_id"
         private const val EXTRA_SELECTED_MODULE = "selected_module"
         private const val EXTRA_PERSIST_ASSIGNMENT = "persist_assignment"
+        private const val EXTRA_FORCE_REFRESH = "force_refresh"
         internal fun intent(context: Context, subjectId: String): Intent =
             Intent(context, ModuleHostActivity::class.java)
                 .putExtra(EXTRA_SUBJECT_ID, subjectId)
@@ -570,6 +573,13 @@ class ModuleHostActivity : Activity() {
             intent(context, subjectId)
                 .putExtra(EXTRA_SELECTED_MODULE, ModuleSelection.serialize(module))
                 .putExtra(EXTRA_PERSIST_ASSIGNMENT, false)
+         )
+
+        internal fun updateAssigned(context: Context, subjectId: String, module: ModuleCatalog.Module) = context.startActivity(
+            intent(context, subjectId)
+                .putExtra(EXTRA_SELECTED_MODULE, ModuleSelection.serialize(module))
+                .putExtra(EXTRA_PERSIST_ASSIGNMENT, false)
+                .putExtra(EXTRA_FORCE_REFRESH, true)
         )
     }
 

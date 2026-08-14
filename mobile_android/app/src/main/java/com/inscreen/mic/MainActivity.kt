@@ -386,6 +386,15 @@ class MainActivity : ComponentActivity() {
             runOnUiThread { ModuleHostActivity.openAssigned(this@MainActivity, subjectId, module) }
         }
 
+        @JavascriptInterface fun updateAssignedModule(subjectId: String, moduleId: String) {
+            val subject = AprioriStore.subject(AprioriStore.load(this@MainActivity), subjectId) ?: return
+            val modules = subject.optJSONArray("modules") ?: return
+            val raw = (0 until modules.length()).mapNotNull(modules::optJSONObject)
+                .firstOrNull { it.optString("id") == moduleId } ?: return
+            val module = runCatching { ModuleSelection.parse(raw.toString()) }.getOrNull() ?: return
+            runOnUiThread { ModuleHostActivity.updateAssigned(this@MainActivity, subjectId, module) }
+        }
+
         @JavascriptInterface fun removeSubjectData(subjectId: String) {
             val subject = AprioriStore.subject(AprioriStore.load(this@MainActivity), subjectId) ?: return
             deleteSubjectModuleData(subjectId, subject)

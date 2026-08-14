@@ -595,6 +595,26 @@ dialog::backdrop {
   font: inherit;
 }
 
+.module-result .assigned-module-update,
+.module-result button[data-remove-module-id] {
+  flex: 0 0 auto;
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  padding: 0;
+  font-size: 1.2rem;
+  line-height: 1;
+  text-align: center;
+}
+
+.assigned-module-update.is-refreshing {
+  animation: module-refresh-spin .75s linear infinite;
+}
+
+@keyframes module-refresh-spin {
+  to { transform: rotate(360deg); }
+}
+
 .module-result.is-downloading {
   overflow: hidden;
 }

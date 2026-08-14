@@ -922,12 +922,18 @@
       open.className = "assigned-module-open";
       open.textContent = module.nombre;
       open.dataset.moduleId = module.id;
+      const update = document.createElement("button");
+      update.type = "button";
+      update.className = "assigned-module-update";
+      update.textContent = "↻";
+      update.dataset.updateModuleId = module.id;
+      update.setAttribute("aria-label", `Actualizar ${module.nombre}`);
       const remove = document.createElement("button");
       remove.type = "button";
       remove.textContent = "×";
       remove.dataset.removeModuleId = module.id;
       remove.setAttribute("aria-label", `Quitar ${module.nombre}`);
-      row.append(open, remove);
+      row.append(open, update, remove);
       elements.moduleResults.append(row);
     }
     if (!moduleCatalog) return;
@@ -962,6 +968,19 @@
   }
 
   async function useModule(event) {
+    const update = event.target.closest("button[data-update-module-id]");
+    if (update && moduleSearchSubjectId) {
+      const subject = subjectById(moduleSearchSubjectId);
+      const module = subject?.modules?.find((item) => item.id === update.dataset.updateModuleId);
+      if (!subject || !module) return;
+      update.disabled = true;
+      update.classList.add("is-refreshing");
+      if (window.InScreenApriori?.updateAssignedModule) {
+        window.InScreenApriori.updateAssignedModule(subject.id, module.id);
+        elements.moduleDialog.close();
+      }
+      return;
+    }
     const remove = event.target.closest("button[data-remove-module-id]");
     if (remove && moduleSearchSubjectId) {
       const subject = subjectById(moduleSearchSubjectId);
@@ -1706,6 +1725,7 @@
       document.body.classList.remove("storage-blocked");
       ensureFreshRing();
       render();
+      if (elements.moduleDialog.open && moduleSearchSubjectId) renderModuleResults();
     } catch {
       // Android conserva el último estado válido si una actualización es incompleta.
     }

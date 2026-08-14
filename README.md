@@ -325,10 +325,10 @@ con `versionName`, agregando el prefijo `v`:
 git switch main
 git pull --ff-only origin main
 git add mobile_android/app/build.gradle.kts
-git commit -m "Release 2.0.13"
+git commit -m "Release 2.0.14"
 git push origin main
-git tag -a v2.0.13 -m "Release 2.0.13"
-git push origin v2.0.13
+git tag -a v2.0.14 -m "Release 2.0.14"
+git push origin v2.0.14
 ```
 
 El push de la etiqueta inicia `.github/workflows/android-release.yml`. El workflow
