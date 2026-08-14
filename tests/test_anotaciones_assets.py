@@ -32,10 +32,13 @@ class AnotacionesAssetsTest(unittest.TestCase):
         self.assertNotIn('id="backHint"', html)
         self.assertIn('<body>\n  <button id="modeToggle"', html)
         self.assertIn('id="undo"', html)
+        self.assertIn('id="deleteIndicator"', html)
+        self.assertIn('<svg viewBox="0 0 24 24"', html)
         self.assertIn("visualViewport", script)
         self.assertIn("removeUndoable", script)
         self.assertIn("SYSTEM_VOICE_KEY", script)
         self.assertIn("SWIPE_THRESHOLD=50", script)
+        self.assertIn("setDeleteProgress", script)
         self.assertIn("InScreenApriori?.removeModule", apriori)
         bridge = main_activity.split("private inner class AprioriBridge", 1)[1].split("private fun createConnectionPage", 1)[0]
         self.assertIn("@JavascriptInterface fun removeModule", bridge)

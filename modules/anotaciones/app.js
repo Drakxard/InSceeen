@@ -41,6 +41,20 @@ function showToast(message,{undo=false}={}){
 function reducedMotion(){return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches===true}
 function waitForAnimation(){return new Promise(resolve=>setTimeout(resolve,reducedMotion()?0:ANIMATION_MS))}
 function resetCardStyle(){card.style.transition='';card.style.transform='';card.style.opacity=''}
+function setDeleteProgress(distance){
+  const amount=Math.max(0,distance),maxHeight=card.clientHeight*.2,height=Math.min(amount,maxHeight);
+  const visualProgress=maxHeight?height/maxHeight:0;
+  card.classList.add('delete-dragging');card.classList.toggle('delete-armed',amount>SWIPE_THRESHOLD);
+  card.style.setProperty('--delete-height',`${height}px`);
+  card.style.setProperty('--delete-icon-opacity',String(Math.min(1,visualProgress*1.8)));
+  card.style.setProperty('--delete-icon-scale',String(.7+Math.min(1,visualProgress)*.3));
+  return amount>SWIPE_THRESHOLD;
+}
+function resetDeleteIndicator(animate=true){
+  card.classList.remove('delete-dragging','delete-armed');
+  card.style.setProperty('--delete-height','0px');card.style.setProperty('--delete-icon-opacity','0');card.style.setProperty('--delete-icon-scale','.7');
+  if(!animate){card.style.removeProperty('--delete-height');card.style.removeProperty('--delete-icon-opacity');card.style.removeProperty('--delete-icon-scale');}
+}
 function springBack(){
   card.style.transition=reducedMotion()?'none':`transform ${ANIMATION_MS}ms ease, opacity ${ANIMATION_MS}ms ease`;
   card.style.transform='translate(0,0) rotate(0deg)';card.style.opacity='1';
@@ -110,13 +124,14 @@ async function navigate(direction,exitSign){
   if(direction>0&&!core.canAdvance(state,index)){springBack();showToast('No hay más tarjetas por ahora');return;}
   await transitionCard(exitSign*(window.innerWidth+80),0,()=>changeCard(direction));
 }
-async function removeCurrent(exitSign){
+async function removeCurrent(){
   if(voice||transitioning)return;
-  finishEditing();
-  await transitionCard(0,exitSign*(window.innerHeight+80),async()=>{
-    undoOperation=core.removeUndoable(state,index);index=undoOperation.index;side='front';editing=false;await persist();
-  });
-  showToast('Tarjeta eliminada',{undo:true});
+  transitioning=true;
+  try{
+    finishEditing();resetDeleteIndicator(false);
+    undoOperation=core.removeUndoable(state,index);index=undoOperation.index;side='front';editing=false;
+    await persist();render();showToast('Tarjeta eliminada',{undo:true});
+  }finally{transitioning=false;}
 }
 async function undoRemove(){
   if(!undoOperation||transitioning)return;
@@ -127,29 +142,42 @@ function interactiveTarget(target){return Boolean(target.closest('button,textare
 
 card.addEventListener('pointerdown',e=>{
   if(interactiveTarget(e.target)||voice||transitioning)return;
-  pointer={x:e.clientX,y:e.clientY,id:e.pointerId};held=false;
+  pointer={x:e.clientX,y:e.clientY,id:e.pointerId,axis:null,deleteArmed:false};held=false;
   card.setPointerCapture?.(e.pointerId);
   hold=setTimeout(()=>{held=true;pointer=null;if(mode==='text')beginEditing();else void startVoice(side)},550);
 });
 card.addEventListener('pointermove',e=>{
   if(!pointer)return;
   const dx=e.clientX-pointer.x,dy=e.clientY-pointer.y;
-  if(Math.hypot(dx,dy)>DRAG_TOLERANCE)clearTimeout(hold);
-  card.style.transition='none';card.style.transform=`translate(${dx}px,${dy}px) rotate(${dx/35}deg)`;
-  card.style.opacity=String(Math.max(.68,1-Math.hypot(dx,dy)/(Math.max(window.innerWidth,window.innerHeight)*1.8)));
+  if(Math.hypot(dx,dy)>DRAG_TOLERANCE){
+    clearTimeout(hold);
+    if(!pointer.axis){
+      if(Math.abs(dx)>Math.abs(dy)*1.15)pointer.axis='horizontal';
+      else if(Math.abs(dy)>Math.abs(dx)*1.15)pointer.axis='vertical';
+    }
+  }
+  if(pointer.axis==='horizontal'){
+    resetDeleteIndicator(false);card.style.transition='none';card.style.transform=`translate(${dx}px,0) rotate(${dx/35}deg)`;
+    card.style.opacity=String(Math.max(.68,1-Math.abs(dx)/(window.innerWidth*1.8)));
+  }else if(pointer.axis==='vertical'){
+    resetCardStyle();pointer.deleteArmed=setDeleteProgress(-dy);
+  }
 });
 card.addEventListener('pointerup',e=>{
   if(!pointer){held=false;return;}
   clearTimeout(hold);
-  const dx=e.clientX-pointer.x,dy=e.clientY-pointer.y;pointer=null;
+  const dx=e.clientX-pointer.x,dy=e.clientY-pointer.y,axis=pointer.axis,deleteArmed=pointer.deleteArmed;pointer=null;
   if(held){held=false;return;}
-  const swipe=core.classifySwipe(dx,dy,SWIPE_THRESHOLD);
-  if(swipe==='up'||swipe==='down'){void removeCurrent(swipe==='up'?-1:1);return;}
+  if(axis==='vertical'){
+    if(deleteArmed&&dy<0){void removeCurrent();return;}
+    resetDeleteIndicator(true);return;
+  }
+  const swipe=axis==='horizontal'?core.classifySwipe(dx,0,SWIPE_THRESHOLD):null;
   if(swipe==='left'||swipe==='right'){void navigate(swipe==='left'?1:-1,swipe==='left'?-1:1);return;}
   if(Math.hypot(dx,dy)<DRAG_TOLERANCE){resetCardStyle();tap();return;}
   springBack();
 });
-card.addEventListener('pointercancel',()=>{clearTimeout(hold);pointer=null;held=false;springBack()});
+card.addEventListener('pointercancel',()=>{clearTimeout(hold);pointer=null;held=false;resetDeleteIndicator(true);springBack()});
 
 $('modeToggle').onclick=()=>{
   if(voice)return;
