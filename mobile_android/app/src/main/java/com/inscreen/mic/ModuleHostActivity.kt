@@ -103,27 +103,28 @@ class ModuleHostActivity : Activity() {
                         if (persistAssignment) check(AprioriStore.addModule(this@ModuleHostActivity, subjectId, module))
                     }.fold(
                         onSuccess = { showModuleHtml(module, packageFiles.html) },
-                         onFailure = { showModuleLoadError(module, persistAssignment, forceRefresh) },
+                         onFailure = { showModuleLoadError(module, persistAssignment, forceRefresh, it) },
                     )
                 },
-                onFailure = { showModuleLoadError(module, persistAssignment, forceRefresh) },
+                onFailure = { showModuleLoadError(module, persistAssignment, forceRefresh, it) },
             )
         }}
     }
 
-    private fun showModuleLoadError(module: ModuleCatalog.Module, persistAssignment: Boolean, forceRefresh: Boolean = false) {
+    private fun showModuleLoadError(module: ModuleCatalog.Module, persistAssignment: Boolean, forceRefresh: Boolean = false, cause: Throwable? = null) {
         setContentView(LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             setPadding(32, 32, 32, 32)
             addView(TextView(this@ModuleHostActivity).apply {
-                text = if (forceRefresh) {
+                val summary = if (forceRefresh) {
                     "No se pudo actualizar el módulo. La copia anterior se conservó."
                 } else if (persistAssignment) {
                     "No se pudo descargar y guardar el módulo. La asignación anterior no fue modificada."
                 } else {
                     "La copia local del módulo no está disponible y no se pudo descargar nuevamente."
                 }
+                text = listOfNotNull(summary, cause?.message?.takeIf(String::isNotBlank)).joinToString("\n\n")
                 textSize = 17f
                 gravity = Gravity.CENTER
                 setPadding(0, 0, 0, 18)

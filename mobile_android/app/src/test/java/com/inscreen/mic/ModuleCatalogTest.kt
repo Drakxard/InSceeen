@@ -36,4 +36,39 @@ class ModuleCatalogTest {
             )
         }
     }
+
+    @Test fun selectsOnlySafeFilesFromTheRequestedModule() {
+        val module = ModuleCatalog.Module("anotaciones", "Anotaciones", "modules/anotaciones/index.html")
+        val paths = ModuleCatalog.packagePaths(module, """{
+            "truncated":false,
+            "tree":[
+                {"type":"blob","path":"modules/anotaciones/index.html"},
+                {"type":"blob","path":"modules/anotaciones/vendor/fonts/math.woff2"},
+                {"type":"blob","path":"modules/ingles/index.html"},
+                {"type":"tree","path":"modules/anotaciones/vendor"}
+            ]
+        }""")
+
+        assertEquals(
+            listOf("modules/anotaciones/index.html", "modules/anotaciones/vendor/fonts/math.woff2"),
+            paths,
+        )
+    }
+
+    @Test fun rejectsTruncatedPackageTrees() {
+        val module = ModuleCatalog.Module("anotaciones", "Anotaciones", "modules/anotaciones/index.html")
+        assertThrows(IllegalArgumentException::class.java) {
+            ModuleCatalog.packagePaths(module, """{"truncated":true,"tree":[]}""")
+        }
+    }
+
+    @Test fun rejectsUnsafePackageFileNames() {
+        val module = ModuleCatalog.Module("anotaciones", "Anotaciones", "modules/anotaciones/index.html")
+        assertThrows(IllegalArgumentException::class.java) {
+            ModuleCatalog.packagePaths(module, """{"truncated":false,"tree":[
+                {"type":"blob","path":"modules/anotaciones/index.html"},
+                {"type":"blob","path":"modules/anotaciones/bad file.js"}
+            ]}""")
+        }
+    }
 }

@@ -9,7 +9,8 @@ import java.util.Base64
 import java.util.concurrent.TimeUnit
 
 internal object ModuleCatalog {
-    private const val CONTENTS_BASE = "https://api.github.com/repos/Drakxard/InSceeen/contents/"
+    private const val REPOSITORY = "Drakxard/InSceeen"
+    private const val CONTENTS_BASE = "https://api.github.com/repos/$REPOSITORY/contents/"
     const val INDEX_URL = "${CONTENTS_BASE}modules/index.json?ref=main"
     private val client = OkHttpClient.Builder().callTimeout(15, TimeUnit.SECONDS).build()
 
@@ -22,40 +23,47 @@ internal object ModuleCatalog {
             override fun onFailure(call: okhttp3.Call, error: IOException) = callback(Result.failure(error))
             override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
                 response.use { result -> callback(runCatching {
-                    if (!result.isSuccessful) error("GitHub respondió ${result.code}")
+                    checkResponse(result, "leer el catálogo")
                     parse(content(result.body?.string().orEmpty()).toString(Charsets.UTF_8))
                 }) }
             }
         })
     }
 
-    /** Descarga todos los archivos dentro de la carpeta que contiene el entry del módulo. */
+    /** Fija un commit con dos consultas API y baja sus recursos desde raw, fuera del cupo por archivo. */
     fun loadPackage(module: Module, callback: (Result<Package>) -> Unit) {
-        val treeRequest = Request.Builder()
-            .url("https://api.github.com/repos/Drakxard/InSceeen/git/trees/main?recursive=1")
+        val request = Request.Builder().url("https://api.github.com/repos/$REPOSITORY/commits/main")
             .header("Accept", "application/vnd.github+json").header("User-Agent", "InScreenMic").build()
-        client.newCall(treeRequest).enqueue(object : okhttp3.Callback {
+        client.newCall(request).enqueue(object : okhttp3.Callback {
             override fun onFailure(call: okhttp3.Call, error: IOException) = callback(Result.failure(error))
-            override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
-                response.use { result ->
-                    val files = runCatching {
-                        if (!result.isSuccessful) error("GitHub respondió ${result.code} al buscar el módulo")
-                        val prefix = module.entry.substringBeforeLast('/') + "/"
-                        val found = JSONObject(result.body?.string().orEmpty()).getJSONArray("tree")
-                            .let { tree -> (0 until tree.length()).asSequence().mapNotNull(tree::optJSONObject)
-                                .filter { it.optString("type") == "blob" && it.optString("path").startsWith(prefix) }
-                                .map { it.optString("path") to it.optString("sha") }.toList() }
-                        require(found.any { it.first == module.entry }) { "El módulo no existe en GitHub" }
-                        require(found.size <= 128) { "El módulo tiene demasiados archivos" }
-                        found
-                    }.getOrElse { callback(Result.failure(it)); return }
-                    downloadFiles(module, files, 0, linkedMapOf(), callback)
-                }
+            override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) = response.use { result ->
+                val commit = runCatching {
+                    checkResponse(result, "resolver la versión del módulo")
+                    JSONObject(result.body?.string().orEmpty()).getString("sha").also {
+                        require(it.matches(Regex("[0-9a-f]{40}"))) { "Versión de GitHub inválida" }
+                    }
+                }.getOrElse { callback(Result.failure(it)); return@use }
+                loadPackageTree(module, commit, callback)
             }
         })
     }
 
-    private fun downloadFiles(module: Module, files: List<Pair<String, String>>, index: Int, downloaded: MutableMap<String, ByteArray>, callback: (Result<Package>) -> Unit) {
+    private fun loadPackageTree(module: Module, commit: String, callback: (Result<Package>) -> Unit) {
+        val request = Request.Builder().url("https://api.github.com/repos/$REPOSITORY/git/trees/$commit?recursive=1")
+            .header("Accept", "application/vnd.github+json").header("User-Agent", "InScreenMic").build()
+        client.newCall(request).enqueue(object : okhttp3.Callback {
+            override fun onFailure(call: okhttp3.Call, error: IOException) = callback(Result.failure(error))
+            override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) = response.use { result ->
+                val files = runCatching {
+                    checkResponse(result, "buscar los archivos del módulo")
+                    packagePaths(module, result.body?.string().orEmpty())
+                }.getOrElse { callback(Result.failure(it)); return@use }
+                downloadFiles(module, commit, files, 0, linkedMapOf(), callback)
+            }
+        })
+    }
+
+    private fun downloadFiles(module: Module, commit: String, files: List<String>, index: Int, downloaded: MutableMap<String, ByteArray>, callback: (Result<Package>) -> Unit) {
         if (index == files.size) {
             val entry = module.entry.substringAfterLast('/')
             val html = downloaded[entry]?.toString(Charsets.UTF_8)
@@ -63,29 +71,51 @@ internal object ModuleCatalog {
             callback(Result.success(Package(html, downloaded)))
             return
         }
-        val (path, sha) = files[index]
+        val path = files[index]
         val prefix = module.entry.substringBeforeLast('/') + "/"
         val relative = path.removePrefix(prefix)
-        if (relative.isBlank() || relative.split('/').any { it == "." || it == ".." }) {
-            callback(Result.failure(IllegalArgumentException("Ruta de recurso inválida"))); return
-        }
-        loadBlob("https://api.github.com/repos/Drakxard/InSceeen/git/blobs/$sha") { result ->
+        loadRaw("https://raw.githubusercontent.com/$REPOSITORY/$commit/$path") { result ->
             result.fold(
-                onSuccess = { downloaded[relative] = it; downloadFiles(module, files, index + 1, downloaded, callback) },
+                onSuccess = { downloaded[relative] = it; downloadFiles(module, commit, files, index + 1, downloaded, callback) },
                 onFailure = { callback(Result.failure(it)) },
             )
         }
     }
 
-    private fun loadBlob(url: String, callback: (Result<ByteArray>) -> Unit) {
-        val request = Request.Builder().url(url).header("Accept", "application/vnd.github+json").header("User-Agent", "InScreenMic").build()
+    private fun loadRaw(url: String, callback: (Result<ByteArray>) -> Unit) {
+        val request = Request.Builder().url(url).header("User-Agent", "InScreenMic").build()
         client.newCall(request).enqueue(object : okhttp3.Callback {
             override fun onFailure(call: okhttp3.Call, error: IOException) = callback(Result.failure(error))
             override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) { response.use { result -> callback(runCatching {
-                if (!result.isSuccessful) error("GitHub respondió ${result.code}")
-                content(result.body?.string().orEmpty())
+                if (!result.isSuccessful) error("GitHub respondió ${result.code} al descargar un archivo")
+                result.body?.bytes() ?: error("GitHub devolvió un archivo vacío")
             }) } }
         })
+    }
+
+    internal fun packagePaths(module: Module, raw: String): List<String> {
+        val payload = JSONObject(raw)
+        require(!payload.optBoolean("truncated")) { "GitHub devolvió un árbol incompleto" }
+        val prefix = module.entry.substringBeforeLast('/') + "/"
+        val tree = payload.getJSONArray("tree")
+        val found = (0 until tree.length()).asSequence().mapNotNull(tree::optJSONObject)
+            .filter { it.optString("type") == "blob" && it.optString("path").startsWith(prefix) }
+            .map { it.optString("path") }.toList()
+        require(found.any { it == module.entry }) { "El módulo no existe en GitHub" }
+        require(found.size <= 128) { "El módulo tiene demasiados archivos" }
+        found.forEach { path ->
+            val relative = path.removePrefix(prefix)
+            require(relative.matches(Regex("[A-Za-z0-9][A-Za-z0-9._/-]{0,239}")) && !relative.split('/').any { it == "." || it == ".." }) { "Ruta de recurso inválida" }
+        }
+        return found
+    }
+
+    private fun checkResponse(response: okhttp3.Response, action: String) {
+        if (response.isSuccessful) return
+        if (response.header("X-RateLimit-Remaining") == "0") {
+            error("GitHub alcanzó su límite temporal. Espera unos minutos y vuelve a intentar")
+        }
+        error("GitHub respondió ${response.code} al $action")
     }
 
     private fun content(raw: String): ByteArray {
