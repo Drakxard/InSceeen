@@ -215,6 +215,9 @@ class ModuleHostActivity : Activity() {
               else if(operation==="detener")native.voiceStop(id);
               else native.voiceCancel(id);
             });
+            const clipboard=()=>new Promise((resolve)=>{
+              const id=String(++sequence);pending.set(id,resolve);native.clipboardText(id);
+            });
             const deleteCachedLine=(type,stage,number,line)=>{
               if(typeof type!=="boolean")return Promise.resolve({ok:false,archivos:[],error:"invalid_type"});
               const validInteger=(value,positive)=>typeof value==="number"&&Number.isSafeInteger(value)&&
@@ -281,6 +284,7 @@ class ModuleHostActivity : Activity() {
               vozIniciar:(options={})=>voice("iniciar",options),
               vozDetener:()=>voice("detener"),
               vozCancelar:()=>voice("cancelar"),
+              portapapeles:()=>clipboard(),
               consulta:(question,content)=>query(question,content)
             }};
             delete window.InScreenModuleNative;
@@ -336,6 +340,9 @@ class ModuleHostActivity : Activity() {
                     } },
                     voiceCancelAction = { reply -> runOnUiThread {
                         reply(moduleSpeech?.cancel() ?: JSONObject().put("ok", true).toString())
+                    } },
+                    clipboardReadAction = { reply -> runOnUiThread {
+                        reply(ModuleClipboard.read(this@ModuleHostActivity))
                     } },
                 ) { requestId, payload ->
                     runOnUiThread {
@@ -414,6 +421,7 @@ class ModuleHostActivity : Activity() {
         private val voiceStartAction: (String, Boolean, (String, String) -> Unit) -> Unit,
         private val voiceStopAction: ((String) -> Unit) -> Unit,
         private val voiceCancelAction: ((String) -> Unit) -> Unit,
+        private val clipboardReadAction: ((String) -> Unit) -> Unit,
         private val deliver: (String, String) -> Unit,
     ) {
         @JavascriptInterface fun context(): String = JSONObject()
@@ -507,6 +515,11 @@ class ModuleHostActivity : Activity() {
         @JavascriptInterface fun voiceCancel(requestId: String) {
             if (requestId.length !in 1..64) return
             voiceCancelAction { deliver(requestId, it) }
+        }
+
+        @JavascriptInterface fun clipboardText(requestId: String) {
+            if (requestId.length !in 1..64) return
+            clipboardReadAction { deliver(requestId, it) }
         }
 
         private fun notesFailure(error: String): String = JSONObject()

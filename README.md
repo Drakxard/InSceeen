@@ -275,6 +275,11 @@ usa primero su reconocedor local; si no existe, el HTML debe obtener consentimie
 de permitir el servicio de reconocimiento normal. Este flujo no crea archivos de audio ni
 envía voz a Groq o al proveedor de InScreen.
 
+Los módulos pueden leer texto del portapapeles mediante
+`await InScreen.module.portapapeles()`. La lectura solamente se ejecuta como respuesta a
+una acción del usuario y devuelve `{ ok, texto, error? }`; no requiere permisos de Android
+ni mantiene un historial del contenido leído.
+
 El QR vence a los cinco minutos. Puedes reemplazar o quitar el proveedor desde la pantalla
 de conexión; para bloquear una cápsula ya emitida, revoca el dispositivo desde la web.
 Cada usuario consume su propio R2 y su propia cuenta Groq, mientras Vercel solamente

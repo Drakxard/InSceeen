@@ -1,0 +1,34 @@
+const {spawn}=require('node:child_process'),fs=require('node:fs'),http=require('node:http'),os=require('node:os'),path=require('node:path');
+const edge='C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',debugPort=9500+Math.floor(Math.random()*150),webPort=9800+Math.floor(Math.random()*100);
+const profile=fs.mkdtempSync(path.join(os.tmpdir(),'anotaciones-smoke-')),root=path.resolve(__dirname,'..','modules','anotaciones');let browser;
+const mock=`<script>window.__clipboard='Uno:1\\nDos:2\\nTres:3\\nCuatro:4\\nCinco:5\\nURL:https://sitio:ruta';window.InScreen={module:{portapapeles:async()=>({ok:true,texto:window.__clipboard}),vozEstado:async()=>({ok:true,onDevice:true,servicioSistema:true}),vozIniciar:async()=>({ok:true}),vozDetener:async()=>({ok:true}),vozCancelar:async()=>({ok:true})}};</script>`;
+const server=http.createServer((request,response)=>{const relative=request.url==='/'?'index.html':request.url.slice(1).split('?')[0],target=path.resolve(root,relative);if(!target.startsWith(root)||!fs.existsSync(target))return response.writeHead(404).end();const extension=path.extname(target);response.setHeader('Content-Type',extension==='.html'?'text/html; charset=utf-8':extension==='.css'?'text/css':'text/javascript; charset=utf-8');if(relative==='index.html')response.end(fs.readFileSync(target,'utf8').replace('<script src="core.js"></script>',mock+'<script src="core.js"></script>'));else fs.createReadStream(target).pipe(response)});
+const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+async function main(){
+  await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(webPort,'127.0.0.1',resolve)});const pageUrl=`http://127.0.0.1:${webPort}/`;
+  browser=spawn(edge,['--headless=new','--disable-gpu',`--remote-debugging-port=${debugPort}`,`--user-data-dir=${profile}`,'--no-first-run','--window-size=500,760',pageUrl],{stdio:'ignore',windowsHide:true});let page;
+  for(let attempt=0;attempt<60&&!page;attempt++){try{page=(await(await fetch(`http://127.0.0.1:${debugPort}/json`)).json()).find(item=>item.type==='page'&&item.url===pageUrl)}catch{}if(!page)await delay(100)}if(!page)throw new Error('No se abrió Edge');
+  const socket=new WebSocket(page.webSocketDebuggerUrl);await new Promise((resolve,reject)=>{socket.addEventListener('open',resolve,{once:true});socket.addEventListener('error',reject,{once:true})});let sequence=0;const pending=new Map();socket.addEventListener('message',event=>{const message=JSON.parse(event.data),task=pending.get(message.id);if(!task)return;pending.delete(message.id);message.error?task.reject(new Error(message.error.message)):task.resolve(message.result)});
+  const send=(method,params={})=>new Promise((resolve,reject)=>{const id=++sequence;pending.set(id,{resolve,reject});socket.send(JSON.stringify({id,method,params}))});
+  const evaluate=async expression=>{const response=await send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(response.exceptionDetails)throw new Error(response.exceptionDetails.exception?.description||response.exceptionDetails.text);return response.result.value};
+  const waitFor=async(expression,message)=>{for(let i=0;i<60;i++){if(await evaluate(expression))return;await delay(100)}throw new Error(message)};
+  await waitFor(`document.querySelector('#foldersView')&&!document.querySelector('#foldersView').hidden`,'No abrió el selector vacío');
+  await evaluate(`document.querySelector('#addFolder').click();document.querySelector('#folderName').value='Semana 1';document.querySelector('#folderForm').requestSubmit();true`);
+  await waitFor(`document.querySelectorAll('.folder-row').length===1`,'No creó la carpeta');
+  await evaluate(`document.querySelector('.folder-open').dispatchEvent(new PointerEvent('pointerdown',{pointerId:4,clientX:20,clientY:20,bubbles:true}));true`);await delay(650);
+  await waitFor(`!document.querySelector('#deleteFolderDialog').hidden`,'La pulsación larga no pidió confirmación');
+  let deletion=await evaluate(`document.querySelector('#deleteFolderText').textContent`);if(!deletion.includes('Semana 1')||!deletion.includes('0 tarjetas'))throw new Error('Confirmación de borrado incorrecta: '+deletion);
+  await evaluate(`document.querySelector('#cancelDeleteFolder').click();true`);
+  await evaluate(`document.querySelector('.folder-import').click();true`);await waitFor(`document.querySelector('#importDialog')&&!document.querySelector('#importDialog').hidden`,'No abrió la vista previa');
+  let result=await evaluate(`({preview:document.querySelectorAll('.preview-card').length,summary:document.querySelector('#importSummary').textContent})`);if(result.preview!==5||!result.summary.includes('6'))throw new Error('Vista previa incorrecta '+JSON.stringify(result));
+  await evaluate(`document.querySelector('#confirmImport').click();window.__clipboard='Siete:7\\nOcho:8';document.querySelector('.folder-import').click();true`);
+  await waitFor(`!document.querySelector('#importDialog').hidden`,'No abrió la segunda vista previa');
+  await evaluate(`document.querySelector('#confirmImport').click();document.querySelector('.folder-open').click();true`);await waitFor(`document.querySelector('#headerText').textContent==='Uno'`,'No abrió desde la primera tarjeta');
+  await evaluate(`(()=>{const zone=document.querySelector('#scrubber'),r=zone.getBoundingClientRect();zone.dispatchEvent(new PointerEvent('pointerdown',{pointerId:9,clientX:r.right-1,clientY:r.top+30,bubbles:true}));return true})()`);
+  result=await evaluate(`({title:document.querySelector('#headerText').textContent,bubble:document.querySelector('#scrubBubble').textContent,stored:JSON.parse(localStorage.getItem('anotaciones:v2'))})`);
+  const headers=result.stored.carpetas[0].tarjetas.map(card=>card.cabecera);
+  if(result.title!=='Ocho'||result.bubble!=='(8)'||JSON.stringify(headers)!=='["Uno","Dos","Tres","Cuatro","Cinco","URL","Siete","Ocho",""]')throw new Error('Las cargas consecutivas no se anexaron completas al final '+JSON.stringify(result));
+  await evaluate(`document.querySelector('#scrubber').dispatchEvent(new PointerEvent('pointerup',{pointerId:9,bubbles:true}));document.querySelector('#folderBack').click();true`);await waitFor(`document.querySelector('#foldersView')&&!document.querySelector('#foldersView').hidden`,'La flecha no volvió al selector');
+  result=await evaluate(`JSON.parse(localStorage.getItem('anotaciones:v2')).carpetaActivaId`);if(!result)throw new Error('No persistió la última carpeta');socket.close();
+}
+main().catch(error=>{console.error(error.stack||error);process.exitCode=1}).finally(async()=>{browser?.kill();await new Promise(resolve=>server.close(resolve));await delay(300);try{fs.rmSync(profile,{recursive:true,force:true,maxRetries:5,retryDelay:150})}catch{}});
