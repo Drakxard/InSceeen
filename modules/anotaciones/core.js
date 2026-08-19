@@ -1,8 +1,9 @@
 (function(root,factory){const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.AnotacionesCore=api;}(globalThis,function(){
   'use strict';
   const VERSION=2;
-  const clean=value=>String(value||'').trim().replace(/\s+/g,' ');
-  const folderName=value=>clean(value);
+  // Las tarjetas admiten texto en varias líneas; solo normalizamos los finales de línea.
+  const clean=value=>String(value||'').replace(/\r\n?/g,'\n').trim();
+  const folderName=value=>clean(value).replace(/\s+/g,' ');
   const makeId=prefix=>`${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const blank=()=>({id:makeId('card'),cabecera:'',respuesta:'',actualizada:Date.now()});
   const isBlank=card=>!clean(card?.cabecera)&&!clean(card?.respuesta);
