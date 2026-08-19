@@ -12,6 +12,7 @@ class AnotacionesAssetsTest(unittest.TestCase):
         styles = (MODULE / "styles.css").read_text(encoding="utf-8")
         apriori = (ROOT / "Apriori" / "app.js").read_text(encoding="utf-8")
         main_activity = (ROOT / "mobile_android" / "app" / "src" / "main" / "java" / "com" / "inscreen" / "mic" / "MainActivity.kt").read_text(encoding="utf-8")
+        module_host = (ROOT / "mobile_android" / "app" / "src" / "main" / "java" / "com" / "inscreen" / "mic" / "ModuleHostActivity.kt").read_text(encoding="utf-8")
         self.assertIn('id="headerEditor"', html)
         self.assertNotIn('id="editorOverlay"', html)
         self.assertNotIn('id="options"', html)
@@ -49,6 +50,9 @@ class AnotacionesAssetsTest(unittest.TestCase):
         self.assertIn("core.scrubPosition", script)
         self.assertIn("Math.abs(dx)<=DRAG_TOLERANCE", script)
         self.assertIn("portapapeles", script)
+        self.assertIn("module?.salir", script)
+        self.assertIn('salir:()=>native.exitModule()', module_host)
+        self.assertIn('@JavascriptInterface fun exitModule()', module_host)
         self.assertIn("#front::before", styles)
         self.assertIn("InScreenApriori?.removeModule", apriori)
         bridge = main_activity.split("private inner class AprioriBridge", 1)[1].split("private fun createConnectionPage", 1)[0]

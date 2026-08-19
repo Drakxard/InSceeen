@@ -40,11 +40,12 @@ function renderFolders(){
   });
 }
 function renderView(){
-  const active=folder();if(view==='deck'&&!active)view='folders';const deckVisible=view==='deck';$('deckView').hidden=!deckVisible;$('folderBack').hidden=!deckVisible;$('foldersView').hidden=deckVisible;
+  const active=folder();if(view==='deck'&&!active)view='folders';const deckVisible=view==='deck';$('deckView').hidden=!deckVisible;$('folderBack').hidden=false;$('folderBack').setAttribute('aria-label',deckVisible?'Elegir otra carpeta':'Salir de Anotaciones');$('foldersView').hidden=deckVisible;
   if(deckVisible)renderCard();else renderFolders();
 }
 function openFolder(id){const selected=core.findFolder(state,id);if(!selected)return;state.carpetaActivaId=id;index=0;side='front';editing=false;view='deck';void persist();renderView()}
 function showFolders(){finishEditing();if(voice)void InScreen.module.vozCancelar();voice=false;view='folders';renderView()}
+function leaveModule(){finishEditing();if(voice)void window.InScreen?.module?.vozCancelar?.();voice=false;const exit=window.InScreen?.module?.salir;if(typeof exit==='function')exit();else history.back()}
 function bindFolderHold(button,row,item){
   const cancel=()=>{if(folderHold?.button===button){clearTimeout(folderHold.timer);folderHold=null}row.classList.remove('holding')};
   button.addEventListener('pointerdown',event=>{if(event.button!==0||event.isPrimary===false)return;if(folderHold){clearTimeout(folderHold.timer);folderHold.row?.classList.remove('holding')}const gesture={button,row,pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,timer:null};folderHold=gesture;row.classList.add('holding');try{button.setPointerCapture?.(event.pointerId)}catch{}gesture.timer=setTimeout(()=>{if(folderHold!==gesture)return;button.dataset.suppressClick='true';cancel();askDeleteFolder(item)},HOLD_MS)});
@@ -95,7 +96,7 @@ function cancelScrubFrame(){if(scrubFrame!==null)cancelAnimationFrame(scrubFrame
 $('scrubber').addEventListener('pointerdown',event=>{if(voice||view!=='deck'||!core.navigableIndices(folder()).length)return;scrubbing={pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,startIndex:index,active:false};try{$('scrubber').setPointerCapture?.(event.pointerId)}catch{}});
 $('scrubber').addEventListener('pointermove',event=>{if(!scrubbing||scrubbing.pointerId!==event.pointerId)return;const dx=event.clientX-scrubbing.startX,dy=event.clientY-scrubbing.startY;if(!scrubbing.active){if(Math.abs(dx)<=DRAG_TOLERANCE||Math.abs(dx)<=Math.abs(dy)*1.15)return;scrubbing.active=true;finishEditing()}queueScrub(event)});const endScrub=event=>{if(!scrubbing||(event.pointerId!==undefined&&scrubbing.pointerId!==event.pointerId))return;if(scrubbing.active)flushScrub();else cancelScrubFrame();scrubbing=null;hideScrubBubble()};$('scrubber').addEventListener('pointerup',endScrub);$('scrubber').addEventListener('pointercancel',event=>{if(!scrubbing||scrubbing.pointerId!==event.pointerId)return;const restore=scrubbing.active?scrubbing.startIndex:null;scrubbing=null;cancelScrubFrame();hideScrubBubble();if(restore!==null&&index!==restore){index=restore;side='front';editing=false;renderCard()}});
 
-$('folderBack').onclick=showFolders;$('addFolder').onclick=openFolderDialog;$('cancelFolder').onclick=closeFolderDialog;
+$('folderBack').onclick=()=>view==='deck'?showFolders():leaveModule();$('addFolder').onclick=openFolderDialog;$('cancelFolder').onclick=closeFolderDialog;
 $('folderForm').addEventListener('submit',event=>{event.preventDefault();const name=$('folderName').value;if(!core.folderName(name)){$('folderError').textContent='Escribe un nombre para la carpeta.';$('folderError').hidden=false;return}const created=core.createFolder(state,name);if(!created){$('folderError').textContent='Ya existe una carpeta con ese nombre.';$('folderError').hidden=false;return}closeFolderDialog();void persist();renderFolders();showToast('Carpeta creada')});
 $('cancelDeleteFolder').onclick=closeDeleteFolder;$('confirmDeleteFolder').onclick=()=>{const removed=core.removeFolder(state,pendingDeleteFolderId);closeDeleteFolder();void persist();renderFolders();if(removed)showToast('Carpeta eliminada')};
 $('cancelImport').onclick=closeImport;$('confirmImport').onclick=()=>{if(!pendingImport)return;const target=core.findFolder(state,pendingImport.folderId),count=core.appendCards(target,pendingImport.cards);closeImport();void persist();renderFolders();showToast(`${count} tarjeta${count===1?'':'s'} importada${count===1?'':'s'}`)};

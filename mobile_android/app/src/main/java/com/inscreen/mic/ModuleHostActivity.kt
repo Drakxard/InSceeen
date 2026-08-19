@@ -284,6 +284,7 @@ class ModuleHostActivity : Activity() {
               vozIniciar:(options={})=>voice("iniciar",options),
               vozDetener:()=>voice("detener"),
               vozCancelar:()=>voice("cancelar"),
+              salir:()=>native.exitModule(),
               portapapeles:()=>clipboard(),
               consulta:(question,content)=>query(question,content)
             }};
@@ -344,6 +345,7 @@ class ModuleHostActivity : Activity() {
                     clipboardReadAction = { reply -> runOnUiThread {
                         reply(ModuleClipboard.read(this@ModuleHostActivity))
                     } },
+                    exitAction = { runOnUiThread { finish() } },
                 ) { requestId, payload ->
                     runOnUiThread {
                         if (isFinishing || moduleWebView !== view) return@runOnUiThread
@@ -422,6 +424,7 @@ class ModuleHostActivity : Activity() {
         private val voiceStopAction: ((String) -> Unit) -> Unit,
         private val voiceCancelAction: ((String) -> Unit) -> Unit,
         private val clipboardReadAction: ((String) -> Unit) -> Unit,
+        private val exitAction: () -> Unit,
         private val deliver: (String, String) -> Unit,
     ) {
         @JavascriptInterface fun context(): String = JSONObject()
@@ -521,6 +524,8 @@ class ModuleHostActivity : Activity() {
             if (requestId.length !in 1..64) return
             clipboardReadAction { deliver(requestId, it) }
         }
+
+        @JavascriptInterface fun exitModule() = exitAction()
 
         private fun notesFailure(error: String): String = JSONObject()
             .put("ok", false).put("archivos", org.json.JSONArray()).put("error", error).toString()
