@@ -13,7 +13,10 @@ class AnotacionesAssetsTest(unittest.TestCase):
         apriori = (ROOT / "Apriori" / "app.js").read_text(encoding="utf-8")
         main_activity = (ROOT / "mobile_android" / "app" / "src" / "main" / "java" / "com" / "inscreen" / "mic" / "MainActivity.kt").read_text(encoding="utf-8")
         module_host = (ROOT / "mobile_android" / "app" / "src" / "main" / "java" / "com" / "inscreen" / "mic" / "ModuleHostActivity.kt").read_text(encoding="utf-8")
-        self.assertIn('id="headerEditor"', html)
+        self.assertIn('id="headerText" class="mixed-editor', html)
+        self.assertIn('id="mathToggle"', html)
+        self.assertIn('id="mathField"', html)
+        self.assertIn('vendor/mathlive/mathlive.min.js', html)
         self.assertNotIn('id="editorOverlay"', html)
         self.assertNotIn('id="options"', html)
         self.assertNotIn('id="menu"', html)
@@ -45,7 +48,9 @@ class AnotacionesAssetsTest(unittest.TestCase):
         self.assertIn("setRecordProgress", script)
         self.assertIn("FONT_SCALE_KEY", script)
         self.assertIn("if(!editing)e.preventDefault()", script)
-        self.assertIn("keyboardWasOpen&&!keyboard&&active", script)
+        self.assertIn("keyboardWasOpen&&!keyboard", script)
+        self.assertIn("inscreen:atras", script)
+        self.assertIn("renderMixed", script)
         self.assertIn("$('listening').addEventListener('click'", script)
         self.assertIn("core.scrubPosition", script)
         self.assertIn("Math.abs(dx)<=DRAG_TOLERANCE", script)
@@ -53,6 +58,7 @@ class AnotacionesAssetsTest(unittest.TestCase):
         self.assertIn("module?.salir", script)
         self.assertIn('salir:()=>native.exitModule()', module_host)
         self.assertIn('@JavascriptInterface fun exitModule()', module_host)
+        self.assertIn('ModuleBackPolicy.DISPATCH_SCRIPT', module_host)
         self.assertIn("#front::before", styles)
         self.assertIn("InScreenApriori?.removeModule", apriori)
         bridge = main_activity.split("private inner class AprioriBridge", 1)[1].split("private fun createConnectionPage", 1)[0]
@@ -60,6 +66,13 @@ class AnotacionesAssetsTest(unittest.TestCase):
         self.assertIn("@JavascriptInterface fun openAssignedModule", bridge)
         self.assertIn("@JavascriptInterface fun removeSubjectData", bridge)
         self.assertNotIn("ModuleCache.from(this@MainActivity).reconcile(subjectIds)", bridge)
+
+    def test_mathlive_is_bundled_locally_with_fonts_and_license(self):
+        vendor = MODULE / "vendor" / "mathlive"
+        self.assertGreater((vendor / "mathlive.min.js").stat().st_size, 500_000)
+        self.assertTrue((vendor / "mathlive-static.css").is_file())
+        self.assertTrue((vendor / "LICENSE.txt").is_file())
+        self.assertGreaterEqual(len(list((vendor / "fonts").glob("*.woff2"))), 20)
 
 
 if __name__ == "__main__":

@@ -27,6 +27,7 @@ class ModuleHostActivity : Activity() {
     private var moduleWebView: WebView? = null
     private var moduleSpeech: ModuleSpeechController? = null
     private var pendingVoiceStart: PendingVoiceStart? = null
+    private var backDispatchPending = false
     private val providerCache by lazy { ProviderCache.from(this) }
     private val groqCredentialStore by lazy { GroqCredentialStore(this) }
     private val providerClient by lazy {
@@ -372,6 +373,23 @@ class ModuleHostActivity : Activity() {
         moduleWebView = null
         super.onDestroy()
     }
+
+    @Suppress("DEPRECATION")
+    override fun onBackPressed() {
+        val view = moduleWebView
+        if (view == null || backDispatchPending) {
+            if (view == null) super.onBackPressed()
+            return
+        }
+        backDispatchPending = true
+        view.evaluateJavascript(ModuleBackPolicy.DISPATCH_SCRIPT) { result ->
+            backDispatchPending = false
+            if (!ModuleBackPolicy.wasConsumed(result) && !isFinishing) finishFromBack()
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun finishFromBack() = super.onBackPressed()
 
     override fun onStop() {
         moduleSpeech?.stopForBackground()
