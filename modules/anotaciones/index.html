@@ -27,7 +27,7 @@
         <div id="recordIndicator" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M12 15a4 4 0 0 0 4-4V6a4 4 0 1 0-8 0v5a4 4 0 0 0 4 4Zm7-4a1 1 0 0 0-2 0 5 5 0 0 1-10 0 1 1 0 0 0-2 0 7 7 0 0 0 6 6.92V21H8a1 1 0 1 0 0 2h8a1 1 0 1 0 0-2h-3v-3.08A7 7 0 0 0 19 11Z"/></svg></div>
       </article>
     </section>
-    <section id="scrubber" aria-label="Navegación rápida entre tarjetas"></section>
+    <section id="scrubber" aria-label="Navegación rápida entre tarjetas"><output id="scrubBubble" hidden><span id="scrubBubbleText"></span></output></section>
   </main>
   <div id="toast" role="status" hidden><span id="toastText"></span><button id="undo" type="button" hidden>Deshacer</button></div>
   <div id="folderDialog" class="overlay" hidden><form id="folderForm" class="dialog"><h2>Nueva carpeta</h2><label for="folderName">Nombre</label><input id="folderName" maxlength="80" autocomplete="off"><p id="folderError" class="error" hidden></p><div><button id="cancelFolder" type="button">Cancelar</button><button type="submit" class="primary">Crear</button></div></form></div>
