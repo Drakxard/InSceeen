@@ -5,11 +5,10 @@ body{margin:0;min-height:var(--viewport-height);display:grid;place-items:center;
 button,input{font:inherit}.hidden,[hidden]{display:none!important}
 .icon-button{display:grid;place-items:center;width:48px;height:48px;padding:0;border:1px solid #dbe1ea;border-radius:14px;background:#ffffffdf;color:var(--text);box-shadow:0 5px 14px #3341551c;touch-action:manipulation}
 .back-button{position:fixed;z-index:12;top:max(12px,env(safe-area-inset-top));left:max(12px,env(safe-area-inset-left));font-size:1.75rem;line-height:1}
-main{width:min(100%,480px);height:min(calc(var(--viewport-height) - 2rem),760px);display:grid;grid-template-rows:minmax(260px,540px) minmax(72px,1fr)}
+main{width:min(100%,480px);height:min(calc(var(--viewport-height) - 2rem),540px);display:flex;flex-direction:column}
 #stage{height:100%;min-height:260px;touch-action:none;transition:height .18s}
 #card{position:relative;width:100%;height:100%;border:1px solid #e5e7eb;border-radius:26px;background:#fff;box-shadow:0 20px 38px -20px #33415566;overflow:hidden;outline:0;will-change:transform,opacity;transition:transform .18s ease,opacity .18s ease}
-#scrubber{position:relative;width:100%;min-height:72px;touch-action:none;cursor:ew-resize}
-#scrubBubble{position:fixed;z-index:25;min-width:46px;padding:.5rem .7rem;border-radius:999px;background:#172033;color:#fff;text-align:center;font-weight:800;box-shadow:0 7px 18px #17203355;pointer-events:none;transform:translate(-50%,-115%)}
+#scrubber{position:fixed;z-index:10;left:0;right:0;bottom:0;height:72px;touch-action:none;cursor:ew-resize}
 #fontControls{position:absolute;z-index:12;top:12px;left:12px;display:none;gap:5px}
 #card.editing #fontControls{display:flex}
 #fontControls button{width:30px;height:30px;padding:0;border:1px solid #cbd5e1;border-radius:7px;background:#f8fafc;color:#334155;font-size:1.2rem;font-weight:800;line-height:1;box-shadow:0 2px 6px #33415520;touch-action:manipulation}
@@ -37,6 +36,6 @@ h1{font-size:clamp(var(--front-font-min,1.6rem),var(--front-font-fluid,7vw),var(
 .overlay{position:fixed;inset:0;z-index:40;display:grid;place-items:end center;padding:1rem;background:#0f172a99}.dialog{width:min(100%,430px);display:grid;gap:.8rem;padding:1.15rem;border-radius:20px;background:#fff}.dialog h2,.dialog p{margin:0}.dialog label{font-weight:750}.dialog input{width:100%;padding:.85rem;border:1px solid #cbd5e1;border-radius:11px;outline:0;user-select:text}.dialog input:focus{border-color:var(--purple);box-shadow:0 0 0 3px #8b5cf622}.dialog button{padding:.9rem;border:1px solid #ddd;border-radius:12px;background:#fff;font-weight:750}.dialog>div:last-child{display:flex;gap:.7rem}.dialog>div:last-child button{flex:1}.dialog button.primary{background:var(--purple);border-color:var(--purple);color:#fff}.dialog button.danger{background:var(--danger);border-color:var(--danger);color:#fff}.error{color:var(--danger);font-size:.9rem}
 .import-dialog{max-height:calc(var(--viewport-height) - 2rem)}.import-preview{display:grid!important;gap:.5rem;overflow:auto}.preview-card{display:block!important;padding:.7rem;border:1px solid #e2e8f0;border-radius:11px;background:#f8fafc}.preview-card strong,.preview-card span{display:block}.preview-card span{margin-top:.25rem;color:#475569;font-size:.9rem}
 #toast{position:fixed;z-index:50;left:50%;bottom:26px;transform:translateX(-50%);display:flex;align-items:center;gap:.8rem;max-width:calc(100% - 32px);padding:.75rem 1rem;border-radius:999px;background:#202124;color:#fff;font-size:.88rem;box-shadow:0 5px 18px #0005;white-space:nowrap}#toast button{padding:0;border:0;background:transparent;color:#c4b5fd;font-weight:850;text-transform:uppercase}
-body.keyboard-open{place-items:start center;padding-top:.35rem;padding-bottom:.35rem}body.keyboard-open main{height:max(210px,calc(var(--viewport-height) - .7rem));grid-template-rows:minmax(210px,1fr) 0}body.keyboard-open #scrubber{display:none}body.keyboard-open .card-editor{padding-top:2.65rem;padding-bottom:.75rem}
-@media(max-height:520px){body{padding:.35rem}main{grid-template-rows:minmax(210px,1fr) 58px}#stage{min-height:210px}}
+body.keyboard-open{place-items:start center;padding-top:.35rem;padding-bottom:.35rem}body.keyboard-open main{height:max(210px,calc(var(--viewport-height) - .7rem))}body.keyboard-open #scrubber{display:none}body.keyboard-open .card-editor{padding-top:2.65rem;padding-bottom:.75rem}
+@media(max-height:520px){body{padding:.35rem}#stage{min-height:210px}}
 @media(prefers-reduced-motion:reduce){#card,#deleteIndicator,#recordIndicator{transition-duration:1ms!important}}
