@@ -327,13 +327,14 @@ a `main`; sólo cuando `main` esté actualizado crea una etiqueta que coincida e
 con `versionName`, agregando el prefijo `v`:
 
 ```powershell
+# Reemplaza 2.0.19 por la versión nueva que acabas de configurar.
 git switch main
 git pull --ff-only origin main
 git add mobile_android/app/build.gradle.kts
-git commit -m "Release 2.0.14"
+git commit -m "Release 2.0.19"
 git push origin main
-git tag -a v2.0.14 -m "Release 2.0.14"
-git push origin v2.0.14
+git tag -a v2.0.19 -m "Release 2.0.19"
+git push origin v2.0.19
 ```
 
 El push de la etiqueta inicia `.github/workflows/android-release.yml`. El workflow
