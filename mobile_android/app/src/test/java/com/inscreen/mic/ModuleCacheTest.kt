@@ -39,6 +39,26 @@ class ModuleCacheTest {
         assertEquals("otra", cache.read("materia-2", first))
     }
 
+    @Test fun distributesOnePackageToTheRequestedSubjectsOnly() {
+        val cache = ModuleCache.at(temporary.newFolder("modules"))
+        cache.write("sin-asignar", first, mapOf("index.html" to "anterior".toByteArray()))
+        val files = mapOf("index.html" to "actualizado".toByteArray(), "app.js" to "nuevo".toByteArray())
+
+        assertEquals(emptySet<String>(), cache.writeToSubjects(listOf("materia-1", "materia-2", "materia-1"), first, files))
+        assertEquals("actualizado", cache.read("materia-1", first))
+        assertEquals("actualizado", cache.read("materia-2", first))
+        assertEquals("nuevo", File(cache.directory("materia-2", first.id), "app.js").readText())
+        assertEquals("anterior", cache.read("sin-asignar", first))
+    }
+
+    @Test fun reportsAnIsolatedWriteFailureWithoutStoppingOtherSubjects() {
+        val cache = ModuleCache.at(temporary.newFolder("modules"))
+        val failures = cache.writeToSubjects(listOf("", "materia-ok"), first, mapOf("index.html" to "nuevo".toByteArray()))
+
+        assertEquals(setOf(""), failures)
+        assertEquals("nuevo", cache.read("materia-ok", first))
+    }
+
     @Test fun reconcileRemovesDeletedSubjectsOnly() {
         val cache = ModuleCache.at(temporary.newFolder("modules"))
         cache.write("keep", first, mapOf("index.html" to "guardado".toByteArray()))

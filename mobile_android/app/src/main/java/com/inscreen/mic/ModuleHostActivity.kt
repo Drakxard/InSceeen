@@ -16,6 +16,7 @@ import android.webkit.WebViewClient
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Button
+import android.widget.Toast
 import androidx.webkit.WebViewAssetLoader
 import org.json.JSONObject
 
@@ -98,13 +99,29 @@ class ModuleHostActivity : Activity() {
         ModuleCatalog.loadPackage(module) { loaded -> runOnUiThread {
             loaded.fold(
                 onSuccess = { packageFiles ->
-                    runCatching {
-                        moduleCache.write(subjectId, module, packageFiles.files)
-                        if (persistAssignment) check(AprioriStore.addModule(this@ModuleHostActivity, subjectId, module))
-                    }.fold(
-                        onSuccess = { showModuleHtml(module, packageFiles.html) },
-                         onFailure = { showModuleLoadError(module, persistAssignment, forceRefresh, it) },
-                    )
+                    val targets = if (forceRefresh) {
+                        AprioriStore.subjectIdsAssignedTo(AprioriStore.load(this@ModuleHostActivity), module.id)
+                    } else listOf(subjectId)
+                    val failures = moduleCache.writeToSubjects(targets.ifEmpty { listOf(subjectId) }, module, packageFiles.files)
+                    if (subjectId in failures) {
+                        showModuleLoadError(
+                            module,
+                            persistAssignment,
+                            forceRefresh,
+                            IllegalStateException("No se pudo guardar la actualización en esta materia."),
+                        )
+                        return@runOnUiThread
+                    }
+                    if (persistAssignment && !AprioriStore.addModule(this@ModuleHostActivity, subjectId, module)) {
+                        showModuleLoadError(module, persistAssignment, forceRefresh, IllegalStateException("No se pudo asignar el módulo."))
+                        return@runOnUiThread
+                    }
+                    if (failures.isNotEmpty()) Toast.makeText(
+                        this@ModuleHostActivity,
+                        "El módulo se actualizó, pero no pudo copiarse en ${failures.size} materia${if (failures.size == 1) "" else "s"}.",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                    showModuleHtml(module, packageFiles.html)
                 },
                 onFailure = { showModuleLoadError(module, persistAssignment, forceRefresh, it) },
             )

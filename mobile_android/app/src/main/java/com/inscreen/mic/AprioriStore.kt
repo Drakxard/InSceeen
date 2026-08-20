@@ -175,6 +175,22 @@ object AprioriStore {
         }
     }
 
+    internal fun subjectIdsAssignedTo(raw: String, moduleId: String): List<String> {
+        if (moduleId.isBlank()) return emptyList()
+        return runCatching {
+            val subjects = JSONObject(raw).optJSONArray("subjects") ?: return emptyList()
+            (0 until subjects.length()).mapNotNull { index ->
+                val subject = subjects.optJSONObject(index) ?: return@mapNotNull null
+                val modules = subject.optJSONArray("modules") ?: return@mapNotNull null
+                subject.optString("id").takeIf { subjectId ->
+                    subjectId.isNotBlank() && (0 until modules.length()).any { moduleIndex ->
+                        modules.optJSONObject(moduleIndex)?.optString("id") == moduleId
+                    }
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
     internal fun addModule(context: Context, subjectId: String, module: ModuleCatalog.Module): Boolean {
         val updated = addModule(load(context), subjectId, module) ?: return false
         AprioriUpdates.publish(context, save(context, updated))

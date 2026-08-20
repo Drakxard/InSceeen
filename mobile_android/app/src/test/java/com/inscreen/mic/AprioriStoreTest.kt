@@ -65,6 +65,22 @@ class AprioriStoreTest {
     }
 
     @Test
+    fun findsOnlySubjectsAssignedToTheRequestedModule() {
+        val raw = """{
+            "version":3,"settings":{"cycleSize":20,"urgencyK":14},
+            "subjects":[
+                {"id":"a","name":"Álgebra","modules":[{"id":"shared","nombre":"Compartido","entry":"modules/shared/index.html"}]},
+                {"id":"b","name":"Física","modules":[{"id":"other","nombre":"Otro","entry":"modules/other/index.html"},{"id":"shared","nombre":"Compartido","entry":"modules/shared/index.html"}]},
+                {"id":"c","name":"Química","modules":[{"id":"other","nombre":"Otro","entry":"modules/other/index.html"}]}
+            ],
+            "ring":["a","b","c"]
+        }""".trimIndent()
+
+        assertEquals(listOf("a", "b"), AprioriStore.subjectIdsAssignedTo(raw, "shared"))
+        assertEquals(emptyList<String>(), AprioriStore.subjectIdsAssignedTo(raw, "missing"))
+    }
+
+    @Test
     fun peeksNextQueueHeadWithoutChangingTheState() {
         val raw = """{
             "version":3,"settings":{"cycleSize":20,"urgencyK":14},

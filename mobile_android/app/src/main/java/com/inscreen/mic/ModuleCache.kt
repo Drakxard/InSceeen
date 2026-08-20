@@ -30,6 +30,11 @@ internal class ModuleCache private constructor(private val root: File) {
         replace(metadataTemporary, metadataFile)
     }
 
+    internal fun writeToSubjects(subjectIds: Collection<String>, module: ModuleCatalog.Module, files: Map<String, ByteArray>): Set<String> =
+        subjectIds.distinct().mapNotNullTo(linkedSetOf()) { subjectId ->
+            runCatching { write(subjectId, module, files) }.exceptionOrNull()?.let { subjectId }
+        }
+
     fun directory(subjectId: String, moduleId: String): File = moduleDirectory(subjectId, moduleId)
     @Synchronized fun remove(subjectId: String, moduleId: String) { moduleDirectory(subjectId, moduleId).deleteRecursively() }
     @Synchronized fun removeSubject(subjectId: String) { subjectDirectory(subjectId).deleteRecursively() }
