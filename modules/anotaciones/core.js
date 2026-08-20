@@ -67,6 +67,10 @@
     folder.tarjetas.splice(insertAt,0,...created);if(!isBlank(folder.tarjetas.at(-1)))folder.tarjetas.push(blank());return created.length;
   }
   function appendCards(folder,cards){return insertCards(folder,cards)}
+  function relativeInsertIndex(folder,anchorId,placement='after'){
+    const fallback=isBlank(folder?.tarjetas?.at(-1))?folder.tarjetas.length-1:folder?.tarjetas?.length||0,index=folder?.tarjetas?.findIndex(item=>item.id===anchorId)??-1;
+    if(index<0)return fallback;return Math.max(0,Math.min(index+(placement==='before'?0:1),fallback));
+  }
   function insertSeparator(folder,position,color){if(!folder)return -1;const fallback=isBlank(folder.tarjetas.at(-1))?folder.tarjetas.length-1:folder.tarjetas.length,insertAt=Math.max(0,Math.min(Number.isInteger(position)?position:fallback,fallback));folder.tarjetas.splice(insertAt,0,separator(color));if(!isBlank(folder.tarjetas.at(-1)))folder.tarjetas.push(blank());return insertAt}
   function navigableIndices(folder){return folder?.tarjetas?.map((card,index)=>isSeparator(card)||clean(card.cabecera)?index:-1).filter(index=>index>=0)||[];}
   function scrubPosition(clientX,left,width,count){if(count<=1)return 0;const ratio=Math.max(0,Math.min(1,(clientX-left)/Math.max(1,width)));return Math.round(ratio*(count-1));}
@@ -86,5 +90,5 @@
     if(Math.abs(dy)>threshold&&Math.abs(dy)>Math.abs(dx)*dominance)return dy<0?'up':'down';
     if(Math.abs(dx)>threshold&&Math.abs(dx)>Math.abs(dy)*dominance)return dx<0?'left':'right';return null;
   }
-  return {VERSION,clean,folderName,blank,isBlank,isSeparator,normalizeColor,colorLuminance,safeColor,randomColor,separator,normalizeCards,normalize,findFolder,sameFolderName,canCreateFolder,createFolder,removeFolder,parseClipboard,insertCards,appendCards,insertSeparator,navigableIndices,scrubPosition,canAdvance,advance,remove,removeUndoable,restoreRemoved,classifySwipe};
+  return {VERSION,clean,folderName,blank,isBlank,isSeparator,normalizeColor,colorLuminance,safeColor,randomColor,separator,normalizeCards,normalize,findFolder,sameFolderName,canCreateFolder,createFolder,removeFolder,parseClipboard,insertCards,appendCards,relativeInsertIndex,insertSeparator,navigableIndices,scrubPosition,canAdvance,advance,remove,removeUndoable,restoreRemoved,classifySwipe};
 }));
