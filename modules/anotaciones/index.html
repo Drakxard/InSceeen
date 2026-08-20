@@ -34,6 +34,13 @@
     </section>
     <section id="scrubber" aria-label="Navegación rápida entre tarjetas"><span id="scrubOrigin" hidden aria-hidden="true"></span><output id="scrubBubble" hidden><span id="scrubBubbleText"></span></output></section>
   </main>
+  <main id="studyView" class="study-view" hidden>
+    <section id="studyCards" class="study-cards" aria-live="polite"></section>
+    <section id="studyComplete" class="study-complete" hidden>
+      <small>COMPLETADO</small><h1>Terminaste la ronda</h1>
+      <div><button id="restartStudy" class="primary" type="button">Otra ronda</button><button id="leaveStudy" type="button">Volver</button></div>
+    </section>
+  </main>
   <div id="toast" role="status" hidden><span id="toastText"></span><button id="undo" type="button" hidden>Deshacer</button></div>
   <div id="folderDialog" class="overlay" hidden><form id="folderForm" class="dialog"><h2>Nueva carpeta</h2><label for="folderName">Nombre</label><input id="folderName" maxlength="80" autocomplete="off"><p id="folderError" class="error" hidden></p><div><button id="cancelFolder" type="button">Cancelar</button><button type="submit" class="primary">Crear</button></div></form></div>
   <div id="deleteFolderDialog" class="overlay" hidden><div class="dialog"><h2>Eliminar carpeta</h2><p id="deleteFolderText"></p><div><button id="cancelDeleteFolder" type="button">Cancelar</button><button id="confirmDeleteFolder" class="danger" type="button">Eliminar</button></div></div></div>

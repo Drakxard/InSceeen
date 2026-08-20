@@ -74,6 +74,19 @@
   }
   function insertSeparator(folder,position,color){if(!folder)return -1;const fallback=isBlank(folder.tarjetas.at(-1))?folder.tarjetas.length-1:folder.tarjetas.length,insertAt=Math.max(0,Math.min(Number.isInteger(position)?position:fallback,fallback));folder.tarjetas.splice(insertAt,0,separator(color));if(!isBlank(folder.tarjetas.at(-1)))folder.tarjetas.push(blank());return insertAt}
   function navigableIndices(folder){return folder?.tarjetas?.map((card,index)=>isSeparator(card)||clean(card.cabecera)?index:-1).filter(index=>index>=0)||[];}
+  function studySections(folder){
+    const sections=[[]];for(const card of folder?.tarjetas||[]){if(isSeparator(card)){sections.push([]);continue}if(clean(card?.cabecera))sections.at(-1).push(card)}return sections.filter(section=>section.length);
+  }
+  function shuffle(values,random=Math.random){
+    const result=values.slice();for(let index=result.length-1;index>0;index--){const swap=Math.floor(random()*(index+1));[result[index],result[swap]]=[result[swap],result[index]]}return result;
+  }
+  function crossPairs(folder,random=Math.random){
+    const cards=studySections(folder).flat(),pairs=[];for(let left=0;left<cards.length-1;left++)for(let right=left+1;right<cards.length;right++)pairs.push([cards[left],cards[right]]);return shuffle(pairs,random);
+  }
+  function jumpOrder(folder,random=Math.random){
+    const pools=studySections(folder).map(section=>shuffle(section,random)),result=[];let previous=-1;
+    while(pools.some(pool=>pool.length)){let candidates=pools.map((pool,index)=>pool.length&&index!==previous?index:-1).filter(index=>index>=0);if(!candidates.length)candidates=pools.map((pool,index)=>pool.length?index:-1).filter(index=>index>=0);const selected=candidates[Math.floor(random()*candidates.length)];result.push(pools[selected].pop());previous=selected}return result;
+  }
   function scrubPosition(clientX,left,width,count){if(count<=1)return 0;const ratio=Math.max(0,Math.min(1,(clientX-left)/Math.max(1,width)));return Math.round(ratio*(count-1));}
   function canAdvance(state,index){return index<state.tarjetas.length-1||isSeparator(state.tarjetas[index])||Boolean(state.tarjetas[index]?.cabecera);}
   function advance(state,index){if(index<state.tarjetas.length-1)return index+1;if(!canAdvance(state,index))return index;state.tarjetas.push(blank());return index+1;}
@@ -91,5 +104,5 @@
     if(Math.abs(dy)>threshold&&Math.abs(dy)>Math.abs(dx)*dominance)return dy<0?'up':'down';
     if(Math.abs(dx)>threshold&&Math.abs(dx)>Math.abs(dy)*dominance)return dx<0?'left':'right';return null;
   }
-  return {VERSION,clean,folderName,blank,isBlank,isSeparator,normalizeColor,colorLuminance,safeColor,randomColor,separator,normalizeCards,normalize,findFolder,sameFolderName,canCreateFolder,createFolder,removeFolder,parseClipboard,insertCards,appendCards,relativeInsertIndex,insertSeparator,navigableIndices,scrubPosition,canAdvance,advance,remove,removeUndoable,restoreRemoved,classifySwipe};
+  return {VERSION,clean,folderName,blank,isBlank,isSeparator,normalizeColor,colorLuminance,safeColor,randomColor,separator,normalizeCards,normalize,findFolder,sameFolderName,canCreateFolder,createFolder,removeFolder,parseClipboard,insertCards,appendCards,relativeInsertIndex,insertSeparator,navigableIndices,studySections,shuffle,crossPairs,jumpOrder,scrubPosition,canAdvance,advance,remove,removeUndoable,restoreRemoved,classifySwipe};
 }));
