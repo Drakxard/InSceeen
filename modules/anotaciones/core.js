@@ -32,7 +32,7 @@
   }
   function normalize(value){
     if(value&&Array.isArray(value.carpetas)){
-      const carpetas=value.carpetas.map(folder=>({id:String(folder?.id||makeId('folder')),nombre:folderName(folder?.nombre)||'Sin nombre',tarjetas:normalizeCards(folder?.tarjetas)}));
+      const carpetas=value.carpetas.map(folder=>{const tarjetas=normalizeCards(folder?.tarjetas),ultimaTarjetaId=String(folder?.ultimaTarjetaId||'');return {id:String(folder?.id||makeId('folder')),nombre:folderName(folder?.nombre)||'Sin nombre',tarjetas,ultimaTarjetaId:tarjetas.some(card=>card.id===ultimaTarjetaId)?ultimaTarjetaId:null}});
       const requested=String(value.carpetaActivaId||'');
       return {version:VERSION,carpetas,carpetaActivaId:carpetas.some(folder=>folder.id===requested)?requested:null};
     }
@@ -47,7 +47,7 @@
   function canCreateFolder(state,name){const normalized=folderName(name);return Boolean(normalized)&&!state.carpetas.some(folder=>sameFolderName(folder.nombre,normalized));}
   function createFolder(state,name){
     const normalized=folderName(name);if(!canCreateFolder(state,normalized))return null;
-    const folder={id:makeId('folder'),nombre:normalized,tarjetas:[blank()]};state.carpetas.push(folder);return folder;
+    const first=blank(),folder={id:makeId('folder'),nombre:normalized,tarjetas:[first],ultimaTarjetaId:first.id};state.carpetas.push(folder);return folder;
   }
   function removeFolder(state,id){
     const position=state.carpetas.findIndex(folder=>folder.id===id);if(position<0)return null;
