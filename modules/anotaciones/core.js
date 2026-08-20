@@ -56,6 +56,7 @@
   function parseClipboard(text){
     return String(text||'').split(/\r?\n/).map((line,lineNumber)=>{
       const source=line.trim();if(!source)return null;
+      const separatorMatch=source.match(/^-\{(.+)\}$/);if(separatorMatch){const nombre=clean(separatorMatch[1]);return nombre?{tipo:'separador',nombre,linea:lineNumber+1}:null}
       const separator=source.indexOf(':'),cabecera=clean(separator<0?source:source.slice(0,separator));if(!cabecera)return null;
       return {cabecera,respuesta:clean(separator<0?'':source.slice(separator+1)),linea:lineNumber+1};
     }).filter(Boolean);
@@ -63,7 +64,7 @@
   function insertCards(folder,cards,position){
     if(!folder||!Array.isArray(cards)||!cards.length)return 0;
     const fallback=isBlank(folder.tarjetas.at(-1))?folder.tarjetas.length-1:folder.tarjetas.length,insertAt=Math.max(0,Math.min(Number.isInteger(position)?position:fallback,fallback));
-    const now=Date.now(),created=cards.map(card=>({id:makeId('card'),cabecera:clean(card.cabecera),respuesta:clean(card.respuesta),actualizada:now}));
+    const now=Date.now(),created=cards.map(card=>{if(isSeparator(card)){const createdSeparator=separator(card.color);createdSeparator.nombre=clean(card.nombre);createdSeparator.actualizada=now;return createdSeparator}return {id:makeId('card'),cabecera:clean(card.cabecera),respuesta:clean(card.respuesta),actualizada:now}});
     folder.tarjetas.splice(insertAt,0,...created);if(!isBlank(folder.tarjetas.at(-1)))folder.tarjetas.push(blank());return created.length;
   }
   function appendCards(folder,cards){return insertCards(folder,cards)}
