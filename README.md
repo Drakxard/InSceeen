@@ -355,6 +355,21 @@ compila el APK firmado y crea el Release `InScreen vX.Y.Z` con el archivo
 `InScreenMic.apk`. No reutilices una etiqueta publicada: para cada corrección incrementa
 otra vez ambas versiones y crea una etiqueta nueva.
 
+Si la etiqueta se subió correctamente pero GitHub no creó ningún run, no borres ni
+vuelvas a crear la etiqueta. El workflow también admite un disparo manual de recuperación
+desde **Actions → Android release → Run workflow**, indicando esa misma etiqueta. Desde
+la terminal se puede iniciar y observar así:
+
+```powershell
+gh workflow run android-release.yml --ref main -f tag=v2.0.22
+gh run watch --exit-status
+```
+
+El disparo manual obtiene el código desde la etiqueta indicada, comprueba que coincida
+con `versionName` y publica o actualiza su Release. La actualización automática de la APK
+sólo podrá detectarla cuando la Release exista y contenga `InScreenMic.apk`; una etiqueta
+por sí sola no aparece en el endpoint `releases/latest`.
+
 Si Groq responde con un límite temporal (`429`), el panel muestra únicamente una cuenta
 regresiva numérica pequeña y reintenta una vez. `|` también cancela esta espera.
 
