@@ -53,6 +53,14 @@
         <activity
             android:name=".SubjectNotesGalleryActivity"
             android:exported="false" />
+        <activity
+            android:name=".LinkWidgetConfigureActivity"
+            android:excludeFromRecents="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
 
         <service
             android:name=".InScreenService"
@@ -79,6 +87,16 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/apriori_widget_info" />
+        </receiver>
+        <receiver
+            android:name=".LinkWidgetProvider"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/link_widget_info" />
         </receiver>
     </application>
 </manifest>

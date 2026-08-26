@@ -170,6 +170,18 @@ vacía muestra **Sin materias** y abre la app al tocarlo.
 Para agregarlo, mantén presionado un espacio libre de la pantalla de inicio, abre
 **Widgets**, busca **InScreen Mic** y arrastra el widget Apriori.
 
+## Widget de accesos directos
+
+El APK también incluye un widget configurable para abrir enlaces web. Al agregar cada
+instancia solicita un nombre, un color y el enlace; se pueden crear varios accesos con
+configuraciones independientes. El fondo se adapta de círculo a elipse al cambiar el
+ancho y el texto ajusta automáticamente su tamaño.
+
+Un toque abre el enlace con la aplicación asociada por Android. Para cambiar semanalmente
+el enlace, mantén presionado el widget y elige **Ajustes**; se abrirá nuevamente la
+configuración con los valores actuales. La disponibilidad y el nombre de esa acción
+dependen del launcher instalado.
+
 ## Módulos de estudio
 
 Los módulos se publican en el mismo repositorio, dentro de `modules/`. El catálogo

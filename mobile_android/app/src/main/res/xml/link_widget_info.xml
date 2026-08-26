@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:configure="com.inscreen.mic.LinkWidgetConfigureActivity"
+    android:description="@string/link_widget_description"
+    android:initialLayout="@layout/link_widget"
+    android:minWidth="48dp"
+    android:minHeight="48dp"
+    android:minResizeWidth="48dp"
+    android:minResizeHeight="48dp"
+    android:previewLayout="@layout/link_widget_preview"
+    android:resizeMode="horizontal"
+    android:targetCellWidth="2"
+    android:targetCellHeight="1"
+    android:updatePeriodMillis="0"
+    android:widgetCategory="home_screen"
+    android:widgetFeatures="reconfigurable" />

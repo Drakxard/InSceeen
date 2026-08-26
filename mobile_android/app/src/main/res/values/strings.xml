@@ -3,4 +3,6 @@
     <string name="terminal_title">&gt;_ INSCREEN MIC</string>
     <string name="privacy_summary">El micrófono permanece cerrado mientras espera la señal de la PC.</string>
     <string name="widget_description">Materia actual de Apriori; tocá para abrir su módulo</string>
+    <string name="link_widget_description">Acceso directo configurable a un enlace web</string>
+    <string name="link_widget_content_description">Abrir %1$s</string>
 </resources>
