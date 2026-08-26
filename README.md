@@ -361,7 +361,7 @@ desde **Actions → Android release → Run workflow**, indicando esa misma etiq
 la terminal se puede iniciar y observar así:
 
 ```powershell
-gh workflow run android-release.yml --ref main -f tag=v2.0.22
+gh workflow run android-release.yml --ref main -f tag=vX.Y.Z
 gh run watch --exit-status
 ```
 

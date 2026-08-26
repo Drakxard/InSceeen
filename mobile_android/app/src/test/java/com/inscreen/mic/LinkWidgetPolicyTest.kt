@@ -34,8 +34,8 @@ class LinkWidgetPolicyTest {
         assertEquals(0xFF000000.toInt(), LinkWidgetPolicy.contrastingTextColor(0xFFA8EF00.toInt()))
         assertEquals(0xFFFFFFFF.toInt(), LinkWidgetPolicy.contrastingTextColor(0xFF202020.toInt()))
         assertTrue(
-            LinkWidgetPolicy.textSizeSp("Programación", 220, 60) <
-                LinkWidgetPolicy.textSizeSp("EO", 220, 60),
+            LinkWidgetPolicy.textSizeSp("Programación", 120, 60) <
+                LinkWidgetPolicy.textSizeSp("EO", 120, 60),
         )
     }
 }
