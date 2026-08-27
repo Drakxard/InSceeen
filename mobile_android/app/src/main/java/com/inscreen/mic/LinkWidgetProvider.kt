@@ -52,12 +52,18 @@ class LinkWidgetProvider : AppWidgetProvider() {
             )
             val description = context.getString(R.string.link_widget_content_description, config.name)
             views.setContentDescription(R.id.link_widget_root, description)
+            val clickIntent = if (config.mode == LinkWidgetStore.MODE_SYNCED) {
+                Intent(context, LinkWidgetResolveActivity::class.java)
+                    .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+            } else {
+                Intent(Intent.ACTION_VIEW, Uri.parse(config.url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
             views.setOnClickPendingIntent(
                 R.id.link_widget_root,
                 PendingIntent.getActivity(
                     context,
                     appWidgetId,
-                    Intent(Intent.ACTION_VIEW, Uri.parse(config.url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    clickIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
                 ),
             )

@@ -172,15 +172,18 @@ Para agregarlo, mantén presionado un espacio libre de la pantalla de inicio, ab
 
 ## Widget de accesos directos
 
-El APK también incluye un widget configurable para abrir enlaces web. Al agregar cada
-instancia solicita un nombre, un color y el enlace; se pueden crear varios accesos con
-configuraciones independientes. El fondo se adapta de círculo a elipse al cambiar el
-ancho y el texto ajusta automáticamente su tamaño.
+El APK también incluye un widget configurable para abrir enlaces web. Cada instancia
+conserva nombre y color y puede funcionar de dos maneras: **Manual** solicita una URL;
+**Sincronizado con Cursado** permite elegir una materia publicada por el proveedor y el
+destino **NotebookLM** o **Material**. Se pueden crear varios accesos independientes. El
+fondo se adapta de círculo a elipse al cambiar el ancho y el texto ajusta
+automáticamente su tamaño.
 
-Un toque abre el enlace con la aplicación asociada por Android. Para cambiar semanalmente
-el enlace, mantén presionado el widget y elige **Ajustes**; se abrirá nuevamente la
-configuración con los valores actuales. La disponibilidad y el nombre de esa acción
-dependen del launcher instalado.
+Un widget manual abre directamente su URL. Uno sincronizado consulta el destino vigente
+al tocarlo, por lo que la PC puede estar apagada una vez que Cursado haya publicado el
+cambio; ante una interrupción temporal de red conserva el último destino resuelto. Para
+editar cualquier instancia, mantén presionado el widget y elige **Ajustes**. La
+disponibilidad y el nombre de esa acción dependen del launcher instalado.
 
 ## Módulos de estudio
 

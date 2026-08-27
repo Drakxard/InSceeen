@@ -10,12 +10,17 @@ import android.os.Bundle
 import android.text.InputFilter
 import android.text.InputType
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
+import android.widget.RadioButton
+import android.widget.RadioGroup
 import android.widget.ScrollView
+import android.widget.Spinner
 import android.widget.TextView
 
 class LinkWidgetConfigureActivity : Activity() {
@@ -24,6 +29,14 @@ class LinkWidgetConfigureActivity : Activity() {
     private lateinit var colorInput: EditText
     private lateinit var urlInput: EditText
     private lateinit var preview: TextView
+    private lateinit var manualContainer: LinearLayout
+    private lateinit var syncedContainer: LinearLayout
+    private lateinit var subjectSpinner: Spinner
+    private lateinit var targetSpinner: Spinner
+    private lateinit var syncStatus: TextView
+    private var mode = LinkWidgetStore.MODE_MANUAL
+    private var providerSubjects = emptyList<ProviderWidgetSubject>()
+    private var existingConfig: LinkWidgetConfig? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,6 +54,11 @@ class LinkWidgetConfigureActivity : Activity() {
     }
 
     private fun buildContent(existing: LinkWidgetConfig?) {
+        existingConfig = existing
+        mode = existing?.mode ?: LinkWidgetStore.MODE_MANUAL
+        existing?.takeIf { it.subjectId.isNotBlank() }?.let { saved ->
+            providerSubjects = listOf(ProviderWidgetSubject(saved.subjectId, saved.subjectName.ifBlank { saved.subjectId }, "#A8EF00", true, true, null))
+        }
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(20), dp(20), dp(28))
@@ -122,14 +140,64 @@ class LinkWidgetConfigureActivity : Activity() {
             bottomMargin = dp(18)
         })
 
+        content.addView(label("Tipo de enlace"))
+        val providerConfigured = ProviderCredentialStore(this).load() != null
+        if (!providerConfigured) mode = LinkWidgetStore.MODE_MANUAL
+        val manualRadio = RadioButton(this).apply { text = "Manual"; setTextColor(Color.WHITE); id = View.generateViewId() }
+        val syncedRadio = RadioButton(this).apply {
+            text = "Sincronizado con Cursado"
+            setTextColor(Color.WHITE)
+            id = View.generateViewId()
+            isEnabled = providerConfigured
+        }
+        content.addView(RadioGroup(this).apply {
+            orientation = RadioGroup.VERTICAL
+            addView(manualRadio)
+            addView(syncedRadio)
+            check(if (mode == LinkWidgetStore.MODE_SYNCED && providerConfigured) syncedRadio.id else manualRadio.id)
+            setOnCheckedChangeListener { _, checked ->
+                mode = if (checked == syncedRadio.id) LinkWidgetStore.MODE_SYNCED else LinkWidgetStore.MODE_MANUAL
+                updateModeVisibility()
+            }
+        })
+        if (!providerConfigured) content.addView(TextView(this).apply {
+            text = "Vinculá el proveedor desde la pantalla principal de InScreen para habilitar la sincronización."
+            setTextColor(Color.rgb(180, 195, 185))
+            setPadding(0, 0, 0, dp(12))
+        })
+
+        manualContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         urlInput = field(
             label = "Enlace",
             hint = "https://notebook.google.com/notebook/…",
             value = existing?.url.orEmpty(),
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI,
             maxLength = 2048,
-            container = content,
+            container = manualContainer,
         )
+        content.addView(manualContainer)
+
+        syncedContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        syncedContainer.addView(label("Materia"))
+        subjectSpinner = Spinner(this).apply {
+            adapter = ArrayAdapter(this@LinkWidgetConfigureActivity, android.R.layout.simple_spinner_dropdown_item, providerSubjects.map { it.name })
+        }
+        syncedContainer.addView(subjectSpinner, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)))
+        syncedContainer.addView(label("Destino"))
+        targetSpinner = Spinner(this).apply {
+            adapter = ArrayAdapter(this@LinkWidgetConfigureActivity, android.R.layout.simple_spinner_dropdown_item, listOf("NotebookLM", "Material"))
+            setSelection(if (existing?.targetKind == LinkWidgetStore.TARGET_MATERIALS) 1 else 0)
+        }
+        syncedContainer.addView(targetSpinner, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)))
+        syncStatus = TextView(this).apply {
+            setTextColor(Color.rgb(180, 195, 185))
+            text = if (providerConfigured) "Cargando materias del proveedor…" else "Vinculá el proveedor desde InScreen para sincronizar widgets."
+            setPadding(0, dp(6), 0, dp(12))
+        }
+        syncedContainer.addView(syncStatus)
+        content.addView(syncedContainer)
+        updateModeVisibility()
+        if (providerConfigured) loadProviderSubjects()
 
         content.addView(Button(this).apply {
             text = if (existing == null) "CREAR WIDGET" else "GUARDAR CAMBIOS"
@@ -156,7 +224,7 @@ class LinkWidgetConfigureActivity : Activity() {
         urlInput.error = null
         val name = nameInput.text.toString().trim()
         val color = LinkWidgetPolicy.parseHexColor(colorInput.text.toString())
-        val normalizedUrl = LinkWidgetPolicy.normalizeUrl(urlInput.text.toString())
+        val normalizedUrl = if (mode == LinkWidgetStore.MODE_MANUAL) LinkWidgetPolicy.normalizeUrl(urlInput.text.toString()) else null
         var valid = true
         if (name.isEmpty()) {
             nameInput.error = "Ingresá un nombre"
@@ -166,13 +234,25 @@ class LinkWidgetConfigureActivity : Activity() {
             colorInput.error = "Usá un color como #A8EF00"
             valid = false
         }
-        if (normalizedUrl == null) {
+        if (mode == LinkWidgetStore.MODE_MANUAL && normalizedUrl == null) {
             urlInput.error = "Ingresá un enlace web válido"
             valid = false
         }
         if (!valid) return
 
-        LinkWidgetStore.save(this, appWidgetId, LinkWidgetConfig(name, color!!, normalizedUrl!!))
+        val config = if (mode == LinkWidgetStore.MODE_SYNCED) {
+            val subject = providerSubjects.getOrNull(subjectSpinner.selectedItemPosition)
+            if (subject == null) {
+                syncStatus.text = "No hay una materia disponible para sincronizar."
+                return
+            }
+            val targetKind = if (targetSpinner.selectedItemPosition == 1) LinkWidgetStore.TARGET_MATERIALS else LinkWidgetStore.TARGET_NOTEBOOK_LM
+            val keepCache = existingConfig?.takeIf { it.subjectId == subject.id && it.targetKind == targetKind }?.cachedUrl.orEmpty()
+            LinkWidgetConfig(name, color!!, "", mode, subject.id, subject.name, targetKind, keepCache)
+        } else {
+            LinkWidgetConfig(name, color!!, normalizedUrl!!)
+        }
+        LinkWidgetStore.save(this, appWidgetId, config)
         LinkWidgetProvider.update(this, AppWidgetManager.getInstance(this), appWidgetId)
         setResult(RESULT_OK, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId))
         finish()
@@ -186,6 +266,30 @@ class LinkWidgetConfigureActivity : Activity() {
             setColor(color)
         }
         preview.setTextColor(LinkWidgetPolicy.contrastingTextColor(color))
+    }
+
+    private fun updateModeVisibility() {
+        if (!::manualContainer.isInitialized || !::syncedContainer.isInitialized) return
+        manualContainer.visibility = if (mode == LinkWidgetStore.MODE_MANUAL) android.view.View.VISIBLE else android.view.View.GONE
+        syncedContainer.visibility = if (mode == LinkWidgetStore.MODE_SYNCED) android.view.View.VISIBLE else android.view.View.GONE
+    }
+
+    private fun loadProviderSubjects() {
+        val credentials = ProviderCredentialStore(this).load() ?: return
+        Thread {
+            try {
+                val loaded = ProviderClient(credentials.baseUrl, credentials.token).listWidgetSubjects()
+                runOnUiThread {
+                    providerSubjects = loaded
+                    subjectSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, loaded.map { it.name })
+                    val selected = loaded.indexOfFirst { it.id == existingConfig?.subjectId }.takeIf { it >= 0 } ?: 0
+                    if (loaded.isNotEmpty()) subjectSpinner.setSelection(selected)
+                    syncStatus.text = if (loaded.isEmpty()) "Publicá las materias desde Cursado 2026." else "El destino se resolverá al tocar el widget."
+                }
+            } catch (_: ProviderWidgetException) {
+                runOnUiThread { syncStatus.text = "No se pudo cargar el catálogo del proveedor." }
+            }
+        }.start()
     }
 
     private fun field(

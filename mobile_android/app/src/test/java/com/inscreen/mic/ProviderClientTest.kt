@@ -15,6 +15,48 @@ import java.io.File
 
 class ProviderClientTest {
     @Test
+    fun listsAndResolvesWidgetTargetsWithBearerCredentials() {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setBody("""{"ok":true,"subjects":[{"id":"eo","name":"EO","color":"#A8EF00","notebooklmAvailable":true,"materialsAvailable":true,"materialsWeekNumber":3}]}"""))
+        server.enqueue(MockResponse().setBody("""{"ok":true,"url":"https://notebooklm.google.com/notebook/eo-s3","revision":7}"""))
+        server.start()
+        try {
+            val client = ProviderClient(server.url("/").toString(), "ipc1.secret", OkHttpClient())
+            val subjects = client.listWidgetSubjects()
+            assertEquals("eo", subjects.single().id)
+            assertEquals(3, subjects.single().materialsWeekNumber)
+            val target = client.resolveWidgetTarget("eo", LinkWidgetStore.TARGET_NOTEBOOK_LM)
+            assertEquals("https://notebooklm.google.com/notebook/eo-s3", target.url)
+            assertEquals(7L, target.revision)
+            repeat(2) {
+                val request = server.takeRequest()
+                assertEquals("Bearer ipc1.secret", request.getHeader("Authorization"))
+                assertEquals("/api/inscreen/provider/widget-targets", request.requestUrl?.encodedPath)
+            }
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun classifiesUnavailableAndServerWidgetFailuresWithoutLeakingFallbackPolicy() {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setResponseCode(404).setBody("""{"ok":false,"error":"target_unavailable"}"""))
+        server.enqueue(MockResponse().setResponseCode(503).setBody("""{"ok":false,"error":"provider_error"}"""))
+        server.start()
+        try {
+            val client = ProviderClient(server.url("/").toString(), "ipc1.secret", OkHttpClient())
+            val unavailable = runCatching { client.resolveWidgetTarget("eo", LinkWidgetStore.TARGET_MATERIALS) }.exceptionOrNull() as ProviderWidgetException
+            val temporary = runCatching { client.resolveWidgetTarget("eo", LinkWidgetStore.TARGET_MATERIALS) }.exceptionOrNull() as ProviderWidgetException
+            assertEquals("target_unavailable", unavailable.code)
+            assertFalse(unavailable.transient)
+            assertTrue(temporary.transient)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
     fun derivesProviderSegmentsFromVisibleNames() {
         assertEquals("algebra2", ProviderSubject.segment("Álgebra 2"))
         assertEquals("calculo2", ProviderSubject.segment("Cálculo 2"))

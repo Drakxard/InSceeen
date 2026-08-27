@@ -21,12 +21,81 @@ internal object ProviderSubject {
         .replace(Regex("[^a-z0-9]"), "")
 }
 
+internal data class ProviderWidgetSubject(
+    val id: String,
+    val name: String,
+    val color: String,
+    val notebookLmAvailable: Boolean,
+    val materialsAvailable: Boolean,
+    val materialsWeekNumber: Int?,
+)
+
+internal data class ProviderWidgetTarget(val url: String, val revision: Long)
+
+internal class ProviderWidgetException(val code: String, val transient: Boolean) : IOException(code)
+
 internal class ProviderClient(
     private val baseUrl: String,
     private val token: String,
     private val client: OkHttpClient = OkHttpClient.Builder().callTimeout(15, TimeUnit.SECONDS).build(),
 ) {
     class MarkerException(val code: String) : IOException(code)
+
+    @Throws(ProviderWidgetException::class)
+    fun listWidgetSubjects(): List<ProviderWidgetSubject> {
+        val payload = widgetRequest("${baseUrl.trimEnd('/')}/api/inscreen/provider/widget-targets")
+        val subjects = payload.optJSONArray("subjects") ?: JSONArray()
+        return (0 until subjects.length()).mapNotNull { index ->
+            val item = subjects.optJSONObject(index) ?: return@mapNotNull null
+            val id = item.optString("id").trim()
+            val name = item.optString("name").trim()
+            if (id.isBlank() || name.isBlank()) return@mapNotNull null
+            ProviderWidgetSubject(
+                id = id,
+                name = name,
+                color = item.optString("color", "#A8EF00"),
+                notebookLmAvailable = item.optBoolean("notebooklmAvailable", false),
+                materialsAvailable = item.optBoolean("materialsAvailable", false),
+                materialsWeekNumber = item.optInt("materialsWeekNumber", -1).takeIf { it >= 0 },
+            )
+        }
+    }
+
+    @Throws(ProviderWidgetException::class)
+    fun resolveWidgetTarget(subjectId: String, kind: String): ProviderWidgetTarget {
+        if (subjectId.isBlank() || kind !in setOf(LinkWidgetStore.TARGET_NOTEBOOK_LM, LinkWidgetStore.TARGET_MATERIALS)) {
+            throw ProviderWidgetException("invalid_target", false)
+        }
+        val url = runCatching {
+            "${baseUrl.trimEnd('/')}/api/inscreen/provider/widget-targets".toHttpUrl().newBuilder()
+                .addQueryParameter("subjectId", subjectId)
+                .addQueryParameter("kind", kind)
+                .build().toString()
+        }.getOrElse { throw ProviderWidgetException("invalid_provider_url", false) }
+        val payload = widgetRequest(url)
+        val targetUrl = payload.optString("url").trim()
+        if (LinkWidgetPolicy.normalizeUrl(targetUrl) == null) throw ProviderWidgetException("invalid_response", true)
+        return ProviderWidgetTarget(targetUrl, payload.optLong("revision", 0L))
+    }
+
+    private fun widgetRequest(url: String): JSONObject {
+        if (baseUrl.isBlank() || token.isBlank()) throw ProviderWidgetException("provider_not_configured", false)
+        val request = Request.Builder().url(url).header("Authorization", "Bearer $token").get().build()
+        try {
+            client.newCall(request).execute().use { response ->
+                val payload = runCatching { JSONObject(response.body?.string().orEmpty()) }.getOrNull()
+                if (!response.isSuccessful || payload?.optBoolean("ok", false) != true) {
+                    val code = payload?.optString("error")?.takeIf(String::isNotBlank) ?: "http_${response.code}"
+                    throw ProviderWidgetException(code, response.code >= 500 || response.code == 408 || response.code == 429)
+                }
+                return payload
+            }
+        } catch (error: ProviderWidgetException) {
+            throw error
+        } catch (_: IOException) {
+            throw ProviderWidgetException("network_error", true)
+        }
+    }
 
     fun request(kind: String, subjectSegment: String, day: Int, callback: (String) -> Unit) {
         val endpoint = when (kind) {
