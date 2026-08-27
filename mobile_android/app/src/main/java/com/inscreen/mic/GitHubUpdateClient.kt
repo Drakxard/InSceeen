@@ -86,3 +86,8 @@ internal object GitHubUpdateClient {
         .split('.')
         .map { it.toIntOrNull() ?: 0 }
 }
+
+internal object UpdateApkPolicy {
+    private val installerName = Regex("^InScreenMic-[0-9]+(?:\\.[0-9]+){1,3}-[0-9]+\\.apk$", RegexOption.IGNORE_CASE)
+    fun isManagedInstaller(name: String): Boolean = installerName.matches(name)
+}

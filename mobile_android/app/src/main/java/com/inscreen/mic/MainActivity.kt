@@ -163,6 +163,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        cleanupInstallersAfterUpgrade()
         buildUi()
         registerUpdateReceiver()
         registerStateReceiver()
@@ -972,6 +973,21 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun cleanupInstallersAfterUpgrade() {
+        val cleanedVersion = updatePreferences.getString(KEY_INSTALLER_CLEANUP_VERSION, "").orEmpty()
+        if (cleanedVersion == BuildConfig.VERSION_NAME) return
+        val pendingId = updatePreferences.getLong(KEY_UPDATE_DOWNLOAD_ID, -1L)
+        if (pendingId >= 0L) runCatching { getSystemService(DownloadManager::class.java).remove(pendingId) }
+        getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)?.listFiles()
+            ?.filter { it.isFile && UpdateApkPolicy.isManagedInstaller(it.name) }
+            ?.forEach { runCatching { it.delete() } }
+        updatePreferences.edit()
+            .putString(KEY_INSTALLER_CLEANUP_VERSION, BuildConfig.VERSION_NAME)
+            .remove(KEY_UPDATE_DOWNLOAD_ID)
+            .remove(KEY_AWAITING_INSTALL_PERMISSION)
+            .apply()
+    }
+
     private fun deleteSubjectModuleData(subjectId: String, subject: JSONObject) {
         val modules = subject.optJSONArray("modules")
         val moduleIds = (0 until (modules?.length() ?: 0)).mapNotNull { index ->
@@ -1374,6 +1390,7 @@ class MainActivity : ComponentActivity() {
         private const val KEY_AUTO_EXPORT_FILE = "auto_export_file"
         private const val KEY_UPDATE_DOWNLOAD_ID = "download_id"
         private const val KEY_AWAITING_INSTALL_PERMISSION = "awaiting_install_permission"
+        private const val KEY_INSTALLER_CLEANUP_VERSION = "installer_cleanup_version"
         private const val APK_MIME_TYPE = "application/vnd.android.package-archive"
     }
 }

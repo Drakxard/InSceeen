@@ -29,4 +29,11 @@ class GitHubUpdateClientTest {
         assertEquals("1.7.0", release.version)
         assertEquals("Mejoras del widget", release.notes)
     }
+
+    @Test fun recognizesOnlyUpdateInstallersManagedByInScreen() {
+        assertTrue(UpdateApkPolicy.isManagedInstaller("InScreenMic-2.0.27-1787831234.apk"))
+        assertTrue(UpdateApkPolicy.isManagedInstaller("inscreenmic-2.0-1.apk"))
+        assertFalse(UpdateApkPolicy.isManagedInstaller("InScreenMic.apk"))
+        assertFalse(UpdateApkPolicy.isManagedInstaller("otra-app-2.0.27-1787831234.apk"))
+    }
 }

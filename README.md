@@ -338,6 +338,10 @@ la versión más reciente publicada en GitHub. Si hay una nueva, InScreen descar
 permiso para instalar aplicaciones desde InScreen; luego hay que confirmar cada
 instalación.
 
+Tras iniciar por primera vez una versión nueva, InScreen elimina de su carpeta privada de
+descargas los instaladores `InScreenMic-<versión>-<fecha>.apk` de actualizaciones anteriores
+y limpia el registro pendiente de `DownloadManager`.
+
 Las versiones se publican desde etiquetas `vX.Y.Z`. El workflow de GitHub Actions
 ejecuta las pruebas, `lintDebug`, compila el APK firmado y lo adjunta al Release. El
 repositorio debe contener estos secretos de Actions, todos asociados a la misma firma
