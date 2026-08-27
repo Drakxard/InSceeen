@@ -29,6 +29,7 @@ import java.io.File
 import java.text.DateFormat
 import java.time.Instant
 import java.util.Date
+import java.util.Locale
 
 class DriveExplorerActivity : Activity() {
     private lateinit var rootId: String
