@@ -1,7 +1,6 @@
 package com.inscreen.mic
 
 import android.app.Activity
-import android.app.AlertDialog
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -22,7 +21,6 @@ import androidx.core.content.FileProvider
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.AuthorizationResult
 import com.google.android.gms.auth.api.identity.Identity
-import com.google.android.gms.auth.api.identity.RevokeAccessRequest
 import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.Scope
 import java.io.File
@@ -65,7 +63,7 @@ class DriveExplorerActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != AUTHORIZATION_REQUEST) return
-        if (resultCode != RESULT_OK || data == null) {
+        if (data == null) {
             showError("Se necesita autorizar Drive para actualizar el contenido.")
             afterAuthorization = null
             return
@@ -79,34 +77,21 @@ class DriveExplorerActivity : Activity() {
     }
 
     private fun buildUi() {
-        val accent = Color.rgb(168, 239, 0)
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.rgb(247, 248, 247))
         }
         val header = LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(8), dp(10), dp(8), dp(8))
-            setBackgroundColor(Color.rgb(7, 14, 10))
+            setPadding(dp(8), dp(8), dp(8), 0)
         }
         header.addView(Button(this).apply {
             text = "‹"
             textSize = 26f
-            setTextColor(accent)
+            setTextColor(Color.rgb(90, 120, 55))
+            setBackgroundColor(Color.TRANSPARENT)
             setOnClickListener { onBackPressed() }
         }, LinearLayout.LayoutParams(dp(54), dp(50)))
-        header.addView(TextView(this).apply {
-            text = title
-            textSize = 21f
-            setTextColor(Color.WHITE)
-            maxLines = 1
-        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        header.addView(Button(this).apply {
-            text = "Desconectar"
-            textSize = 12f
-            setTextColor(accent)
-            setOnClickListener { confirmDisconnect() }
-        })
         root.addView(header)
         pathLabel = TextView(this).apply {
             textSize = 15f
@@ -223,17 +208,6 @@ class DriveExplorerActivity : Activity() {
     }
 
     private fun effectiveMime(item: DriveItem) = DriveItemPolicy.export(item)?.first ?: item.mimeType
-
-    private fun confirmDisconnect() {
-        AlertDialog.Builder(this).setTitle("Desconectar Google")
-            .setMessage("Se eliminarán los listados y archivos de Drive guardados por InScreen.")
-            .setNegativeButton("Cancelar", null)
-            .setPositiveButton("Desconectar") { _, _ ->
-                val revoke = RevokeAccessRequest.builder().setScopes(listOf(Scope(DRIVE_READONLY))).build()
-                Identity.getAuthorizationClient(this).revokeAccess(revoke)
-                    .addOnCompleteListener { cache.clearAll(); Toast.makeText(this, "Google Drive fue desconectado.", Toast.LENGTH_SHORT).show(); finish() }
-            }.show()
-    }
 
     private fun renderPath() { pathLabel.text = path.joinToString("  ›  ") { it.name } }
     private fun setBusy(value: Boolean, message: String) { progress.visibility = if (value) View.VISIBLE else View.GONE; status.text = message }
