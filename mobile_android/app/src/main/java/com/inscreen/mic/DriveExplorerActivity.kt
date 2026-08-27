@@ -4,8 +4,10 @@ import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
@@ -24,6 +26,7 @@ import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.Scope
 import java.io.File
+import java.security.MessageDigest
 import java.text.DateFormat
 import java.time.Instant
 import java.util.Date
@@ -64,14 +67,18 @@ class DriveExplorerActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != AUTHORIZATION_REQUEST) return
         if (data == null) {
-            showError("Se necesita autorizar Drive para actualizar el contenido.")
+            showError(if (resultCode == RESULT_CANCELED) {
+                "La autorización de Google fue cancelada."
+            } else {
+                "Google cerró la autorización sin devolver una respuesta."
+            })
             afterAuthorization = null
             return
         }
         try {
             continueAuthorized(Identity.getAuthorizationClient(this).getAuthorizationResultFromIntent(data))
-        } catch (_: ApiException) {
-            showError("No se pudo autorizar el acceso a Drive.")
+        } catch (error: ApiException) {
+            showError(authorizationError(error))
             afterAuthorization = null
         }
     }
@@ -183,12 +190,20 @@ class DriveExplorerActivity : Activity() {
                 if (result.hasResolution()) {
                     try {
                         startIntentSenderForResult(result.pendingIntent!!.intentSender, AUTHORIZATION_REQUEST, null, 0, 0, 0)
-                    } catch (_: Exception) { showError("No se pudo iniciar la autorización de Google.") }
+                    } catch (error: Exception) {
+                        afterAuthorization = null
+                        showError("No se pudo abrir la autorización de Google: ${error.message ?: error.javaClass.simpleName}")
+                    }
                 } else continueAuthorized(result)
             }
-            .addOnFailureListener {
+            .addOnFailureListener { error ->
+                afterAuthorization = null
+                val message = authorizationError(error)
                 val local = cache.loadListing(rootId, path.last().id)
-                if (local != null) render(local, offline = true) else showError("No se pudo conectar con Google Drive.")
+                if (local != null) {
+                    render(local, offline = true)
+                    status.text = "Mostrando la copia guardada. $message"
+                } else showError(message)
             }
     }
 
@@ -198,6 +213,24 @@ class DriveExplorerActivity : Activity() {
         afterAuthorization = null
         if (token.isNullOrBlank() || action == null) showError("Google no entregó autorización para Drive.") else action(token)
     }
+
+    private fun authorizationError(error: Throwable): String {
+        val statusCode = (error as? ApiException)?.statusCode
+        return DriveAuthorizationError.message(statusCode, if (statusCode == 10) signingSha1() else null)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun signingSha1(): String? = runCatching {
+        val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+                .signingInfo?.apkContentsSigners
+        } else {
+            packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNATURES).signatures
+        }
+        val certificate = signatures?.firstOrNull()?.toByteArray() ?: return@runCatching null
+        MessageDigest.getInstance("SHA-1").digest(certificate)
+            .joinToString(":") { byte -> "%02X".format(byte.toInt() and 0xFF) }
+    }.getOrNull()
 
     private fun openLocal(file: File, mime: String) {
         val uri = FileProvider.getUriForFile(this, "$packageName.drive-files", file)
