@@ -179,6 +179,18 @@ destino **NotebookLM** o **Material**. Se pueden crear varios accesos independie
 fondo se adapta de círculo a elipse al cambiar el ancho y el texto ajusta
 automáticamente su tamaño.
 
+Cuando un acceso sincronizado apunta a **Material**, el enlace se abre en el explorador
+liviano incluido en InScreen en lugar de iniciar la aplicación Google Drive. La primera
+vez se solicita acceso de solo lectura a la cuenta de Google. Las carpetas visitadas y los
+archivos abiertos quedan disponibles parcialmente sin conexión; si Cursado publica un
+enlace de carpeta nuevo, InScreen elimina la copia del destino anterior.
+
+Para habilitarlo en una APK de prueba, activa Google Drive API en Google Cloud, configura
+la pantalla de consentimiento con `drive.readonly`, añade la cuenta como usuario de prueba
+y crea credenciales OAuth de tipo Android para `com.inscreen.mic` con las huellas SHA-1
+de las firmas que se utilicen. La publicación abierta requiere completar la verificación
+de Google para ese alcance.
+
 Un widget manual abre directamente su URL. Uno sincronizado consulta el destino vigente
 al tocarlo, por lo que la PC puede estar apagada una vez que Cursado haya publicado el
 cambio; ante una interrupción temporal de red conserva el último destino resuelto. Para

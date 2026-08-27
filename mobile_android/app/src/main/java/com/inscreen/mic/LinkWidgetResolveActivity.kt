@@ -8,9 +8,11 @@ import android.os.Bundle
 import android.widget.Toast
 
 class LinkWidgetResolveActivity : Activity() {
+    private var widgetId = AppWidgetManager.INVALID_APPWIDGET_ID
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val widgetId = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
+        widgetId = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
         val config = LinkWidgetStore.load(this, widgetId)
         if (widgetId == AppWidgetManager.INVALID_APPWIDGET_ID || config?.mode != LinkWidgetStore.MODE_SYNCED) {
             finish()
@@ -39,6 +41,23 @@ class LinkWidgetResolveActivity : Activity() {
     }
 
     private fun open(url: String) {
+        val config = LinkWidgetStore.load(this, widgetId)
+        if (config?.targetKind == LinkWidgetStore.TARGET_MATERIALS) {
+            val folderId = DriveLinkPolicy.folderId(url)
+            if (folderId == null) {
+                fail("El enlace de Material no apunta a una carpeta de Drive.")
+                return
+            }
+            if (config.cachedFolderId.isNotBlank() && config.cachedFolderId != folderId &&
+                !LinkWidgetStore.isFolderUsedByAnotherWidget(this, config.cachedFolderId, widgetId)
+            ) {
+                DriveCache(this).removeRoot(config.cachedFolderId)
+            }
+            LinkWidgetStore.save(this, widgetId, config.copy(cachedUrl = url, cachedFolderId = folderId))
+            startActivity(DriveExplorerActivity.intent(this, folderId, config.subjectName.ifBlank { config.name }))
+            finish()
+            return
+        }
         runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
             .onFailure { Toast.makeText(this, "No se pudo abrir el enlace.", Toast.LENGTH_LONG).show() }
         finish()

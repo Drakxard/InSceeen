@@ -66,6 +66,19 @@
             android:excludeFromRecents="true"
             android:exported="false"
             android:noHistory="true" />
+        <activity
+            android:name=".DriveExplorerActivity"
+            android:exported="false" />
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.drive-files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/drive_file_paths" />
+        </provider>
 
         <service
             android:name=".InScreenService"

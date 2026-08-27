@@ -11,6 +11,7 @@ internal data class LinkWidgetConfig(
     val subjectName: String = "",
     val targetKind: String = "",
     val cachedUrl: String = "",
+    val cachedFolderId: String = "",
 )
 
 internal object LinkWidgetStore {
@@ -26,6 +27,7 @@ internal object LinkWidgetStore {
             .putString(key(appWidgetId, "subject_name"), config.subjectName)
             .putString(key(appWidgetId, "target_kind"), config.targetKind)
             .putString(key(appWidgetId, "cached_url"), config.cachedUrl)
+            .putString(key(appWidgetId, "cached_folder_id"), config.cachedFolderId)
             .apply()
     }
 
@@ -46,6 +48,7 @@ internal object LinkWidgetStore {
             subjectName = preferences.getString(key(appWidgetId, "subject_name"), "").orEmpty(),
             targetKind = preferences.getString(key(appWidgetId, "target_kind"), "").orEmpty(),
             cachedUrl = preferences.getString(key(appWidgetId, "cached_url"), "").orEmpty(),
+            cachedFolderId = preferences.getString(key(appWidgetId, "cached_folder_id"), "").orEmpty(),
         )
     }
 
@@ -59,7 +62,16 @@ internal object LinkWidgetStore {
             .remove(key(appWidgetId, "subject_name"))
             .remove(key(appWidgetId, "target_kind"))
             .remove(key(appWidgetId, "cached_url"))
+            .remove(key(appWidgetId, "cached_folder_id"))
             .apply()
+    }
+
+    fun isFolderUsedByAnotherWidget(context: Context, folderId: String, excludedWidgetId: Int): Boolean {
+        if (folderId.isBlank()) return false
+        val suffix = "_cached_folder_id"
+        return context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).all.any { (name, value) ->
+            name.endsWith(suffix) && name != key(excludedWidgetId, "cached_folder_id") && value == folderId
+        }
     }
 
     private fun key(appWidgetId: Int, field: String) = "${appWidgetId}_$field"
