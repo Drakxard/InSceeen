@@ -43,8 +43,12 @@ internal data class DriveItem(
     val size: Long?,
     val modifiedTime: String,
     val version: String,
+    val shortcutTargetId: String? = null,
+    val shortcutTargetMimeType: String? = null,
 ) {
-    val isFolder: Boolean get() = mimeType == FOLDER_MIME
+    val effectiveId: String get() = shortcutTargetId ?: id
+    val effectiveMimeType: String get() = shortcutTargetMimeType ?: mimeType
+    val isFolder: Boolean get() = effectiveMimeType == FOLDER_MIME
 
     companion object { const val FOLDER_MIME = "application/vnd.google-apps.folder" }
 }
@@ -76,7 +80,7 @@ internal class DriveApiClient(
         do {
             val url = Uri.parse("https://www.googleapis.com/drive/v3/files").buildUpon()
                 .appendQueryParameter("q", "'$folderId' in parents and trashed = false")
-                .appendQueryParameter("fields", "nextPageToken,files(id,name,mimeType,size,modifiedTime,version,md5Checksum)")
+                .appendQueryParameter("fields", "nextPageToken,files(id,name,mimeType,size,modifiedTime,version,md5Checksum,shortcutDetails(targetId,targetMimeType))")
                 .appendQueryParameter("pageSize", "1000")
                 .appendQueryParameter("supportsAllDrives", "true")
                 .appendQueryParameter("includeItemsFromAllDrives", "true")
@@ -87,10 +91,13 @@ internal class DriveApiClient(
             val files = payload.optJSONArray("files") ?: JSONArray()
             for (index in 0 until files.length()) {
                 val value = files.getJSONObject(index)
+                val shortcut = value.optJSONObject("shortcutDetails")
                 result += DriveItem(
                     value.getString("id"), value.getString("name"), value.getString("mimeType"),
                     value.optString("size").toLongOrNull(), value.optString("modifiedTime"),
                     value.optString("md5Checksum").ifBlank { value.optString("version") },
+                    shortcut?.optString("targetId")?.takeIf { it.isNotBlank() },
+                    shortcut?.optString("targetMimeType")?.takeIf { it.isNotBlank() },
                 )
             }
             pageToken = payload.optString("nextPageToken").takeIf { it.isNotBlank() }
@@ -152,7 +159,9 @@ internal class DriveCache(private val context: Context) {
         val payload = JSONArray()
         items.forEach { item -> payload.put(JSONObject().put("id", item.id).put("name", item.name)
             .put("mimeType", item.mimeType).put("size", item.size ?: JSONObject.NULL)
-            .put("modifiedTime", item.modifiedTime).put("version", item.version)) }
+            .put("modifiedTime", item.modifiedTime).put("version", item.version)
+            .put("shortcutTargetId", item.shortcutTargetId ?: JSONObject.NULL)
+            .put("shortcutTargetMimeType", item.shortcutTargetMimeType ?: JSONObject.NULL)) }
         metadataFile(rootId, folderId).apply { parentFile?.mkdirs(); writeText(payload.toString()) }
     }
 
@@ -163,7 +172,9 @@ internal class DriveCache(private val context: Context) {
         DriveItemPolicy.sorted((0 until array.length()).map { index ->
             val item = array.getJSONObject(index)
             DriveItem(item.getString("id"), item.getString("name"), item.getString("mimeType"),
-                item.optLong("size").takeIf { !item.isNull("size") }, item.optString("modifiedTime"), item.optString("version"))
+                item.optLong("size").takeIf { !item.isNull("size") }, item.optString("modifiedTime"), item.optString("version"),
+                item.optString("shortcutTargetId").takeIf { !item.isNull("shortcutTargetId") && it.isNotBlank() },
+                item.optString("shortcutTargetMimeType").takeIf { !item.isNull("shortcutTargetMimeType") && it.isNotBlank() })
         })
     }.getOrNull()
 

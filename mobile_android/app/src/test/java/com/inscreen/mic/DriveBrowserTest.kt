@@ -30,4 +30,13 @@ class DriveBrowserTest {
         val document = DriveItem("1", "Teoría", "application/vnd.google-apps.document", null, "", "1")
         assertEquals("application/pdf" to "Teoría.pdf", DriveItemPolicy.export(document))
     }
+    @Test fun folderShortcutsResolveToTheirTarget() {
+        val shortcut = DriveItem(
+            "shortcut-id", "Semana 3", "application/vnd.google-apps.shortcut", null, "", "1",
+            "target-folder-id", DriveItem.FOLDER_MIME,
+        )
+
+        assertEquals(true, shortcut.isFolder)
+        assertEquals("target-folder-id", shortcut.effectiveId)
+    }
 }

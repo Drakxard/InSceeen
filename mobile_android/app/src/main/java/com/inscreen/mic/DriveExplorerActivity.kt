@@ -160,8 +160,8 @@ class DriveExplorerActivity : Activity() {
 
     private fun open(item: DriveItem) {
         if (item.isFolder) {
-            path += Folder(item.id, item.name)
-            load(item.id)
+            path += Folder(item.effectiveId, item.name)
+            load(item.effectiveId)
             return
         }
         val existing = cache.downloaded(rootId, item)
