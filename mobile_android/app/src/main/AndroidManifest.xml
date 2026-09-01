@@ -67,6 +67,11 @@
             android:exported="false"
             android:noHistory="true" />
         <activity
+            android:name=".SynthesisWidgetResolveActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true" />
+        <activity
             android:name=".DriveExplorerActivity"
             android:exported="false" />
 
@@ -115,6 +120,16 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/link_widget_info" />
+        </receiver>
+        <receiver
+            android:name=".SynthesisWidgetProvider"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/synthesis_widget_info" />
         </receiver>
     </application>
 </manifest>

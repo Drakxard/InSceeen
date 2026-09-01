@@ -5,4 +5,7 @@
     <string name="widget_description">Materia actual de Apriori; tocá para abrir su módulo</string>
     <string name="link_widget_description">Acceso directo configurable a un enlace web</string>
     <string name="link_widget_content_description">Abrir %1$s</string>
+    <string name="synthesis_widget_label">SÍNTESIS</string>
+    <string name="synthesis_widget_description">Abrir el módulo Síntesis y comprobar su versión</string>
+    <string name="synthesis_widget_no_subject">Creá una materia en Apriori antes de abrir Síntesis.</string>
 </resources>

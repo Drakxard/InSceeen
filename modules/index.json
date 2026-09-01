@@ -13,6 +13,10 @@
       "nombre": "Anotaciones",
       "entry": "modules/anotaciones/index.html"
     },{
+      "id": "sintesis",
+      "nombre": "Síntesis",
+      "entry": "modules/sintesis/index.html"
+    },{
       "id": "test",
       "nombre": "Testeo",
       "entry": "modules/test/index.html"

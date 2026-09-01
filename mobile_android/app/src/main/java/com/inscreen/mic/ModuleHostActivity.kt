@@ -84,6 +84,7 @@ class ModuleHostActivity : Activity() {
 
     @SuppressLint("SetJavaScriptEnabled", "AddJavascriptInterface")
     private fun showModule(module: ModuleCatalog.Module, persistAssignment: Boolean = false, forceRefresh: Boolean = false) {
+        val cachedBeforeRefresh = if (forceRefresh) moduleCache.read(subjectId, module) else null
         if (!forceRefresh) moduleCache.read(subjectId, module)?.let { cached ->
             val assignmentReady = !persistAssignment || AprioriStore.addModule(this, subjectId, module)
             if (assignmentReady) {
@@ -123,7 +124,18 @@ class ModuleHostActivity : Activity() {
                     ).show()
                     showModuleHtml(module, packageFiles.html)
                 },
-                onFailure = { showModuleLoadError(module, persistAssignment, forceRefresh, it) },
+                onFailure = { cause ->
+                    if (cachedBeforeRefresh != null) {
+                        Toast.makeText(
+                            this@ModuleHostActivity,
+                            "No se pudo comprobar la actualización. Se abrió la copia guardada.",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                        showModuleHtml(module, cachedBeforeRefresh)
+                    } else {
+                        showModuleLoadError(module, persistAssignment, forceRefresh, cause)
+                    }
+                },
             )
         }}
     }
@@ -630,6 +642,14 @@ class ModuleHostActivity : Activity() {
          )
 
         internal fun updateAssigned(context: Context, subjectId: String, module: ModuleCatalog.Module) = context.startActivity(
+            intent(context, subjectId)
+                .putExtra(EXTRA_SELECTED_MODULE, ModuleSelection.serialize(module))
+                .putExtra(EXTRA_PERSIST_ASSIGNMENT, false)
+                .putExtra(EXTRA_FORCE_REFRESH, true)
+        )
+
+        /** Busca la versión remota en cada acceso; la caché existente queda como respaldo. */
+        internal fun openRefreshing(context: Context, subjectId: String, module: ModuleCatalog.Module) = context.startActivity(
             intent(context, subjectId)
                 .putExtra(EXTRA_SELECTED_MODULE, ModuleSelection.serialize(module))
                 .putExtra(EXTRA_PERSIST_ASSIGNMENT, false)
