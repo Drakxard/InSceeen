@@ -1,7 +1,7 @@
 :root { color-scheme: dark; font-family: Georgia, "Times New Roman", serif; }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html,body { width:100%; min-height:100%; margin:0; overflow:hidden; }
-body { min-height:100vh; min-height:100dvh; color:#fff4dc; background:#7d3218 url("sintesis-fondo.jpg") center/cover fixed no-repeat; user-select:none; -webkit-user-select:none; }
+body { min-height:100vh; min-height:100dvh; color:#fff4dc; background:#a65d3b url("sintesis-fondo.jpg") center/cover no-repeat; user-select:none; -webkit-user-select:none; }
 button,input { font:inherit; } button { touch-action:manipulation; } [hidden] { display:none!important; }.view { position:fixed; inset:0; }
 #board { position:absolute; inset:0; overflow:hidden; touch-action:none; }.tree-header { position:absolute; z-index:8; top:max(8px,env(safe-area-inset-top)); left:8px; height:76px; }
 .plaque { width:clamp(128px,37vw,190px); height:clamp(66px,19vw,98px); padding:12px 18px; border:0; color:#fff4dc; background:transparent url("/app-res/drawable/synthesis_plaque.png") center/contain no-repeat; display:grid; place-items:center; text-align:center; font-weight:700; letter-spacing:.045em; text-shadow:0 1px 3px rgba(0,0,0,.75); overflow-wrap:anywhere; }
