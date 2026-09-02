@@ -53,7 +53,16 @@
     button.textContent = name;
     button.setAttribute('aria-label', name);
     parent.appendChild(button);
+    fitPlaqueText(button);
     return button;
+  }
+
+  function fitPlaqueText(plaque) {
+    let size = plaque.classList.contains('header-plaque') ? 13 : 16;
+    plaque.style.fontSize = `${size}px`;
+    while (size > 8 && (plaque.scrollHeight > plaque.clientHeight || plaque.scrollWidth > plaque.clientWidth)) {
+      size -= .5; plaque.style.fontSize = `${size}px`;
+    }
   }
 
   function bindPress(element, onTap, onHold) {
@@ -106,10 +115,12 @@
     } else elements.treeHeader.hidden = true;
 
     const nodes = core.children(state, currentParentId);
+    const furthestY = nodes.reduce((maximum, node) => Math.max(maximum, node.y), 0);
+    elements.board.style.height = `${Math.max(1.5, furthestY + .4) * 100}dvh`;
     for (const node of nodes) {
       const plaque = makePlaque(node.name, 'node-plaque', elements.board);
       plaque.style.left = `${node.x * 100}%`;
-      plaque.style.top = `${node.y * 100}%`;
+      plaque.style.top = `${node.y * 100}dvh`;
       plaque.style.transform = `translate(-50%,-50%) scale(${node.scale})`;
       plaque.setAttribute('aria-label', `${node.name}. Toca para entrar; mantén para abrir su hoja.`);
       bindNodeGestures(plaque, node);
@@ -132,7 +143,11 @@
       if (pointers.size === 1) {
         const current = state.nodes[node.id];
         if (!current) return;
-        gesture = { start: point(event), origin: { x: current.x, y: current.y }, scale: current.scale, moved: false, held: false };
+        const cursor = boardPoint(event);
+        gesture = {
+          start: point(event), origin: { x: current.x, y: current.y }, scale: current.scale,
+          grab: { x: cursor.x - current.x, y: cursor.y - current.y }, moved: false, held: false
+        };
         gesture.timer = setTimeout(() => {
           if (!gesture || gesture.moved || pointers.size !== 1) return;
           gesture.held = true; openSheet(node.id);
@@ -154,9 +169,13 @@
       const dy = event.clientY - gesture.start.y;
       if (!gesture.moved && Math.hypot(dx, dy) <= MOVE_TOLERANCE) return;
       clearTimeout(gesture.timer); gesture.moved = true;
-      const rect = elements.board.getBoundingClientRect();
-      const next = boardPoint({ clientX: rect.left + gesture.origin.x * rect.width + dx, clientY: rect.top + gesture.origin.y * rect.height + dy });
-      plaque.style.left = `${next.x * 100}%`; plaque.style.top = `${next.y * 100}%`; gesture.previewPoint = next;
+      const cursor = boardPoint(event);
+      const minimumY = currentParentId === null ? .08 : .18;
+      const next = {
+        x: Math.max(.12, Math.min(.88, cursor.x - gesture.grab.x)),
+        y: Math.max(minimumY, Math.min(50, cursor.y - gesture.grab.y))
+      };
+      plaque.style.left = `${next.x * 100}%`; plaque.style.top = `${next.y * 100}dvh`; gesture.previewPoint = next;
     });
     const finish = event => {
       if (!pointers.has(event.pointerId) || !gesture) return;
@@ -178,7 +197,8 @@
     const rect = elements.board.getBoundingClientRect();
     const x = Math.max(.12, Math.min(.88, (event.clientX - rect.left) / Math.max(1, rect.width)));
     const minimumY = currentParentId === null ? .08 : .18;
-    const y = Math.max(minimumY, Math.min(.92, (event.clientY - rect.top) / Math.max(1, rect.height)));
+    const viewportHeight = Math.max(1, elements.treeView.clientHeight);
+    const y = Math.max(minimumY, Math.min(50, (event.clientY - rect.top) / viewportHeight));
     return { x, y };
   }
 
@@ -213,7 +233,7 @@
     const wrapper = document.createElement('div');
     wrapper.className = 'plaque draft-plaque';
     wrapper.style.left = `${point.x * 100}%`;
-    wrapper.style.top = `${point.y * 100}%`;
+    wrapper.style.top = `${point.y * 100}dvh`;
     wrapper.style.transform = `translate(-50%,-50%) scale(${state.defaultScale})`;
     const input = document.createElement('input');
     input.maxLength = core.MAX_NAME;
@@ -346,7 +366,8 @@
       const result = await window.InScreen?.module?.portapapeles?.();
       const text = result?.ok ? String(result.texto ?? '') : '';
       if (!text.trim()) return showToast(result?.ok ? 'El portapapeles está vacío.' : 'No se pudo leer el portapapeles.');
-      const content = node.content.trim() ? `${node.content.trimEnd()}\n\n${text.trimStart()}` : text;
+      const importedText = core.stripSourceReferences(text);
+      const content = node.content.trim() ? `${node.content.trimEnd()}\n\n${importedText.trimStart()}` : importedText;
       const next = core.setContent(state, node.id, content);
       if (acceptState(next)) { renderContent(content); showToast(node.content.trim() ? 'Contenido agregado debajo.' : 'Contenido importado.'); }
     } catch (_) { showToast('No se pudo leer el portapapeles.'); }

@@ -24,6 +24,8 @@ test('mueve y aplica la escala global a elementos existentes y posteriores', () 
   let state = tree();
   state = core.moveNode(state, 'tap', .91, -.4);
   assert.deepEqual([state.nodes.tap.x, state.nodes.tap.y], [.91, 0]);
+  state = core.moveNode(state, 'tap', .91, 2.4);
+  assert.equal(state.nodes.tap.y, 2.4);
   state = core.scaleNode(state, 'tap', 9);
   assert.equal(state.nodes.tap.scale, core.MAX_SCALE);
   assert.equal(state.nodes.prog3.scale, core.MAX_SCALE);
@@ -90,6 +92,15 @@ test('rechaza JSON vacío, mal formado o excesivo', () => {
 
 test('acepta JSON envuelto en un bloque de código', () => {
   assert.deepEqual(core.parseOutline('```json\n{"temas":["Uno"]}\n```'), [{ name: 'Uno', children: [] }]);
+});
+
+test('elimina referencias numéricas de NotebookLM al importar', () => {
+  const outline = core.parseOutline({ temas: [
+    { nombre: 'Ecuaciones [1]', subtemas: ['Definición [5,7]', 'Caso [x]'] }
+  ] });
+  assert.equal(outline[0].name, 'Ecuaciones');
+  assert.deepEqual(outline[0].children.map(item => item.name), ['Definición', 'Caso [x]']);
+  assert.equal(core.stripSourceReferences('Texto [1]. Otro [5, 7] final.'), 'Texto. Otro final.');
 });
 
 test('normaliza delimitadores y comandos LaTeX duplicados al renderizar', () => {

@@ -45,12 +45,13 @@ async function main() {
   const send = (method, params = {}) => new Promise((resolve, reject) => { const id = ++sequence; pending.set(id, { resolve, reject }); socket.send(JSON.stringify({ id, method, params })); });
   const evaluate = async expression => (await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true })).result.value;
   await send('Page.enable');
-  const clipboardText = '# Explicación\n\n- Punto **importante**\n\n| Tema | Valor |\n| --- | --- |\n| Fórmula | $$x^2$$ |\n\n```js\nconst seguro = true;\n```';
+  const clipboardText = '# Explicación [1]\n\n- Punto **importante** [5,7]\n\n| Tema | Valor |\n| --- | --- |\n| Fórmula | $$x^2$$ |\n\n```js\nconst seguro = true;\n```';
   await send('Page.addScriptToEvaluateOnNewDocument', { source: `window.__copied='';window.__clipboard=${JSON.stringify(clipboardText)};window.InScreen={module:{portapapeles:async()=>({ok:true,texto:window.__clipboard}),escribirPortapapeles:async text=>(window.__copied=text,{ok:true})}};` });
   await send('Page.reload');
   await delay(600);
   await evaluate(`localStorage.clear();location.reload()`);
   await delay(600);
+  if (!await evaluate(`document.querySelector('#board').scrollHeight>document.querySelector('#treeView').clientHeight`)) throw new Error('El tablero no ofrece desplazamiento vertical');
   const hold = async (selector, x, y) => {
     await evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});e.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0,pointerId:1,clientX:${x},clientY:${y}}))})()`);
     await delay(620);
@@ -60,7 +61,8 @@ async function main() {
     const found = await evaluate(`Boolean(document.querySelector('.draft-plaque input'))`); if (!found) throw new Error('No se creó el editor');
     await evaluate(`(()=>{const e=document.querySelector('.draft-plaque input');e.value=${JSON.stringify(name)};e.dispatchEvent(new Event('blur'))})()`); await delay(80);
   };
-  await hold('#board', 250, 280); await nameDraft('Prog3');
+  await hold('#board', 250, 280); await nameDraft('Modelos con Ecuaciones Diferenciales No Lineales');
+  if (!await evaluate(`(()=>{const e=document.querySelector('.node-plaque');return e.scrollHeight<=e.clientHeight&&e.scrollWidth<=e.clientWidth})()`)) throw new Error('El nombre largo desborda la placa');
   await evaluate(`(()=>{const e=document.querySelector('.node-plaque'),r=e.getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2;e.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0,pointerId:20,clientX:x,clientY:y}));e.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,button:0,pointerId:20,clientX:x+45,clientY:y+35}));e.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,button:0,pointerId:20,clientX:x+45,clientY:y+35}))})()`); await delay(50);
   if (!await evaluate(`JSON.parse(localStorage.getItem('inscreen.sintesis.tree.v1')).nodes[Object.keys(JSON.parse(localStorage.getItem('inscreen.sintesis.tree.v1')).nodes)[0]].x>.5`)) throw new Error('No se guardó el arrastre');
   const firstDragX = await evaluate(`JSON.parse(localStorage.getItem('inscreen.sintesis.tree.v1')).nodes[Object.keys(JSON.parse(localStorage.getItem('inscreen.sintesis.tree.v1')).nodes)[0]].x`);
@@ -78,6 +80,7 @@ async function main() {
   await evaluate(`window.__clipboard=${JSON.stringify(clipboardText)}`);
   await evaluate(`document.querySelector('#clipboardButton').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0,pointerId:3}));document.querySelector('#clipboardButton').dispatchEvent(new PointerEvent('pointerup',{bubbles:true,button:0,pointerId:3}))`); await delay(100);
   if (!await evaluate(`document.querySelectorAll('#sheetContent .katex').length>0&&document.querySelectorAll('#sheetContent table').length===1&&document.querySelectorAll('#sheetContent pre code').length===1`)) throw new Error('Markdown o KaTeX no se representaron');
+  if (await evaluate(`document.querySelector('#sheetContent').innerText.includes('[1]')||document.querySelector('#sheetContent').innerText.includes('[5,7]')`)) throw new Error('No se limpiaron las referencias de NotebookLM');
   await evaluate(`window.__clipboard='## Ampliación\\n\\nContenido adicional.';document.querySelector('#clipboardButton').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0,pointerId:4}));document.querySelector('#clipboardButton').dispatchEvent(new PointerEvent('pointerup',{bubbles:true,button:0,pointerId:4}))`); await delay(80);
   if (!await evaluate(`document.querySelector('#sheetContent').innerText.includes('Explicación')&&document.querySelector('#sheetContent').innerText.includes('Ampliación')`)) throw new Error('No se agregó el contenido debajo');
   await hold('#sheetContent', 240, 300); await delay(80);
@@ -89,7 +92,7 @@ async function main() {
   await evaluate(`document.querySelector('#menuOverlay').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}))`);
   await hold('#clipboardButton', 430, 30); await delay(80);
   const result = await evaluate(`({copied:window.__copied,nodes:Object.keys(JSON.parse(localStorage.getItem('inscreen.sintesis.tree.v1')).nodes).length,plaque:getComputedStyle(document.querySelector('.header-plaque')).backgroundImage})`);
-  if (result.copied !== 'Prog3, TAP' || result.nodes !== 3 || !result.plaque.includes('synthesis_plaque')) throw new Error(`Estado inesperado: ${JSON.stringify(result)}`);
+  if (result.copied !== 'Modelos con Ecuaciones Diferenciales No Lineales, TAP' || result.nodes !== 3 || !result.plaque.includes('synthesis_plaque')) throw new Error(`Estado inesperado: ${JSON.stringify(result)}`);
   await send('Page.reload'); await delay(500);
   if (await evaluate(`Object.keys(JSON.parse(localStorage.getItem('inscreen.sintesis.tree.v1')).nodes).length`) !== 3) throw new Error('El árbol no persistió al reabrir');
   socket.close();

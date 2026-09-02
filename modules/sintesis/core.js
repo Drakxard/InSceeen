@@ -12,7 +12,12 @@
 
   const emptyState = () => ({ version: VERSION, defaultScale: 1, nodes: {} });
   const cleanName = value => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, MAX_NAME);
+  const stripSourceReferences = value => String(value ?? '')
+    .replace(/\[(?:\d+\s*)(?:,\s*\d+\s*)*\]/g, '')
+    .replace(/[ \t]+(?=[,.;:!?])/g, '')
+    .replace(/[ \t]{2,}/g, ' ');
   const finiteUnit = value => Number.isFinite(Number(value)) ? Math.max(0, Math.min(1, Number(value))) : 0.5;
+  const finiteY = value => Number.isFinite(Number(value)) ? Math.max(0, Math.min(50, Number(value))) : 0.5;
   const finiteScale = value => Number.isFinite(Number(value)) ? Math.max(MIN_SCALE, Math.min(MAX_SCALE, Number(value))) : 1;
 
   function normalizeState(raw) {
@@ -29,7 +34,7 @@
         parentId: candidate.parentId == null ? null : String(candidate.parentId),
         name,
         x: finiteUnit(candidate.x),
-        y: finiteUnit(candidate.y),
+        y: finiteY(candidate.y),
         scale: finiteScale(candidate.scale),
         content: typeof candidate.content === 'string' ? candidate.content : ''
       };
@@ -54,7 +59,7 @@
     if (!/^[A-Za-z0-9_-]{1,80}$/.test(id) || next.nodes[id] || !name) throw new Error('invalid_node');
     const parentId = node.parentId == null ? null : String(node.parentId);
     if (parentId !== null && !next.nodes[parentId]) throw new Error('parent_not_found');
-    next.nodes[id] = { id, parentId, name, x: finiteUnit(node.x), y: finiteUnit(node.y), scale: finiteScale(node.scale ?? next.defaultScale), content: '' };
+    next.nodes[id] = { id, parentId, name, x: finiteUnit(node.x), y: finiteY(node.y), scale: finiteScale(node.scale ?? next.defaultScale), content: '' };
     return next;
   }
 
@@ -62,7 +67,7 @@
     const next = normalizeState(state);
     if (!next.nodes[id]) throw new Error('node_not_found');
     next.nodes[id].x = finiteUnit(x);
-    next.nodes[id].y = finiteUnit(y);
+    next.nodes[id].y = finiteY(y);
     return next;
   }
 
@@ -142,11 +147,11 @@
     const normalize = (item, depth) => {
       if (depth > 12 || ++count > 200) throw new Error('outline_too_large');
       if (typeof item === 'string') {
-        const name = cleanName(item); if (!name) throw new Error('invalid_outline_item');
+        const name = cleanName(stripSourceReferences(item)); if (!name) throw new Error('invalid_outline_item');
         return { name, children: [] };
       }
       if (!item || typeof item !== 'object') throw new Error('invalid_outline_item');
-      const name = cleanName(item.nombre ?? item.name ?? item.tema ?? item.title);
+      const name = cleanName(stripSourceReferences(item.nombre ?? item.name ?? item.tema ?? item.title));
       if (!name) throw new Error('invalid_outline_item');
       const children = item.subtemas ?? item.temas ?? item.children ?? item.items ?? [];
       if (!Array.isArray(children)) throw new Error('invalid_outline_item');
@@ -181,5 +186,5 @@
     return { state: next, imported };
   }
 
-  return { VERSION, MAX_NAME, MIN_SCALE, MAX_SCALE, emptyState, normalizeState, addNode, moveNode, scaleNode, renameNode, setContent, children, branchIds, deleteBranch, path, parseOutline, importOutline, cleanName };
+  return { VERSION, MAX_NAME, MIN_SCALE, MAX_SCALE, emptyState, normalizeState, addNode, moveNode, scaleNode, renameNode, setContent, children, branchIds, deleteBranch, path, parseOutline, importOutline, cleanName, stripSourceReferences };
 }));
