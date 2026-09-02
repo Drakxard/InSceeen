@@ -5,15 +5,19 @@
 }(globalThis, function () {
   'use strict';
 
-  const VERSION = 1;
+  const VERSION = 2;
   const MAX_NAME = 80;
+  const MIN_SCALE = 0.65;
+  const MAX_SCALE = 1.8;
 
-  const emptyState = () => ({ version: VERSION, nodes: {} });
+  const emptyState = () => ({ version: VERSION, defaultScale: 1, nodes: {} });
   const cleanName = value => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, MAX_NAME);
   const finiteUnit = value => Number.isFinite(Number(value)) ? Math.max(0, Math.min(1, Number(value))) : 0.5;
+  const finiteScale = value => Number.isFinite(Number(value)) ? Math.max(MIN_SCALE, Math.min(MAX_SCALE, Number(value))) : 1;
 
   function normalizeState(raw) {
     const state = emptyState();
+    state.defaultScale = finiteScale(raw?.defaultScale);
     const source = raw && typeof raw === 'object' && raw.nodes && typeof raw.nodes === 'object' ? raw.nodes : {};
     for (const [key, candidate] of Object.entries(source)) {
       if (!candidate || typeof candidate !== 'object') continue;
@@ -26,6 +30,7 @@
         name,
         x: finiteUnit(candidate.x),
         y: finiteUnit(candidate.y),
+        scale: finiteScale(candidate.scale),
         content: typeof candidate.content === 'string' ? candidate.content : ''
       };
     }
@@ -49,7 +54,24 @@
     if (!/^[A-Za-z0-9_-]{1,80}$/.test(id) || next.nodes[id] || !name) throw new Error('invalid_node');
     const parentId = node.parentId == null ? null : String(node.parentId);
     if (parentId !== null && !next.nodes[parentId]) throw new Error('parent_not_found');
-    next.nodes[id] = { id, parentId, name, x: finiteUnit(node.x), y: finiteUnit(node.y), content: '' };
+    next.nodes[id] = { id, parentId, name, x: finiteUnit(node.x), y: finiteUnit(node.y), scale: finiteScale(node.scale ?? next.defaultScale), content: '' };
+    return next;
+  }
+
+  function moveNode(state, id, x, y) {
+    const next = normalizeState(state);
+    if (!next.nodes[id]) throw new Error('node_not_found');
+    next.nodes[id].x = finiteUnit(x);
+    next.nodes[id].y = finiteUnit(y);
+    return next;
+  }
+
+  function scaleNode(state, id, scale) {
+    const next = normalizeState(state);
+    if (!next.nodes[id]) throw new Error('node_not_found');
+    const normalized = finiteScale(scale);
+    next.nodes[id].scale = normalized;
+    next.defaultScale = normalized;
     return next;
   }
 
@@ -148,7 +170,8 @@
         next = addNode(next, {
           id, parentId: parent, name: item.name,
           x: .18 + (slot % 3) * .32,
-          y: .20 + (Math.floor(slot / 3) % 4) * .22
+          y: .20 + (Math.floor(slot / 3) % 4) * .22,
+          scale: next.defaultScale
         });
         imported++;
         addItems(item.children, id);
@@ -158,5 +181,5 @@
     return { state: next, imported };
   }
 
-  return { VERSION, MAX_NAME, emptyState, normalizeState, addNode, renameNode, setContent, children, branchIds, deleteBranch, path, parseOutline, importOutline, cleanName };
+  return { VERSION, MAX_NAME, MIN_SCALE, MAX_SCALE, emptyState, normalizeState, addNode, moveNode, scaleNode, renameNode, setContent, children, branchIds, deleteBranch, path, parseOutline, importOutline, cleanName };
 }));

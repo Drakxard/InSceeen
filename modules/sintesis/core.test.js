@@ -2,6 +2,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const core = require('./core.js');
+const markdown = require('./markdown.js');
 
 function tree() {
   let state = core.emptyState();
@@ -15,7 +16,26 @@ test('crea nodos persistibles y conserva posiciones relativas', () => {
   const state = tree();
   assert.deepEqual(core.children(state, 'prog3').map(node => node.id), ['tap']);
   assert.equal(state.nodes.listas.x, .6);
+  assert.equal(state.nodes.listas.scale, 1);
   assert.equal(core.normalizeState(JSON.parse(JSON.stringify(state))).nodes.listas.name, 'Listas Enlazadas');
+});
+
+test('mueve, limita la escala y la hereda en elementos posteriores', () => {
+  let state = tree();
+  state = core.moveNode(state, 'tap', .91, -.4);
+  assert.deepEqual([state.nodes.tap.x, state.nodes.tap.y], [.91, 0]);
+  state = core.scaleNode(state, 'tap', 9);
+  assert.equal(state.nodes.tap.scale, core.MAX_SCALE);
+  assert.equal(state.defaultScale, core.MAX_SCALE);
+  state = core.addNode(state, { id: 'nuevo', parentId: null, name: 'Nuevo', x: .5, y: .5 });
+  assert.equal(state.nodes.nuevo.scale, core.MAX_SCALE);
+});
+
+test('migra estados anteriores con escala normal', () => {
+  const state = core.normalizeState({ version: 1, nodes: { viejo: { id: 'viejo', name: 'Viejo', x: .2, y: .3 } } });
+  assert.equal(state.version, core.VERSION);
+  assert.equal(state.defaultScale, 1);
+  assert.equal(state.nodes.viejo.scale, 1);
 });
 
 test('produce la ruta completa y actualiza nombre y contenido', () => {
@@ -68,4 +88,9 @@ test('rechaza JSON vacío, mal formado o excesivo', () => {
 
 test('acepta JSON envuelto en un bloque de código', () => {
   assert.deepEqual(core.parseOutline('```json\n{"temas":["Uno"]}\n```'), [{ name: 'Uno', children: [] }]);
+});
+
+test('normaliza delimitadores y comandos LaTeX duplicados al renderizar', () => {
+  assert.equal(markdown.normalizeImportedMath('\\\\[\\\\frac{dy}{dx}=y\\\\]'), '\\[\\frac{dy}{dx}=y\\]');
+  assert.equal(markdown.normalizeImportedMath('ruta \\\\ servidor'), 'ruta \\\\ servidor');
 });

@@ -81,10 +81,19 @@
   const tableCells = line => line.trim().replace(/^\||\|$/g, '').split('|').map(value => value.trim());
   const tableRule = line => /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
 
+  function normalizeImportedMath(source) {
+    const delimiters = String(source ?? '')
+      .replace(/\\\\\[/g, '\\[').replace(/\\\\\]/g, '\\]')
+      .replace(/\\\\\(/g, '\\(').replace(/\\\\\)/g, '\\)');
+    return delimiters.replace(/(\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\))/g, math =>
+      math.replace(/\\\\(?=[A-Za-z])/g, '\\')
+    );
+  }
+
   function render(container, source) {
     const doc = container.ownerDocument;
     container.replaceChildren();
-    const lines = String(source ?? '').replace(/\r\n?/g, '\n').split('\n');
+    const lines = normalizeImportedMath(source).replace(/\r\n?/g, '\n').split('\n');
     let index = 0;
     while (index < lines.length) {
       const line = lines[index];
@@ -142,5 +151,5 @@
     return container;
   }
 
-  return { render, mathAt };
+  return { render, mathAt, normalizeImportedMath };
 }));

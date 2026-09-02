@@ -7,17 +7,17 @@
   const core = window.SynthesisCore;
   const markdown = window.SynthesisMarkdown;
   const elements = Object.fromEntries([
-    'treeView','treeHeader','outlineButton','board','emptyHint','sheetView','sheetBack','clipboardButton','menuButton',
-    'sheetContent','sheetEmpty','toast','menuOverlay','menuTitle','renameAction','deleteAction','closeMenu',
-    'renameOverlay','renameForm','renameInput','cancelRename','deleteOverlay','deleteSummary','cancelDelete','confirmDelete',
-    'pasteOverlay','replacePaste','appendPaste','cancelPaste'
+    'treeView','treeHeader','outlineButton','board','sheetView','sheetBack','clipboardButton','menuButton',
+    'sheetContent','sheetEmpty','toast','menuOverlay','renameAction','deleteAction',
+    'renameOverlay','renameForm','renameInput','cancelRename'
   ].map(id => [id, document.getElementById(id)]));
 
   let state = loadState();
   let currentParentId = null;
   let sheetNodeId = null;
   let activeDraft = null;
-  let pendingSheetPaste = '';
+  let sheetEditor = null;
+  let editorSaveTimer = 0;
   let toastTimer = 0;
 
   function loadState() {
@@ -90,6 +90,7 @@
   }
 
   function renderTree() {
+    commitSheetEditor();
     sheetNodeId = null;
     elements.sheetView.hidden = true;
     elements.treeView.hidden = false;
@@ -105,14 +106,69 @@
     } else elements.treeHeader.hidden = true;
 
     const nodes = core.children(state, currentParentId);
-    elements.emptyHint.hidden = nodes.length > 0;
     for (const node of nodes) {
       const plaque = makePlaque(node.name, 'node-plaque', elements.board);
       plaque.style.left = `${node.x * 100}%`;
       plaque.style.top = `${node.y * 100}%`;
+      plaque.style.transform = `translate(-50%,-50%) scale(${node.scale})`;
       plaque.setAttribute('aria-label', `${node.name}. Toca para entrar; mantén para abrir su hoja.`);
-      bindPress(plaque, () => { currentParentId = node.id; renderTree(); }, () => openSheet(node.id));
+      bindNodeGestures(plaque, node);
     }
+  }
+
+  function bindNodeGestures(plaque, node) {
+    const pointers = new Map();
+    let gesture = null;
+    const point = event => ({ x: event.clientX, y: event.clientY });
+    const distance = () => {
+      const values = [...pointers.values()];
+      return values.length < 2 ? 0 : Math.hypot(values[0].x - values[1].x, values[0].y - values[1].y);
+    };
+    plaque.addEventListener('pointerdown', event => {
+      if (event.button !== 0) return;
+      event.stopPropagation();
+      pointers.set(event.pointerId, point(event));
+      try { plaque.setPointerCapture(event.pointerId); } catch (_) {}
+      if (pointers.size === 1) {
+        gesture = { start: point(event), origin: { x: node.x, y: node.y }, moved: false, held: false };
+        gesture.timer = setTimeout(() => {
+          if (!gesture || gesture.moved || pointers.size !== 1) return;
+          gesture.held = true; openSheet(node.id);
+        }, HOLD_MS);
+      } else if (pointers.size === 2 && gesture) {
+        clearTimeout(gesture.timer); gesture.moved = true;
+        gesture.pinchDistance = distance(); gesture.pinchScale = node.scale;
+      }
+    });
+    plaque.addEventListener('pointermove', event => {
+      if (!pointers.has(event.pointerId) || !gesture) return;
+      pointers.set(event.pointerId, point(event));
+      if (pointers.size >= 2) {
+        const scale = Math.max(core.MIN_SCALE, Math.min(core.MAX_SCALE, gesture.pinchScale * distance() / Math.max(1, gesture.pinchDistance)));
+        plaque.style.transform = `translate(-50%,-50%) scale(${scale})`;
+        gesture.previewScale = scale; return;
+      }
+      const dx = event.clientX - gesture.start.x;
+      const dy = event.clientY - gesture.start.y;
+      if (!gesture.moved && Math.hypot(dx, dy) <= MOVE_TOLERANCE) return;
+      clearTimeout(gesture.timer); gesture.moved = true;
+      const rect = elements.board.getBoundingClientRect();
+      const next = boardPoint({ clientX: rect.left + gesture.origin.x * rect.width + dx, clientY: rect.top + gesture.origin.y * rect.height + dy });
+      plaque.style.left = `${next.x * 100}%`; plaque.style.top = `${next.y * 100}%`; gesture.previewPoint = next;
+    });
+    const finish = event => {
+      if (!pointers.has(event.pointerId) || !gesture) return;
+      pointers.delete(event.pointerId);
+      if (pointers.size) return;
+      clearTimeout(gesture.timer);
+      const completed = gesture; gesture = null;
+      if (completed.previewScale != null) acceptState(core.scaleNode(state, node.id, completed.previewScale));
+      if (completed.previewPoint) acceptState(core.moveNode(state, node.id, completed.previewPoint.x, completed.previewPoint.y));
+      if (!completed.moved && !completed.held) { currentParentId = node.id; renderTree(); }
+    };
+    plaque.addEventListener('pointerup', finish);
+    plaque.addEventListener('pointercancel', finish);
+    plaque.addEventListener('contextmenu', event => event.preventDefault());
   }
 
   function boardPoint(event) {
@@ -155,6 +211,7 @@
     wrapper.className = 'plaque draft-plaque';
     wrapper.style.left = `${point.x * 100}%`;
     wrapper.style.top = `${point.y * 100}%`;
+    wrapper.style.transform = `translate(-50%,-50%) scale(${state.defaultScale})`;
     const input = document.createElement('input');
     input.maxLength = core.MAX_NAME;
     input.setAttribute('aria-label', 'Nombre del nuevo elemento');
@@ -177,7 +234,7 @@
     draft.wrapper.remove();
     if (!name) return true;
     try {
-      const next = core.addNode(state, { id: newId(), parentId: currentParentId, name, x: draft.point.x, y: draft.point.y });
+      const next = core.addNode(state, { id: newId(), parentId: currentParentId, name, x: draft.point.x, y: draft.point.y, scale: state.defaultScale });
       if (acceptState(next)) renderTree();
     } catch (_) { showToast('No se pudo crear el elemento.'); }
     return true;
@@ -230,6 +287,39 @@
     }
   }
 
+  function beginSheetEditor() {
+    const node = state.nodes[sheetNodeId];
+    if (!node || sheetEditor) return;
+    const textarea = document.createElement('textarea');
+    textarea.className = 'sheet-editor';
+    textarea.setAttribute('aria-label', 'Editar contenido de la hoja');
+    textarea.value = node.content;
+    elements.sheetContent.hidden = true; elements.sheetEmpty.hidden = true;
+    elements.sheetContent.after(textarea); sheetEditor = textarea;
+    textarea.addEventListener('input', () => {
+      clearTimeout(editorSaveTimer);
+      editorSaveTimer = setTimeout(() => {
+        const current = state.nodes[sheetNodeId];
+        if (sheetEditor === textarea && current && textarea.value !== current.content) acceptState(core.setContent(state, current.id, textarea.value));
+      }, 180);
+    });
+    textarea.addEventListener('blur', commitSheetEditor, { once: true });
+    setTimeout(() => { textarea.focus(); textarea.setSelectionRange(textarea.value.length, textarea.value.length); }, 0);
+  }
+
+  function commitSheetEditor() {
+    const textarea = sheetEditor;
+    if (!textarea) return false;
+    clearTimeout(editorSaveTimer);
+    sheetEditor = null;
+    const node = state.nodes[sheetNodeId];
+    if (node && textarea.value !== node.content) acceptState(core.setContent(state, node.id, textarea.value));
+    const content = state.nodes[sheetNodeId]?.content ?? textarea.value;
+    textarea.remove();
+    if (!elements.sheetView.hidden) renderContent(content);
+    return true;
+  }
+
   function openSheet(id) {
     const node = state.nodes[id];
     if (!node) return renderTree();
@@ -246,37 +336,18 @@
   }
 
   async function pasteClipboard() {
+    commitSheetEditor();
     const node = state.nodes[sheetNodeId];
     if (!node) return;
     try {
       const result = await window.InScreen?.module?.portapapeles?.();
       const text = result?.ok ? String(result.texto ?? '') : '';
       if (!text.trim()) return showToast(result?.ok ? 'El portapapeles está vacío.' : 'No se pudo leer el portapapeles.');
-      pendingSheetPaste = text;
-      elements.pasteOverlay.hidden = false;
+      const content = node.content.trim() ? `${node.content.trimEnd()}\n\n${text.trimStart()}` : text;
+      const next = core.setContent(state, node.id, content);
+      if (acceptState(next)) { renderContent(content); showToast(node.content.trim() ? 'Contenido agregado debajo.' : 'Contenido importado.'); }
     } catch (_) { showToast('No se pudo leer el portapapeles.'); }
   }
-
-  function applySheetPaste(append) {
-    const node = state.nodes[sheetNodeId];
-    if (!node || !pendingSheetPaste) return hideOverlay(elements.pasteOverlay);
-    const content = append && node.content.trim()
-      ? `${node.content.trimEnd()}\n\n${pendingSheetPaste.trimStart()}`
-      : pendingSheetPaste;
-    const next = core.setContent(state, node.id, content);
-    if (acceptState(next)) {
-      pendingSheetPaste = '';
-      hideOverlay(elements.pasteOverlay);
-      renderContent(content);
-      showToast(append ? 'Contenido agregado debajo.' : 'Contenido reemplazado.');
-    }
-  }
-  elements.replacePaste.addEventListener('click', () => applySheetPaste(false));
-  elements.appendPaste.addEventListener('click', () => applySheetPaste(true));
-  elements.cancelPaste.addEventListener('click', () => { pendingSheetPaste = ''; hideOverlay(elements.pasteOverlay); });
-  elements.pasteOverlay.addEventListener('pointerdown', event => {
-    if (event.target === elements.pasteOverlay) { pendingSheetPaste = ''; hideOverlay(elements.pasteOverlay); }
-  });
 
   async function copyPath() {
     const node = state.nodes[sheetNodeId];
@@ -294,9 +365,8 @@
   function hideOverlay(overlay) { overlay.hidden = true; }
   elements.menuButton.addEventListener('click', () => {
     const node = state.nodes[sheetNodeId]; if (!node) return;
-    elements.menuTitle.textContent = node.name; elements.menuOverlay.hidden = false;
+    commitSheetEditor(); elements.menuOverlay.hidden = false;
   });
-  elements.closeMenu.addEventListener('click', () => hideOverlay(elements.menuOverlay));
   elements.menuOverlay.addEventListener('pointerdown', event => { if (event.target === elements.menuOverlay) hideOverlay(elements.menuOverlay); });
   elements.renameAction.addEventListener('click', () => {
     const node = state.nodes[sheetNodeId]; if (!node) return;
@@ -313,31 +383,21 @@
   });
   elements.deleteAction.addEventListener('click', () => {
     const node = state.nodes[sheetNodeId]; if (!node) return;
-    hideOverlay(elements.menuOverlay);
-    const ids = core.branchIds(state, node.id);
-    const contents = ids.filter(id => state.nodes[id]?.content.trim()).length;
-    const descendants = ids.length - 1;
-    elements.deleteSummary.textContent = `Se eliminará “${node.name}”${descendants ? ` junto con ${descendants} descendiente${descendants === 1 ? '' : 's'}` : ''}${contents ? ` y ${contents} hoja${contents === 1 ? '' : 's'} con contenido` : ''}. Esta acción no se puede deshacer.`;
-    elements.deleteOverlay.hidden = false;
-  });
-  elements.cancelDelete.addEventListener('click', () => hideOverlay(elements.deleteOverlay));
-  elements.confirmDelete.addEventListener('click', () => {
-    const node = state.nodes[sheetNodeId]; if (!node) return;
     const parentId = node.parentId;
     const result = core.deleteBranch(state, node.id);
     if (acceptState(result.state)) {
-      hideOverlay(elements.deleteOverlay); currentParentId = parentId; renderTree(); showToast('Rama eliminada.');
+      hideOverlay(elements.menuOverlay); currentParentId = parentId; renderTree(); showToast('Rama eliminada.');
     }
   });
 
   function closeTopOverlay() {
-    for (const overlay of [elements.pasteOverlay, elements.deleteOverlay, elements.renameOverlay, elements.menuOverlay]) {
-      if (!overlay.hidden) { overlay.hidden = true; pendingSheetPaste = ''; return true; }
+    for (const overlay of [elements.renameOverlay, elements.menuOverlay]) {
+      if (!overlay.hidden) { overlay.hidden = true; return true; }
     }
     return false;
   }
   window.addEventListener('inscreen:atras', event => {
-    if (closeTopOverlay() || commitDraft()) { event.preventDefault(); return; }
+    if (closeTopOverlay() || commitDraft() || commitSheetEditor()) { event.preventDefault(); return; }
     if (sheetNodeId !== null) { currentParentId = sheetNodeId; renderTree(); event.preventDefault(); return; }
     if (currentParentId !== null) {
       currentParentId = state.nodes[currentParentId]?.parentId ?? null;
@@ -345,5 +405,7 @@
     }
   });
   elements.sheetContent.addEventListener('click', event => { if (event.target.closest('a')) event.preventDefault(); });
+  bindPress(elements.sheetContent, () => {}, beginSheetEditor);
+  window.addEventListener('pagehide', commitSheetEditor);
   renderTree();
 }());
