@@ -57,12 +57,55 @@
     return button;
   }
 
-  function fitPlaqueText(plaque) {
-    let size = plaque.classList.contains('header-plaque') ? 13 : 16;
-    plaque.style.fontSize = `${size}px`;
-    while (size > 8 && (plaque.scrollHeight > plaque.clientHeight || plaque.scrollWidth > plaque.clientWidth)) {
+  function textFits(plaque) {
+    return plaque.scrollHeight <= plaque.clientHeight && plaque.scrollWidth <= plaque.clientWidth;
+  }
+
+  function setPlaqueBox(plaque, width) {
+    const height = width / 1.5;
+    plaque.style.width = `${width}px`;
+    plaque.style.height = `${height}px`;
+    plaque.style.padding = `${Math.max(11, height * .15)}px ${Math.max(18, width * .16)}px`;
+  }
+
+  function fitPlaqueText(plaque, requestedScale = 1) {
+    if (plaque.classList.contains('header-plaque')) {
+      plaque.style.fontSize = '13px';
+      return 1;
+    }
+    const boardWidth = Math.max(1, elements.board?.clientWidth || innerWidth);
+    const safeLogicalWidth = Math.max(112, (boardWidth - 16) / Math.max(core.MIN_SCALE, requestedScale));
+    const normal = Math.min(190, Math.max(128, boardWidth * .37));
+    const maximum = Math.min(280, safeLogicalWidth);
+    const candidates = [...new Set([
+      Math.min(normal, maximum), Math.min(normal * 1.22, maximum), maximum
+    ].map(value => Math.round(value)))].sort((a, b) => a - b);
+    plaque.style.fontSize = boardWidth >= 700 ? '17px' : '16px';
+    for (const width of candidates) {
+      setPlaqueBox(plaque, width);
+      if (textFits(plaque)) return Math.min(requestedScale, (boardWidth - 16) / width);
+    }
+    let size = boardWidth >= 700 ? 17 : 16;
+    while (size > 8 && !textFits(plaque)) {
       size -= .5; plaque.style.fontSize = `${size}px`;
     }
+    return Math.min(requestedScale, (boardWidth - 16) / Math.max(1, plaque.offsetWidth));
+  }
+
+  function safePlaquePosition(node, plaque, scale) {
+    const boardWidth = Math.max(1, elements.board.clientWidth);
+    const viewportHeight = Math.max(1, elements.treeView.clientHeight);
+    const margin = 8;
+    const halfWidth = plaque.offsetWidth * scale / 2;
+    const halfHeight = plaque.offsetHeight * scale / 2;
+    const minimumX = Math.min(.5, (halfWidth + margin) / boardWidth);
+    const maximumX = Math.max(.5, 1 - minimumX);
+    const minimumY = (halfHeight + margin) / viewportHeight;
+    return {
+      x: Math.max(minimumX, Math.min(maximumX, node.x)),
+      y: Math.max(minimumY, node.y),
+      halfHeight
+    };
   }
 
   function bindPress(element, onTap, onHold) {
@@ -100,6 +143,7 @@
 
   function renderTree() {
     commitSheetEditor();
+    const previousScroll = elements.treeView.scrollTop;
     sheetNodeId = null;
     elements.sheetView.hidden = true;
     elements.treeView.hidden = false;
@@ -115,16 +159,24 @@
     } else elements.treeHeader.hidden = true;
 
     const nodes = core.children(state, currentParentId);
-    const furthestY = nodes.reduce((maximum, node) => Math.max(maximum, node.y), 0);
-    elements.board.style.height = `${Math.max(1.5, furthestY + .4) * 100}dvh`;
+    elements.board.style.height = '150dvh';
+    let requiredHeight = 1.5;
     for (const node of nodes) {
       const plaque = makePlaque(node.name, 'node-plaque', elements.board);
-      plaque.style.left = `${node.x * 100}%`;
-      plaque.style.top = `${node.y * 100}dvh`;
-      plaque.style.transform = `translate(-50%,-50%) scale(${node.scale})`;
+      const effectiveScale = fitPlaqueText(plaque, node.scale);
+      const visible = safePlaquePosition(node, plaque, effectiveScale);
+      plaque.style.left = `${visible.x * 100}%`;
+      plaque.style.top = `${visible.y * 100}dvh`;
+      plaque.style.transform = `translate(-50%,-50%) scale(${effectiveScale})`;
+      plaque.dataset.displayX = String(visible.x);
+      plaque.dataset.displayY = String(visible.y);
+      plaque.dataset.effectiveScale = String(effectiveScale);
+      requiredHeight = Math.max(requiredHeight, visible.y + visible.halfHeight / Math.max(1, elements.treeView.clientHeight) + .3);
       plaque.setAttribute('aria-label', `${node.name}. Toca para entrar; mantén para abrir su hoja.`);
       bindNodeGestures(plaque, node);
     }
+    elements.board.style.height = `${requiredHeight * 100}dvh`;
+    elements.treeView.scrollTop = previousScroll;
   }
 
   function bindNodeGestures(plaque, node) {
@@ -144,9 +196,11 @@
         const current = state.nodes[node.id];
         if (!current) return;
         const cursor = boardPoint(event);
+        const displayX = Number(plaque.dataset.displayX) || current.x;
+        const displayY = Number(plaque.dataset.displayY) || current.y;
         gesture = {
-          start: point(event), origin: { x: current.x, y: current.y }, scale: current.scale,
-          grab: { x: cursor.x - current.x, y: cursor.y - current.y }, moved: false, held: false
+          start: point(event), origin: { x: displayX, y: displayY }, scale: current.scale,
+          grab: { x: cursor.x - displayX, y: cursor.y - displayY }, moved: false, held: false
         };
         gesture.timer = setTimeout(() => {
           if (!gesture || gesture.moved || pointers.size !== 1) return;
@@ -161,21 +215,29 @@
       if (!pointers.has(event.pointerId) || !gesture) return;
       pointers.set(event.pointerId, point(event));
       if (pointers.size >= 2) {
-        const scale = Math.max(core.MIN_SCALE, Math.min(core.MAX_SCALE, gesture.pinchScale * distance() / Math.max(1, gesture.pinchDistance)));
-        plaque.style.transform = `translate(-50%,-50%) scale(${scale})`;
-        gesture.previewScale = scale; return;
+        const requested = Math.max(core.MIN_SCALE, Math.min(core.MAX_SCALE, gesture.pinchScale * distance() / Math.max(1, gesture.pinchDistance)));
+        const effective = Math.min(requested, (elements.board.clientWidth - 16) / Math.max(1, plaque.offsetWidth));
+        plaque.style.transform = `translate(-50%,-50%) scale(${effective})`;
+        gesture.previewScale = requested; return;
       }
       const dx = event.clientX - gesture.start.x;
       const dy = event.clientY - gesture.start.y;
       if (!gesture.moved && Math.hypot(dx, dy) <= MOVE_TOLERANCE) return;
       clearTimeout(gesture.timer); gesture.moved = true;
       const cursor = boardPoint(event);
-      const minimumY = currentParentId === null ? .08 : .18;
+      const scale = Number(plaque.dataset.effectiveScale) || gesture.scale;
+      const boardWidth = Math.max(1, elements.board.clientWidth);
+      const viewportHeight = Math.max(1, elements.treeView.clientHeight);
+      const minimumX = Math.min(.5, (plaque.offsetWidth * scale / 2 + 8) / boardWidth);
+      const maximumX = Math.max(.5, 1 - minimumX);
+      const minimumY = (plaque.offsetHeight * scale / 2 + 8) / viewportHeight;
       const next = {
-        x: Math.max(.12, Math.min(.88, cursor.x - gesture.grab.x)),
+        x: Math.max(minimumX, Math.min(maximumX, cursor.x - gesture.grab.x)),
         y: Math.max(minimumY, Math.min(50, cursor.y - gesture.grab.y))
       };
-      plaque.style.left = `${next.x * 100}%`; plaque.style.top = `${next.y * 100}dvh`; gesture.previewPoint = next;
+      plaque.style.left = `${next.x * 100}%`; plaque.style.top = `${next.y * 100}dvh`;
+      plaque.dataset.displayX = String(next.x); plaque.dataset.displayY = String(next.y);
+      gesture.previewPoint = next;
     });
     const finish = event => {
       if (!pointers.has(event.pointerId) || !gesture) return;
@@ -195,7 +257,7 @@
 
   function boardPoint(event) {
     const rect = elements.board.getBoundingClientRect();
-    const x = Math.max(.12, Math.min(.88, (event.clientX - rect.left) / Math.max(1, rect.width)));
+    const x = Math.max(0, Math.min(1, (event.clientX - rect.left) / Math.max(1, rect.width)));
     const minimumY = currentParentId === null ? .08 : .18;
     const viewportHeight = Math.max(1, elements.treeView.clientHeight);
     const y = Math.max(minimumY, Math.min(50, (event.clientY - rect.top) / viewportHeight));
@@ -431,5 +493,10 @@
   elements.sheetContent.addEventListener('click', event => { if (event.target.closest('a')) event.preventDefault(); });
   bindPress(elements.sheetContent, () => {}, beginSheetEditor);
   window.addEventListener('pagehide', commitSheetEditor);
+  let resizeTimer = 0;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => { if (!elements.treeView.hidden) renderTree(); }, 80);
+  });
   renderTree();
 }());
