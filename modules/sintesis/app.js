@@ -68,18 +68,12 @@
     plaque.style.padding = `${Math.max(12, height * .19)}px ${Math.max(12, width * .19)}px`;
   }
 
-  function compactName(name) {
-    const words = String(name ?? '').trim().split(/\s+/).filter(Boolean);
-    if (words.length <= 1) return words[0] || '';
-    return words.map(word => Array.from(word)[0]?.toLocaleUpperCase('es') || '').join('');
-  }
-
   function fitPlaqueText(plaque, requestedScale = 1) {
-    if (plaque.classList.contains('header-plaque')) {
-      plaque.style.fontSize = '13px';
-      let width = 138;
-      setPlaqueBox(plaque, width);
-      while (width < 500 && !textFits(plaque)) { width += 24; setPlaqueBox(plaque, width); }
+    if (plaque.classList.contains('back-plaque')) {
+      plaque.style.width = '64px';
+      plaque.style.height = '74px';
+      plaque.style.padding = '15px 12px';
+      plaque.style.fontSize = '18px';
       return 1;
     }
     const boardWidth = Math.max(1, elements.board?.clientWidth || innerWidth);
@@ -163,8 +157,8 @@
     if (currentParentId !== null && !current) currentParentId = null;
     if (current) {
       elements.treeHeader.hidden = false;
-      const back = makePlaque(compactName(current.name), 'header-plaque', elements.treeHeader);
-      back.title = current.name;
+      const back = makePlaque('←', 'back-plaque', elements.treeHeader);
+      back.title = 'Volver';
       back.setAttribute('aria-label', `Volver desde ${current.name}`);
       back.addEventListener('click', () => { currentParentId = current.parentId; renderTree(); });
     } else elements.treeHeader.hidden = true;
@@ -422,14 +416,10 @@
     elements.treeView.hidden = true;
     elements.sheetView.hidden = false;
     elements.sheetBack.replaceChildren();
-    const back = document.createElement('button');
-    back.type = 'button';
-    back.className = 'sheet-back-button';
-    back.textContent = '←';
+    const back = makePlaque('←', 'back-plaque', elements.sheetBack);
     back.title = 'Volver';
     back.setAttribute('aria-label', `Volver a la sección ${node.name}`);
     back.addEventListener('click', () => { currentParentId = id; renderTree(); });
-    elements.sheetBack.appendChild(back);
     renderContent(node.content);
     elements.sheetView.scrollTo(0, 0);
   }

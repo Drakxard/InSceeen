@@ -81,14 +81,14 @@ async function main() {
   await evaluate(`(()=>{const e=document.querySelector('.node-plaque'),r=e.getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2;e.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0,pointerId:24,clientX:x,clientY:y}));e.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,button:0,pointerId:24,clientX:x-1000,clientY:y}));e.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,button:0,pointerId:24,clientX:x-1000,clientY:y}))})()`); await delay(50);
   if (!await evaluate(`(()=>{const r=document.querySelector('.node-plaque').getBoundingClientRect();return Math.abs((r.left+r.right)/2)<2&&r.right>0})()`)) throw new Error('No se permite dejar media placa fuera del borde');
   await evaluate(`document.querySelector('.node-plaque').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0,pointerId:2,clientX:250,clientY:280}));document.querySelector('.node-plaque').dispatchEvent(new PointerEvent('pointerup',{bubbles:true,button:0,pointerId:2,clientX:250,clientY:280}))`);
-  if (await evaluate(`document.querySelector('.header-plaque').textContent`) !== 'MCEDNL') throw new Error('El encabezado no usa el acrónimo esperado');
-  if (!await evaluate(`document.querySelector('.header-plaque').getAttribute('aria-label').includes('Modelos con Ecuaciones Diferenciales No Lineales')`)) throw new Error('El encabezado perdió el nombre accesible completo');
+  if (await evaluate(`document.querySelector('#treeHeader .back-plaque').textContent`) !== '←') throw new Error('La navegación no usa el elemento de regreso compacto');
+  if (!await evaluate(`document.querySelector('#treeHeader .back-plaque').getAttribute('aria-label').includes('Modelos con Ecuaciones Diferenciales No Lineales')`)) throw new Error('El regreso perdió el nombre accesible completo');
   await evaluate(`window.__clipboard='{"temas":[{"nombre":"TAP","subtemas":["Listas Enlazadas"]}]}'`);
   await evaluate(`document.querySelector('#outlineButton').click()`); await delay(100);
   if (await evaluate(`Object.keys(JSON.parse(localStorage.getItem('inscreen.sintesis.tree.v1')).nodes).length`) !== 3) throw new Error('No se importó el esquema JSON');
   await hold('.node-plaque', 90, 155); await delay(80);
   if (!await evaluate(`!document.querySelector('#sheetView').hidden`)) throw new Error('No se abrió la hoja');
-  if (!await evaluate(`document.querySelector('.sheet-back-button')?.textContent==='←'&&!document.querySelector('#sheetBack .header-plaque')`)) throw new Error('La hoja no muestra el regreso compacto');
+  if (!await evaluate(`document.querySelector('#sheetBack .back-plaque')?.textContent==='←'`)) throw new Error('La hoja no muestra el elemento de regreso compacto');
   await evaluate(`window.__clipboard=${JSON.stringify(clipboardText)}`);
   await evaluate(`document.querySelector('#clipboardButton').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0,pointerId:3}));document.querySelector('#clipboardButton').dispatchEvent(new PointerEvent('pointerup',{bubbles:true,button:0,pointerId:3}))`); await delay(100);
   if (!await evaluate(`document.querySelectorAll('#sheetContent .katex').length>0&&document.querySelectorAll('#sheetContent table').length===1&&document.querySelectorAll('#sheetContent pre code').length===1`)) throw new Error('Markdown o KaTeX no se representaron');
@@ -103,7 +103,7 @@ async function main() {
   if (await evaluate(`document.querySelectorAll('#menuOverlay .icon-action').length`) !== 2) throw new Error('El menú no contiene las dos acciones con iconos');
   await evaluate(`document.querySelector('#menuOverlay').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}))`);
   await hold('#clipboardButton', 430, 30); await delay(80);
-  const result = await evaluate(`({copied:window.__copied,nodes:Object.keys(JSON.parse(localStorage.getItem('inscreen.sintesis.tree.v1')).nodes).length,plaque:getComputedStyle(document.querySelector('.header-plaque')).backgroundImage})`);
+  const result = await evaluate(`({copied:window.__copied,nodes:Object.keys(JSON.parse(localStorage.getItem('inscreen.sintesis.tree.v1')).nodes).length,plaque:getComputedStyle(document.querySelector('.back-plaque')).backgroundImage})`);
   if (result.copied !== 'Modelos con Ecuaciones Diferenciales No Lineales, TAP' || result.nodes !== 3 || !result.plaque.includes('synthesis_plaque')) throw new Error(`Estado inesperado: ${JSON.stringify(result)}`);
   await send('Page.reload'); await delay(500);
   if (await evaluate(`Object.keys(JSON.parse(localStorage.getItem('inscreen.sintesis.tree.v1')).nodes).length`) !== 3) throw new Error('El árbol no persistió al reabrir');
