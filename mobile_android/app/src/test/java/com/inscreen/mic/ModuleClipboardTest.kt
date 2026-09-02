@@ -24,4 +24,17 @@ class ModuleClipboardTest {
         assertFalse(result.getBoolean("ok"))
         assertEquals("clipboard_read_failed", result.getString("error"))
     }
+
+    @Test fun reportsSuccessfulClipboardWrites() {
+        var written = false
+        val result = JSONObject(ModuleClipboard.writePayload { written = true })
+        assertTrue(written)
+        assertTrue(result.getBoolean("ok"))
+    }
+
+    @Test fun reportsClipboardWriteFailures() {
+        val result = JSONObject(ModuleClipboard.writePayload { error("unavailable") })
+        assertFalse(result.getBoolean("ok"))
+        assertEquals("clipboard_write_failed", result.getString("error"))
+    }
 }

@@ -15,8 +15,14 @@ internal class ModuleCache private constructor(private val root: File) {
         return runCatching { File(directory, module.entry.substringAfterLast('/')).readText(Charsets.UTF_8) }.getOrNull()?.takeIf(String::isNotBlank)
     }
 
+    @Synchronized fun version(subjectId: String, module: ModuleCatalog.Module): String? {
+        val metadata = runCatching { JSONObject(File(moduleDirectory(subjectId, module.id), METADATA).readText()) }.getOrNull() ?: return null
+        if (metadata.optString("subjectId") != subjectId || metadata.optString("moduleId") != module.id || metadata.optString("entry") != module.entry) return null
+        return metadata.optString("version").takeIf { it.matches(Regex("[0-9a-f]{64}")) }
+    }
+
     /** Guarda la carpeta completa del módulo, conservando las rutas relativas para el WebView. */
-    @Synchronized fun write(subjectId: String, module: ModuleCatalog.Module, files: Map<String, ByteArray>) {
+    @Synchronized fun write(subjectId: String, module: ModuleCatalog.Module, files: Map<String, ByteArray>, version: String? = null) {
         val entry = module.entry.substringAfterLast('/')
         require(subjectId.isNotBlank() && files[entry]?.isNotEmpty() == true)
         val directory = moduleDirectory(subjectId, module.id).apply { mkdirs() }; check(directory.isDirectory)
@@ -26,13 +32,15 @@ internal class ModuleCache private constructor(private val root: File) {
             val temporary = File(target.parentFile, "${target.name}.tmp"); temporary.writeBytes(bytes); replace(temporary, target)
         }
         val metadataFile = File(directory, METADATA); val metadataTemporary = File(directory, "$METADATA.tmp")
-        metadataTemporary.writeText(JSONObject().put("subjectId", subjectId).put("moduleId", module.id).put("name", module.name).put("entry", module.entry).toString(), Charsets.UTF_8)
+        val metadata = JSONObject().put("subjectId", subjectId).put("moduleId", module.id).put("name", module.name).put("entry", module.entry)
+        version?.takeIf { it.matches(Regex("[0-9a-f]{64}")) }?.let { metadata.put("version", it) }
+        metadataTemporary.writeText(metadata.toString(), Charsets.UTF_8)
         replace(metadataTemporary, metadataFile)
     }
 
-    internal fun writeToSubjects(subjectIds: Collection<String>, module: ModuleCatalog.Module, files: Map<String, ByteArray>): Set<String> =
+    internal fun writeToSubjects(subjectIds: Collection<String>, module: ModuleCatalog.Module, files: Map<String, ByteArray>, version: String? = null): Set<String> =
         subjectIds.distinct().mapNotNullTo(linkedSetOf()) { subjectId ->
-            runCatching { write(subjectId, module, files) }.exceptionOrNull()?.let { subjectId }
+            runCatching { write(subjectId, module, files, version) }.exceptionOrNull()?.let { subjectId }
         }
 
     fun directory(subjectId: String, moduleId: String): File = moduleDirectory(subjectId, moduleId)

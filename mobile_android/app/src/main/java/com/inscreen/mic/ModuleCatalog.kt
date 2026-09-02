@@ -5,6 +5,7 @@ import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.security.MessageDigest
 import java.util.Base64
 import java.util.concurrent.TimeUnit
 
@@ -15,7 +16,7 @@ internal object ModuleCatalog {
     private val client = OkHttpClient.Builder().callTimeout(15, TimeUnit.SECONDS).build()
 
     data class Module(val id: String, val name: String, val entry: String)
-    data class Package(val html: String, val files: Map<String, ByteArray>)
+    data class Package(val html: String, val files: Map<String, ByteArray>, val version: String)
 
     fun load(callback: (Result<List<Module>>) -> Unit) {
         val request = Request.Builder().url(INDEX_URL).header("User-Agent", "InScreenMic").build()
@@ -68,7 +69,7 @@ internal object ModuleCatalog {
             val entry = module.entry.substringAfterLast('/')
             val html = downloaded[entry]?.toString(Charsets.UTF_8)
                 ?: return callback(Result.failure(IllegalStateException("Falta index.html")))
-            callback(Result.success(Package(html, downloaded)))
+            callback(Result.success(Package(html, downloaded, packageVersion(downloaded))))
             return
         }
         val path = files[index]
@@ -80,6 +81,16 @@ internal object ModuleCatalog {
                 onFailure = { callback(Result.failure(it)) },
             )
         }
+    }
+
+    private fun packageVersion(files: Map<String, ByteArray>): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        files.toSortedMap().forEach { (path, bytes) ->
+            digest.update(path.toByteArray(Charsets.UTF_8))
+            digest.update(0)
+            digest.update(bytes)
+        }
+        return digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
     }
 
     private fun loadRaw(url: String, callback: (Result<ByteArray>) -> Unit) {

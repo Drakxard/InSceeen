@@ -39,6 +39,14 @@ class ModuleCacheTest {
         assertEquals("otra", cache.read("materia-2", first))
     }
 
+    @Test fun persistsRemoteVersionWhenAvailable() {
+        val cache = ModuleCache.at(temporary.newFolder("modules"))
+        val version = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        cache.write("materia-1", first, mapOf("index.html" to "contenido".toByteArray()), version)
+        assertEquals(version, cache.version("materia-1", first))
+        assertNull(cache.version("materia-1", second))
+    }
+
     @Test fun distributesOnePackageToTheRequestedSubjectsOnly() {
         val cache = ModuleCache.at(temporary.newFolder("modules"))
         cache.write("sin-asignar", first, mapOf("index.html" to "anterior".toByteArray()))

@@ -54,7 +54,12 @@ class ModuleHostActivity : Activity() {
         intent.getStringExtra(EXTRA_SELECTED_MODULE)?.let { raw ->
             val selected = runCatching { ModuleSelection.parse(raw) }.getOrNull()
             if (selected != null) {
-                showModule(selected, persistAssignment = intent.getBooleanExtra(EXTRA_PERSIST_ASSIGNMENT, true), forceRefresh = intent.getBooleanExtra(EXTRA_FORCE_REFRESH, false))
+                showModule(
+                    selected,
+                    persistAssignment = intent.getBooleanExtra(EXTRA_PERSIST_ASSIGNMENT, true),
+                    forceRefresh = intent.getBooleanExtra(EXTRA_FORCE_REFRESH, false),
+                    backgroundRefresh = intent.getBooleanExtra(EXTRA_BACKGROUND_REFRESH, false),
+                )
                 return
             }
         }
@@ -83,7 +88,14 @@ class ModuleHostActivity : Activity() {
     }
 
     @SuppressLint("SetJavaScriptEnabled", "AddJavascriptInterface")
-    private fun showModule(module: ModuleCatalog.Module, persistAssignment: Boolean = false, forceRefresh: Boolean = false) {
+    private fun showModule(module: ModuleCatalog.Module, persistAssignment: Boolean = false, forceRefresh: Boolean = false, backgroundRefresh: Boolean = false) {
+        if (backgroundRefresh) {
+            moduleCache.read(subjectId, module)?.let { cached ->
+                showModuleHtml(module, cached)
+                refreshModuleInBackground(module)
+                return
+            }
+        }
         val cachedBeforeRefresh = if (forceRefresh) moduleCache.read(subjectId, module) else null
         if (!forceRefresh) moduleCache.read(subjectId, module)?.let { cached ->
             val assignmentReady = !persistAssignment || AprioriStore.addModule(this, subjectId, module)
@@ -103,7 +115,7 @@ class ModuleHostActivity : Activity() {
                     val targets = if (forceRefresh) {
                         AprioriStore.subjectIdsAssignedTo(AprioriStore.load(this@ModuleHostActivity), module.id)
                     } else listOf(subjectId)
-                    val failures = moduleCache.writeToSubjects(targets.ifEmpty { listOf(subjectId) }, module, packageFiles.files)
+                    val failures = moduleCache.writeToSubjects(targets.ifEmpty { listOf(subjectId) }, module, packageFiles.files, packageFiles.version)
                     if (subjectId in failures) {
                         showModuleLoadError(
                             module,
@@ -138,6 +150,29 @@ class ModuleHostActivity : Activity() {
                 },
             )
         }}
+    }
+
+    private fun refreshModuleInBackground(module: ModuleCatalog.Module) {
+        val cachedVersion = moduleCache.version(subjectId, module)
+        ModuleCatalog.loadPackage(module) { loaded ->
+            loaded.onSuccess { packageFiles ->
+                if (packageFiles.version == cachedVersion) return@onSuccess
+                val targets = AprioriStore.subjectIdsAssignedTo(AprioriStore.load(this), module.id)
+                val failures = moduleCache.writeToSubjects(
+                    targets.ifEmpty { listOf(subjectId) },
+                    module,
+                    packageFiles.files,
+                    packageFiles.version,
+                )
+                if (cachedVersion != null && subjectId !in failures) runOnUiThread {
+                    if (!isFinishing && !isDestroyed) Toast.makeText(
+                        this,
+                        "Hay una versión nueva de ${module.name}. Se usará al volver a abrir.",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+            }
+        }
     }
 
     private fun showModuleLoadError(module: ModuleCatalog.Module, persistAssignment: Boolean, forceRefresh: Boolean = false, cause: Throwable? = null) {
@@ -249,6 +284,12 @@ class ModuleHostActivity : Activity() {
             const clipboard=()=>new Promise((resolve)=>{
               const id=String(++sequence);pending.set(id,resolve);native.clipboardText(id);
             });
+            const writeClipboard=(text)=>{
+              if(typeof text!=="string"||text.length>200000)return Promise.resolve({ok:false,error:"invalid_clipboard_text"});
+              return new Promise((resolve)=>{
+                const id=String(++sequence);pending.set(id,resolve);native.writeClipboardText(id,text);
+              });
+            };
             const deleteCachedLine=(type,stage,number,line)=>{
               if(typeof type!=="boolean")return Promise.resolve({ok:false,archivos:[],error:"invalid_type"});
               const validInteger=(value,positive)=>typeof value==="number"&&Number.isSafeInteger(value)&&
@@ -317,6 +358,7 @@ class ModuleHostActivity : Activity() {
               vozCancelar:()=>voice("cancelar"),
               salir:()=>native.exitModule(),
               portapapeles:()=>clipboard(),
+              escribirPortapapeles:(text)=>writeClipboard(text),
               consulta:(question,content)=>query(question,content)
             }};
             delete window.InScreenModuleNative;
@@ -341,6 +383,8 @@ class ModuleHostActivity : Activity() {
                 "/module-assets/",
                 WebViewAssetLoader.InternalStoragePathHandler(this, moduleCache.directory(subjectId, module.id)),
             )
+            .addPathHandler("/app-assets/", WebViewAssetLoader.AssetsPathHandler(this))
+            .addPathHandler("/app-res/", WebViewAssetLoader.ResourcesPathHandler(this))
             .build()
         view.apply {
             setBackgroundColor(Color.WHITE)
@@ -375,6 +419,9 @@ class ModuleHostActivity : Activity() {
                     } },
                     clipboardReadAction = { reply -> runOnUiThread {
                         reply(ModuleClipboard.read(this@ModuleHostActivity))
+                    } },
+                    clipboardWriteAction = { text, reply -> runOnUiThread {
+                        reply(ModuleClipboard.write(this@ModuleHostActivity, text))
                     } },
                     exitAction = { runOnUiThread { finish() } },
                 ) { requestId, payload ->
@@ -472,6 +519,7 @@ class ModuleHostActivity : Activity() {
         private val voiceStopAction: ((String) -> Unit) -> Unit,
         private val voiceCancelAction: ((String) -> Unit) -> Unit,
         private val clipboardReadAction: ((String) -> Unit) -> Unit,
+        private val clipboardWriteAction: (String, (String) -> Unit) -> Unit,
         private val exitAction: () -> Unit,
         private val deliver: (String, String) -> Unit,
     ) {
@@ -573,6 +621,15 @@ class ModuleHostActivity : Activity() {
             clipboardReadAction { deliver(requestId, it) }
         }
 
+        @JavascriptInterface fun writeClipboardText(requestId: String, text: String) {
+            if (requestId.length !in 1..64) return
+            if (text.length > 200_000) return deliver(
+                requestId,
+                JSONObject().put("ok", false).put("error", "invalid_clipboard_text").toString(),
+            )
+            clipboardWriteAction(text) { deliver(requestId, it) }
+        }
+
         @JavascriptInterface fun exitModule() = exitAction()
 
         private fun notesFailure(error: String): String = JSONObject()
@@ -616,6 +673,7 @@ class ModuleHostActivity : Activity() {
         private const val EXTRA_SELECTED_MODULE = "selected_module"
         private const val EXTRA_PERSIST_ASSIGNMENT = "persist_assignment"
         private const val EXTRA_FORCE_REFRESH = "force_refresh"
+        private const val EXTRA_BACKGROUND_REFRESH = "background_refresh"
         internal fun intent(context: Context, subjectId: String): Intent =
             Intent(context, ModuleHostActivity::class.java)
                 .putExtra(EXTRA_SUBJECT_ID, subjectId)
@@ -653,7 +711,7 @@ class ModuleHostActivity : Activity() {
             intent(context, subjectId)
                 .putExtra(EXTRA_SELECTED_MODULE, ModuleSelection.serialize(module))
                 .putExtra(EXTRA_PERSIST_ASSIGNMENT, false)
-                .putExtra(EXTRA_FORCE_REFRESH, true)
+                .putExtra(EXTRA_BACKGROUND_REFRESH, true)
         )
     }
 

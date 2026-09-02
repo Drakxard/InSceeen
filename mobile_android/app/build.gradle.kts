@@ -19,8 +19,8 @@ android {
         applicationId = "com.inscreen.mic"
         minSdk = 26
         targetSdk = 36
-        versionCode = 58
-        versionName = "2.0.31"
+        versionCode = 59
+        versionName = "2.0.32"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -55,6 +55,7 @@ android {
         buildConfig = true
     }
     sourceSets["main"].assets.srcDir("../../Apriori")
+    sourceSets["main"].assets.srcDir("../../web")
 }
 
 dependencies {
