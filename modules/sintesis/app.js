@@ -65,7 +65,7 @@
     const height = width / (792 / 910);
     plaque.style.width = `${width}px`;
     plaque.style.height = `${height}px`;
-    plaque.style.padding = `${Math.max(18, height * .2)}px ${Math.max(22, width * .22)}px`;
+    plaque.style.padding = `${Math.max(12, height * .19)}px ${Math.max(12, width * .19)}px`;
   }
 
   function compactName(name) {
@@ -83,23 +83,34 @@
       return 1;
     }
     const boardWidth = Math.max(1, elements.board?.clientWidth || innerWidth);
-    const normal = Math.min(190, Math.max(128, boardWidth * .37));
-    const maximum = Math.min(360, Math.max(normal, boardWidth * .94));
-    const candidates = [...new Set([
-      Math.min(normal, maximum), Math.min(normal * 1.22, maximum), maximum
-    ].map(value => Math.round(value)))].sort((a, b) => a - b);
-    plaque.style.fontSize = boardWidth >= 700 ? '17px' : '16px';
-    for (const width of candidates) {
+    const minimumFont = boardWidth >= 700 ? 16 : 14;
+    const normalWidth = Math.min(190, Math.max(128, boardWidth * .37));
+    const maximumWidth = Math.max(normalWidth, boardWidth * .94);
+    let width = Math.min(maximumWidth, Math.max(64, normalWidth * requestedScale));
+
+    // Agranda el contenedor antes de permitir texto recortado o ilegible.
+    plaque.style.fontSize = `${minimumFont}px`;
+    setPlaqueBox(plaque, width);
+    while (width < maximumWidth && !textFits(plaque)) {
+      width = Math.min(maximumWidth, width + 12);
       setPlaqueBox(plaque, width);
-      if (textFits(plaque)) return requestedScale;
     }
-    let width = maximum;
-    while (width < 1440 && !textFits(plaque)) { width += 40; setPlaqueBox(plaque, width); }
+
+    // Busca la mayor tipografia que usa bien el espacio realmente disponible.
+    let low = minimumFont;
+    let high = Math.min(boardWidth >= 700 ? 38 : 34, Math.max(20, width * .16));
+    while (high - low >= .5) {
+      const candidate = (low + high) / 2;
+      plaque.style.fontSize = `${candidate}px`;
+      if (textFits(plaque)) low = candidate;
+      else high = candidate;
+    }
+    plaque.style.fontSize = `${Math.floor(low * 2) / 2}px`;
     return requestedScale;
   }
 
   function safePlaquePosition(node, plaque, scale) {
-    const halfHeight = plaque.offsetHeight * scale / 2;
+    const halfHeight = plaque.offsetHeight / 2;
     return {
       x: Math.max(0, Math.min(1, node.x)),
       y: Math.max(0, node.y),
@@ -167,7 +178,7 @@
       const visible = safePlaquePosition(node, plaque, effectiveScale);
       plaque.style.left = `${visible.x * 100}%`;
       plaque.style.top = `${visible.y * 100}dvh`;
-      plaque.style.transform = `translate(-50%,-50%) scale(${effectiveScale})`;
+      plaque.style.transform = 'translate(-50%,-50%)';
       plaque.dataset.displayX = String(visible.x);
       plaque.dataset.displayY = String(visible.y);
       plaque.dataset.effectiveScale = String(effectiveScale);
@@ -217,7 +228,8 @@
       if (pointers.size >= 2) {
         const requested = Math.max(core.MIN_SCALE, Math.min(core.MAX_SCALE, gesture.pinchScale * distance() / Math.max(1, gesture.pinchDistance)));
         const effective = requested;
-        plaque.style.transform = `translate(-50%,-50%) scale(${effective})`;
+        fitPlaqueText(plaque, effective);
+        plaque.style.transform = 'translate(-50%,-50%)';
         gesture.previewScale = requested; return;
       }
       const dx = event.clientX - gesture.start.x;
@@ -410,10 +422,14 @@
     elements.treeView.hidden = true;
     elements.sheetView.hidden = false;
     elements.sheetBack.replaceChildren();
-    const back = makePlaque(compactName(node.name), 'header-plaque', elements.sheetBack);
-    back.title = node.name;
+    const back = document.createElement('button');
+    back.type = 'button';
+    back.className = 'sheet-back-button';
+    back.textContent = '←';
+    back.title = 'Volver';
     back.setAttribute('aria-label', `Volver a la sección ${node.name}`);
     back.addEventListener('click', () => { currentParentId = id; renderTree(); });
+    elements.sheetBack.appendChild(back);
     renderContent(node.content);
     elements.sheetView.scrollTo(0, 0);
   }

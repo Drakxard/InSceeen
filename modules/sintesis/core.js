@@ -7,8 +7,8 @@
 
   const VERSION = 2;
   const MAX_NAME = 80;
-  const MIN_SCALE = 0.65;
-  const MAX_SCALE = 1.8;
+  const MIN_SCALE = 0.5;
+  const MAX_SCALE = 2.4;
 
   const emptyState = () => ({ version: VERSION, defaultScale: 1, nodes: {} });
   const cleanName = value => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, MAX_NAME);
