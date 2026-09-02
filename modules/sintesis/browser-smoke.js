@@ -61,8 +61,12 @@ async function main() {
     const found = await evaluate(`Boolean(document.querySelector('.draft-plaque input'))`); if (!found) throw new Error('No se creó el editor');
     await evaluate(`(()=>{const e=document.querySelector('.draft-plaque input');e.value=${JSON.stringify(name)};e.dispatchEvent(new Event('blur'))})()`); await delay(80);
   };
-  await hold('#board', 250, 280); await nameDraft('Modelos con Ecuaciones Diferenciales No Lineales');
+  await hold('#board', 250, 280);
+  await evaluate(`window.dispatchEvent(new Event('resize'))`); await delay(120);
+  if (!await evaluate(`Boolean(document.querySelector('.draft-plaque input'))`)) throw new Error('El teclado cerró el editor del elemento nuevo');
+  await nameDraft('Modelos con Ecuaciones Diferenciales No Lineales');
   if (!await evaluate(`(()=>{const e=document.querySelector('.node-plaque');return e.scrollHeight<=e.clientHeight&&e.scrollWidth<=e.clientWidth})()`)) throw new Error('El nombre largo desborda la placa');
+  if (!await evaluate(`(()=>{const e=document.querySelector('.node-plaque'),t=e.firstChild,s=t.data.indexOf('Diferenciales'),r=new Range();r.setStart(t,s);r.setEnd(t,s+'Diferenciales'.length);return r.getClientRects().length===1})()`)) throw new Error('Una palabra larga se cortó entre líneas');
   if (!await evaluate(`document.querySelector('.node-plaque').offsetHeight/document.querySelector('.node-plaque').offsetWidth>.64`)) throw new Error('La placa no conserva la proporción 3:2');
   await evaluate(`(()=>{const e=document.querySelector('.node-plaque'),r=e.getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2;e.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0,pointerId:20,clientX:x,clientY:y}));e.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,button:0,pointerId:20,clientX:x+45,clientY:y+35}));e.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,button:0,pointerId:20,clientX:x+45,clientY:y+35}))})()`); await delay(50);
   if (!await evaluate(`JSON.parse(localStorage.getItem('inscreen.sintesis.tree.v1')).nodes[Object.keys(JSON.parse(localStorage.getItem('inscreen.sintesis.tree.v1')).nodes)[0]].x>.5`)) throw new Error('No se guardó el arrastre');

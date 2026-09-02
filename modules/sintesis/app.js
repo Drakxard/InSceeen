@@ -80,7 +80,7 @@
     }
     const boardWidth = Math.max(1, elements.board?.clientWidth || innerWidth);
     const normal = Math.min(190, Math.max(128, boardWidth * .37));
-    const maximum = Math.min(280, Math.max(normal, boardWidth * .78));
+    const maximum = Math.min(360, Math.max(normal, boardWidth * .94));
     const candidates = [...new Set([
       Math.min(normal, maximum), Math.min(normal * 1.22, maximum), maximum
     ].map(value => Math.round(value)))].sort((a, b) => a - b);
@@ -90,7 +90,7 @@
       if (textFits(plaque)) return requestedScale;
     }
     let size = boardWidth >= 700 ? 17 : 16;
-    while (size > 8 && !textFits(plaque)) {
+    while (size > 5 && !textFits(plaque)) {
       size -= .5; plaque.style.fontSize = `${size}px`;
     }
     return requestedScale;
@@ -299,7 +299,10 @@
       if (event.key === 'Escape') { event.preventDefault(); activeDraft.cancelled = true; input.blur(); }
     });
     input.addEventListener('blur', () => setTimeout(commitDraft, 0), { once: true });
-    setTimeout(() => input.focus(), 0);
+    setTimeout(() => {
+      try { input.focus({ preventScroll: true }); }
+      catch (_) { input.focus(); }
+    }, 0);
   }
 
   function commitDraft() {
@@ -487,7 +490,9 @@
   let resizeTimer = 0;
   window.addEventListener('resize', () => {
     clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => { if (!elements.treeView.hidden) renderTree(); }, 80);
+    resizeTimer = setTimeout(() => {
+      if (!elements.treeView.hidden && !activeDraft && !sheetEditor) renderTree();
+    }, 80);
   });
   renderTree();
 }());
