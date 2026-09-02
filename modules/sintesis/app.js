@@ -130,14 +130,16 @@
       pointers.set(event.pointerId, point(event));
       try { plaque.setPointerCapture(event.pointerId); } catch (_) {}
       if (pointers.size === 1) {
-        gesture = { start: point(event), origin: { x: node.x, y: node.y }, moved: false, held: false };
+        const current = state.nodes[node.id];
+        if (!current) return;
+        gesture = { start: point(event), origin: { x: current.x, y: current.y }, scale: current.scale, moved: false, held: false };
         gesture.timer = setTimeout(() => {
           if (!gesture || gesture.moved || pointers.size !== 1) return;
           gesture.held = true; openSheet(node.id);
         }, HOLD_MS);
       } else if (pointers.size === 2 && gesture) {
         clearTimeout(gesture.timer); gesture.moved = true;
-        gesture.pinchDistance = distance(); gesture.pinchScale = node.scale;
+        gesture.pinchDistance = distance(); gesture.pinchScale = gesture.previewScale ?? gesture.scale;
       }
     });
     plaque.addEventListener('pointermove', event => {
@@ -164,6 +166,7 @@
       const completed = gesture; gesture = null;
       if (completed.previewScale != null) acceptState(core.scaleNode(state, node.id, completed.previewScale));
       if (completed.previewPoint) acceptState(core.moveNode(state, node.id, completed.previewPoint.x, completed.previewPoint.y));
+      if (completed.previewScale != null) { renderTree(); return; }
       if (!completed.moved && !completed.held) { currentParentId = node.id; renderTree(); }
     };
     plaque.addEventListener('pointerup', finish);

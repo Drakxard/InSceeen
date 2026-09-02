@@ -70,7 +70,7 @@
     const next = normalizeState(state);
     if (!next.nodes[id]) throw new Error('node_not_found');
     const normalized = finiteScale(scale);
-    next.nodes[id].scale = normalized;
+    Object.values(next.nodes).forEach(node => { node.scale = normalized; });
     next.defaultScale = normalized;
     return next;
   }

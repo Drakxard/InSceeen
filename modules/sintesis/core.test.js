@@ -20,12 +20,14 @@ test('crea nodos persistibles y conserva posiciones relativas', () => {
   assert.equal(core.normalizeState(JSON.parse(JSON.stringify(state))).nodes.listas.name, 'Listas Enlazadas');
 });
 
-test('mueve, limita la escala y la hereda en elementos posteriores', () => {
+test('mueve y aplica la escala global a elementos existentes y posteriores', () => {
   let state = tree();
   state = core.moveNode(state, 'tap', .91, -.4);
   assert.deepEqual([state.nodes.tap.x, state.nodes.tap.y], [.91, 0]);
   state = core.scaleNode(state, 'tap', 9);
   assert.equal(state.nodes.tap.scale, core.MAX_SCALE);
+  assert.equal(state.nodes.prog3.scale, core.MAX_SCALE);
+  assert.equal(state.nodes.listas.scale, core.MAX_SCALE);
   assert.equal(state.defaultScale, core.MAX_SCALE);
   state = core.addNode(state, { id: 'nuevo', parentId: null, name: 'Nuevo', x: .5, y: .5 });
   assert.equal(state.nodes.nuevo.scale, core.MAX_SCALE);
