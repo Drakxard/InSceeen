@@ -68,14 +68,18 @@
     plaque.style.padding = `${Math.max(18, height * .2)}px ${Math.max(22, width * .22)}px`;
   }
 
+  function compactName(name) {
+    const words = String(name ?? '').trim().split(/\s+/).filter(Boolean);
+    if (words.length <= 1) return words[0] || '';
+    return words.map(word => Array.from(word)[0]?.toLocaleUpperCase('es') || '').join('');
+  }
+
   function fitPlaqueText(plaque, requestedScale = 1) {
     if (plaque.classList.contains('header-plaque')) {
-      setPlaqueBox(plaque, 138);
       plaque.style.fontSize = '13px';
-      let size = 13;
-      while (size > 8 && !textFits(plaque)) {
-        size -= .5; plaque.style.fontSize = `${size}px`;
-      }
+      let width = 138;
+      setPlaqueBox(plaque, width);
+      while (width < 500 && !textFits(plaque)) { width += 24; setPlaqueBox(plaque, width); }
       return 1;
     }
     const boardWidth = Math.max(1, elements.board?.clientWidth || innerWidth);
@@ -89,10 +93,8 @@
       setPlaqueBox(plaque, width);
       if (textFits(plaque)) return requestedScale;
     }
-    let size = boardWidth >= 700 ? 17 : 16;
-    while (size > 5 && !textFits(plaque)) {
-      size -= .5; plaque.style.fontSize = `${size}px`;
-    }
+    let width = maximum;
+    while (width < 1440 && !textFits(plaque)) { width += 40; setPlaqueBox(plaque, width); }
     return requestedScale;
   }
 
@@ -150,7 +152,8 @@
     if (currentParentId !== null && !current) currentParentId = null;
     if (current) {
       elements.treeHeader.hidden = false;
-      const back = makePlaque(current.name, 'header-plaque', elements.treeHeader);
+      const back = makePlaque(compactName(current.name), 'header-plaque', elements.treeHeader);
+      back.title = current.name;
       back.setAttribute('aria-label', `Volver desde ${current.name}`);
       back.addEventListener('click', () => { currentParentId = current.parentId; renderTree(); });
     } else elements.treeHeader.hidden = true;
@@ -407,7 +410,8 @@
     elements.treeView.hidden = true;
     elements.sheetView.hidden = false;
     elements.sheetBack.replaceChildren();
-    const back = makePlaque(node.name, 'header-plaque', elements.sheetBack);
+    const back = makePlaque(compactName(node.name), 'header-plaque', elements.sheetBack);
+    back.title = node.name;
     back.setAttribute('aria-label', `Volver a la sección ${node.name}`);
     back.addEventListener('click', () => { currentParentId = id; renderTree(); });
     renderContent(node.content);
