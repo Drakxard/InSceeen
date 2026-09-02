@@ -86,7 +86,10 @@ async function main() {
   await evaluate(`window.__clipboard='{"temas":[{"nombre":"TAP","subtemas":["Listas Enlazadas"]}]}'`);
   await evaluate(`document.querySelector('#outlineButton').click()`); await delay(100);
   if (await evaluate(`Object.keys(JSON.parse(localStorage.getItem('inscreen.sintesis.tree.v1')).nodes).length`) !== 3) throw new Error('No se importó el esquema JSON');
-  await hold('.node-plaque', 90, 155); await delay(80);
+  await evaluate(`document.querySelector('.node-plaque').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0,pointerId:31,clientX:90,clientY:155}))`);
+  await delay(620);
+  if (!await evaluate(`document.querySelector('#sheetView').hidden`)) throw new Error('La hoja apareció mientras la pulsación seguía activa');
+  await evaluate(`document.querySelector('.node-plaque').dispatchEvent(new PointerEvent('pointerup',{bubbles:true,button:0,pointerId:31,clientX:90,clientY:155}))`); await delay(80);
   if (!await evaluate(`!document.querySelector('#sheetView').hidden`)) throw new Error('No se abrió la hoja');
   if (!await evaluate(`document.querySelector('#sheetBack .back-plaque')?.textContent==='←'`)) throw new Error('La hoja no muestra el elemento de regreso compacto');
   await evaluate(`window.__clipboard=${JSON.stringify(clipboardText)}`);

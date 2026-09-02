@@ -209,7 +209,11 @@
         };
         gesture.timer = setTimeout(() => {
           if (!gesture || gesture.moved || pointers.size !== 1) return;
-          gesture.held = true; openSheet(node.id);
+          // Esperamos a que se levante el dedo. Si mostramos la hoja ahora,
+          // Android aplica esta misma pulsacion larga al texto recien visible
+          // y abre su menu nativo de seleccionar/pegar.
+          gesture.held = true;
+          if (navigator.vibrate) navigator.vibrate(25);
         }, HOLD_MS);
       } else if (pointers.size === 2 && gesture) {
         clearTimeout(gesture.timer); gesture.moved = true;
@@ -248,6 +252,7 @@
       if (completed.previewScale != null) acceptState(core.scaleNode(state, node.id, completed.previewScale));
       if (completed.previewPoint) acceptState(core.moveNode(state, node.id, completed.previewPoint.x, completed.previewPoint.y));
       if (completed.previewScale != null) { renderTree(); return; }
+      if (completed.held) { openSheet(node.id); return; }
       if (!completed.moved && !completed.held) { currentParentId = node.id; renderTree(); }
     };
     plaque.addEventListener('pointerup', finish);
