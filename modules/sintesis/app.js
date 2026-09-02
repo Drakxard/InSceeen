@@ -62,48 +62,45 @@
   }
 
   function setPlaqueBox(plaque, width) {
-    const height = width / 1.5;
+    const height = width / (792 / 910);
     plaque.style.width = `${width}px`;
     plaque.style.height = `${height}px`;
-    plaque.style.padding = `${Math.max(11, height * .15)}px ${Math.max(18, width * .16)}px`;
+    plaque.style.padding = `${Math.max(18, height * .2)}px ${Math.max(22, width * .22)}px`;
   }
 
   function fitPlaqueText(plaque, requestedScale = 1) {
     if (plaque.classList.contains('header-plaque')) {
+      setPlaqueBox(plaque, 138);
       plaque.style.fontSize = '13px';
+      let size = 13;
+      while (size > 8 && !textFits(plaque)) {
+        size -= .5; plaque.style.fontSize = `${size}px`;
+      }
       return 1;
     }
     const boardWidth = Math.max(1, elements.board?.clientWidth || innerWidth);
-    const safeLogicalWidth = Math.max(112, (boardWidth - 16) / Math.max(core.MIN_SCALE, requestedScale));
     const normal = Math.min(190, Math.max(128, boardWidth * .37));
-    const maximum = Math.min(280, safeLogicalWidth);
+    const maximum = Math.min(280, Math.max(normal, boardWidth * .78));
     const candidates = [...new Set([
       Math.min(normal, maximum), Math.min(normal * 1.22, maximum), maximum
     ].map(value => Math.round(value)))].sort((a, b) => a - b);
     plaque.style.fontSize = boardWidth >= 700 ? '17px' : '16px';
     for (const width of candidates) {
       setPlaqueBox(plaque, width);
-      if (textFits(plaque)) return Math.min(requestedScale, (boardWidth - 16) / width);
+      if (textFits(plaque)) return requestedScale;
     }
     let size = boardWidth >= 700 ? 17 : 16;
     while (size > 8 && !textFits(plaque)) {
       size -= .5; plaque.style.fontSize = `${size}px`;
     }
-    return Math.min(requestedScale, (boardWidth - 16) / Math.max(1, plaque.offsetWidth));
+    return requestedScale;
   }
 
   function safePlaquePosition(node, plaque, scale) {
-    const boardWidth = Math.max(1, elements.board.clientWidth);
-    const viewportHeight = Math.max(1, elements.treeView.clientHeight);
-    const margin = 8;
-    const halfWidth = plaque.offsetWidth * scale / 2;
     const halfHeight = plaque.offsetHeight * scale / 2;
-    const minimumX = Math.min(.5, (halfWidth + margin) / boardWidth);
-    const maximumX = Math.max(.5, 1 - minimumX);
-    const minimumY = (halfHeight + margin) / viewportHeight;
     return {
-      x: Math.max(minimumX, Math.min(maximumX, node.x)),
-      y: Math.max(minimumY, node.y),
+      x: Math.max(0, Math.min(1, node.x)),
+      y: Math.max(0, node.y),
       halfHeight
     };
   }
@@ -216,7 +213,7 @@
       pointers.set(event.pointerId, point(event));
       if (pointers.size >= 2) {
         const requested = Math.max(core.MIN_SCALE, Math.min(core.MAX_SCALE, gesture.pinchScale * distance() / Math.max(1, gesture.pinchDistance)));
-        const effective = Math.min(requested, (elements.board.clientWidth - 16) / Math.max(1, plaque.offsetWidth));
+        const effective = requested;
         plaque.style.transform = `translate(-50%,-50%) scale(${effective})`;
         gesture.previewScale = requested; return;
       }
@@ -225,15 +222,9 @@
       if (!gesture.moved && Math.hypot(dx, dy) <= MOVE_TOLERANCE) return;
       clearTimeout(gesture.timer); gesture.moved = true;
       const cursor = boardPoint(event);
-      const scale = Number(plaque.dataset.effectiveScale) || gesture.scale;
-      const boardWidth = Math.max(1, elements.board.clientWidth);
-      const viewportHeight = Math.max(1, elements.treeView.clientHeight);
-      const minimumX = Math.min(.5, (plaque.offsetWidth * scale / 2 + 8) / boardWidth);
-      const maximumX = Math.max(.5, 1 - minimumX);
-      const minimumY = (plaque.offsetHeight * scale / 2 + 8) / viewportHeight;
       const next = {
-        x: Math.max(minimumX, Math.min(maximumX, cursor.x - gesture.grab.x)),
-        y: Math.max(minimumY, Math.min(50, cursor.y - gesture.grab.y))
+        x: Math.max(0, Math.min(1, cursor.x - gesture.grab.x)),
+        y: Math.max(0, Math.min(50, cursor.y - gesture.grab.y))
       };
       plaque.style.left = `${next.x * 100}%`; plaque.style.top = `${next.y * 100}dvh`;
       plaque.dataset.displayX = String(next.x); plaque.dataset.displayY = String(next.y);
