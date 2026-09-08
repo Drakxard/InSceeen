@@ -41,6 +41,42 @@ internal class ProviderClient(
 ) {
     class MarkerException(val code: String) : IOException(code)
 
+    fun listSynthesisWeeks(subjectId: String): List<Int> {
+        val payload = widgetRequest(synthesisUrl(subjectId))
+        val weeks = payload.optJSONArray("weeks") ?: JSONArray()
+        return (0 until weeks.length()).mapNotNull { weeks.optJSONObject(it)?.optInt("weekNumber", -1)?.takeIf { week -> week in 0..9999 } }
+            .distinct().sortedDescending()
+    }
+
+    fun readSynthesis(subjectId: String, week: Int): JSONObject {
+        if (week !in 0..9999) throw ProviderWidgetException("invalid_week", false)
+        return widgetRequest(synthesisUrl(subjectId, week)).optJSONObject("workspace")
+            ?: throw ProviderWidgetException("invalid_response", true)
+    }
+
+    fun readSynthesisImage(id: String): Pair<String, ByteArray> {
+        if (!id.matches(Regex("[a-zA-Z0-9-]{1,100}"))) throw ProviderWidgetException("invalid_image", false)
+        val url = (baseUrl.trimEnd('/') + "/api/inscreen/provider/synthesis-images").toHttpUrl().newBuilder()
+            .addQueryParameter("id", id).build()
+        val request = Request.Builder().url(url).header("Authorization", "Bearer $token").build()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw ProviderWidgetException("http_${response.code}", response.code >= 500)
+            val type = response.header("Content-Type").orEmpty().substringBefore(';')
+            if (type !in setOf("image/png", "image/jpeg", "image/gif", "image/webp")) throw ProviderWidgetException("invalid_image", false)
+            val bytes = response.body?.bytes() ?: throw ProviderWidgetException("invalid_image", true)
+            if (bytes.size > 5 * 1024 * 1024) throw ProviderWidgetException("invalid_image", false)
+            return type to bytes
+        }
+    }
+
+    private fun synthesisUrl(subjectId: String, week: Int? = null): String {
+        if (!subjectId.matches(Regex("[A-Za-z0-9][A-Za-z0-9._-]{0,159}"))) throw ProviderWidgetException("invalid_subject", false)
+        return (baseUrl.trimEnd('/') + "/api/inscreen/provider/synthesis").toHttpUrl().newBuilder()
+            .addQueryParameter("subjectId", subjectId)
+            .apply { if (week != null) addQueryParameter("weekNumber", week.toString()) }
+            .build().toString()
+    }
+
     @Throws(ProviderWidgetException::class)
     fun listWidgetSubjects(): List<ProviderWidgetSubject> {
         val payload = widgetRequest("${baseUrl.trimEnd('/')}/api/inscreen/provider/widget-targets")
