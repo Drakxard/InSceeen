@@ -61,6 +61,10 @@ class SynthesisWidgetResolveActivity : Activity() {
             .joinToString("") { "%02x".format(it) }
         val cache = File(filesDir, "synthesis-cache/$cacheKey").apply { mkdirs() }
         val client = credentials?.let { ProviderClient(it.baseUrl, it.token) }
+        val readerModule = ModuleCatalog.Module("sintesis", "Síntesis", "modules/sintesis/index.html")
+        val moduleCache = ModuleCache.from(this)
+        var readerTemplate = File(moduleCache.directory(config.subjectId, readerModule.id), "reader.html")
+            .takeIf(File::isFile)?.readText(Charsets.UTF_8)
         viewer.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 val uri = request?.url ?: return true
@@ -104,7 +108,7 @@ class SynthesisWidgetResolveActivity : Activity() {
                     } catch (error: Exception) {
                         if ((error is ProviderWidgetException && error.transient || client == null) && file.isFile) { cached = true; JSONObject(file.readText()) } else throw error
                     }
-                    SynthesisDocumentRenderer.render(workspace)
+                    SynthesisDocumentRenderer.render(workspace, readerTemplate)
                 }
                 runOnUiThread {
                     if (isFinishing || isDestroyed || selectedWeek != week) return@runOnUiThread
@@ -148,7 +152,21 @@ class SynthesisWidgetResolveActivity : Activity() {
         }
         back.setOnClickListener { navigateBack() }
         refresh.setOnClickListener { selectedWeek = -1; refreshWeeks() }
-        refreshWeeks()
+        fun updateReaderModule(startWhenReady: Boolean) {
+            if (startWhenReady) { status.text = "Actualizando lector…"; refresh.isEnabled = false }
+            ModuleCatalog.loadPackage(readerModule) { loaded -> runOnUiThread {
+                loaded.onSuccess { modulePackage ->
+                    runCatching {
+                        moduleCache.write(config!!.subjectId, readerModule, modulePackage.files, modulePackage.version)
+                        readerTemplate = File(moduleCache.directory(config!!.subjectId, readerModule.id), "reader.html")
+                            .takeIf(File::isFile)?.readText(Charsets.UTF_8)
+                    }
+                }
+                if (startWhenReady) refreshWeeks()
+            } }
+        }
+        if (readerTemplate == null) updateReaderModule(true)
+        else { refreshWeeks(); updateReaderModule(false) }
     }
 
     private fun emptyResponse() = WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(byteArrayOf()))

@@ -42,11 +42,26 @@ class SynthesisWidgetTest {
         assertFalse(html.contains("<script>alert(1)</script>"))
         assertTrue(html.contains("window.readerBack"))
         assertTrue(html.contains("const nodes="))
+        assertTrue(html.contains("id=\"selectAll\""))
+        assertTrue(html.contains("showSheet([n])"))
+        assertTrue(html.contains("list.filter(n=>selected.has(n.index))"))
+        assertTrue(html.contains("if(sheet){readControls.hidden=false;render()"))
         assertTrue(html.contains("table"))
         assertTrue(html.contains("colspan"))
         assertTrue(html.contains("https://synthesis.local/images/abc-123"))
         assertFalse(html.contains("evil.test"))
         assertFalse(html.contains("javascript:"))
         assertFalse(html.contains("alert(1)</script>"))
+    }
+
+    @Test fun `reader UI can be supplied by the updateable synthesis module`() {
+        val workspace = JSONObject("""{"version":2,"editorFontSize":21,"document":{"type":"doc","content":[
+            {"type":"heading","attrs":{"level":1},"content":[{"type":"text","text":"Tema"}]}
+        ]}}""")
+        val template = "<style>font:__INSCREEN_SYNTHESIS_FONT_SIZE__px</style><script>const nodes=__INSCREEN_SYNTHESIS_NODES__</script>"
+        val html = SynthesisDocumentRenderer.render(workspace, template)
+        assertTrue(html.contains("font:21px"))
+        assertTrue(html.contains("\"name\":\"Tema\""))
+        assertFalse(html.contains("__INSCREEN_SYNTHESIS_"))
     }
 }

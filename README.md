@@ -179,12 +179,21 @@ y permite recorrer, desde la barra superior, las demás semanas en orden
 descendente.
 
 El lector reproduce las placas, posiciones, ramas, textos e imágenes de la
-Síntesis de Cursado. Las placas permiten entrar en una rama y **Leer** abre el
-contenido de la sección actual; la flecha vuelve por la misma jerarquía. No hay
+Síntesis de Cursado. Las placas permiten entrar en una rama y **Leer** está
+disponible en cada vista con nodos: permite seleccionar elementos individuales
+o todos los visibles y leerlos juntos. Al cerrar el contenido se restaura la
+vista exacta desde la cual se abrió; la flecha vuelve por la misma jerarquía. No hay
 acciones de creación, movimiento, edición ni eliminación. El botón ↻ actualiza
 las semanas y el contenido, y Android también solicita actualizaciones
 periódicas (cada 30 minutos, sujeto a sus restricciones de batería). Sin
 conexión se conserva el contenido y las imágenes ya consultados.
+
+La interfaz del lector del widget vive en `modules/sintesis/reader.html`. El APK
+descarga esa interfaz con el mecanismo de actualización de módulos y conserva
+la última copia local, por lo que los cambios posteriores del lector se publican
+con un commit en `main` sin generar otra versión del APK. Android mantiene un
+lector integrado únicamente como respaldo compatible si aún no pudo descargar
+el módulo.
 
 Esta función requiere actualizar tanto el APK como el servidor de Cursado:
 usa los endpoints autenticados con el token del proveedor
