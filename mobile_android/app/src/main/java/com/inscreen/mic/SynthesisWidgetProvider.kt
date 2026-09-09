@@ -5,8 +5,6 @@ import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
-import android.view.View
 import android.widget.RemoteViews
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
@@ -52,9 +50,7 @@ class SynthesisWidgetProvider : AppWidgetProvider() {
                         },
                     )
                     SynthesisWidgetStore.save(context, id, next)
-                    val manager = AppWidgetManager.getInstance(context)
-                    update(context, manager, id)
-                    manager.notifyAppWidgetViewDataChanged(id, R.id.synthesis_weeks)
+                    update(context, AppWidgetManager.getInstance(context), id)
                 }.also { it.start() } }
                 workers.forEach { it.join() }
             } finally { pending.finish() }
@@ -68,28 +64,11 @@ class SynthesisWidgetProvider : AppWidgetProvider() {
             val config = SynthesisWidgetStore.load(context, appWidgetId)
             val views = RemoteViews(context.packageName, R.layout.synthesis_widget)
             views.setTextViewText(R.id.synthesis_widget_title, config?.subjectName ?: "Elegir materia")
-            views.setTextViewText(R.id.synthesis_status, config?.status.orEmpty())
-            views.setViewVisibility(R.id.synthesis_status, if (config == null || config.status.isNotBlank()) View.VISIBLE else View.GONE)
-            views.setTextViewText(R.id.synthesis_empty, if (config == null) "Tocá el título para configurar." else "No hay semanas disponibles.")
-            views.setOnClickPendingIntent(
-                R.id.synthesis_widget_title,
+            val target = if (config == null) SynthesisWidgetConfigureActivity::class.java else SynthesisWidgetResolveActivity::class.java
+            views.setOnClickPendingIntent(R.id.synthesis_widget_root,
                 PendingIntent.getActivity(context, appWidgetId,
-                    Intent(context, SynthesisWidgetConfigureActivity::class.java).putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId),
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE),
-            )
-            views.setOnClickPendingIntent(R.id.synthesis_refresh,
-                PendingIntent.getBroadcast(context, appWidgetId,
-                    Intent(context, SynthesisWidgetProvider::class.java).setAction(ACTION_REFRESH).putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId),
+                    Intent(context, target).putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId),
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
-            val adapter = Intent(context, SynthesisWeeksService::class.java).putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
-                .setData(Uri.parse("inscreen://synthesis-widget/$appWidgetId"))
-            views.setRemoteAdapter(R.id.synthesis_weeks, adapter)
-            views.setEmptyView(R.id.synthesis_weeks, R.id.synthesis_empty)
-            views.setPendingIntentTemplate(R.id.synthesis_weeks,
-                PendingIntent.getActivity(context, appWidgetId,
-                    Intent(context, SynthesisWidgetResolveActivity::class.java).putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
-                        .setData(Uri.parse("inscreen://synthesis-open/$appWidgetId")),
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE))
             manager.updateAppWidget(appWidgetId, views)
         }
     }

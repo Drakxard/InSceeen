@@ -1,30 +1,19 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/synthesis_widget_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:background="#ED492D20"
-    android:padding="8dp">
-    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:orientation="horizontal" android:gravity="center_vertical">
-        <TextView android:id="@+id/synthesis_widget_title"
-            android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
-            android:minHeight="48dp" android:gravity="center_vertical" android:maxLines="3"
-            android:fontFamily="serif" android:text="@string/synthesis_widget_label"
-            android:textColor="#FFF4DC" android:textSize="18sp" android:textStyle="bold" />
-        <TextView android:id="@+id/synthesis_refresh"
-            android:layout_width="48dp" android:layout_height="48dp" android:gravity="center"
-            android:text="↻" android:textColor="#FFF4DC" android:textSize="26sp"
-            android:contentDescription="Actualizar semanas" />
-    </LinearLayout>
-    <TextView android:id="@+id/synthesis_status"
-        android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:textColor="#EAD6BE" android:textSize="12sp" />
-    <ListView android:id="@+id/synthesis_weeks"
-        android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
-        android:divider="#447D614A" android:dividerHeight="1dp" />
-    <TextView android:id="@+id/synthesis_empty"
-        android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:padding="12dp" android:textColor="#EAD6BE" android:textSize="14sp" />
-</LinearLayout>
+    android:clickable="true"
+    android:contentDescription="@string/synthesis_widget_description">
+    <ImageView android:layout_width="match_parent" android:layout_height="match_parent"
+        android:adjustViewBounds="true" android:contentDescription="@null"
+        android:scaleType="fitCenter" android:src="@drawable/synthesis_plaque" />
+    <TextView android:id="@+id/synthesis_widget_title"
+        android:layout_width="match_parent" android:layout_height="match_parent"
+        android:gravity="center" android:maxLines="3"
+        android:paddingStart="22dp" android:paddingTop="18dp"
+        android:paddingEnd="22dp" android:paddingBottom="14dp"
+        android:fontFamily="serif" android:text="@string/synthesis_widget_label"
+        android:textColor="#FFF4DC" android:textSize="18sp" android:textStyle="bold"
+        android:shadowColor="#7A210B05" android:shadowDx="0" android:shadowDy="2" android:shadowRadius="3" />
+</FrameLayout>

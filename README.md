@@ -174,16 +174,17 @@ Para agregarlo, mantén presionado un espacio libre de la pantalla de inicio, ab
 
 Al agregar el widget de Síntesis, elegí una materia del catálogo del proveedor
 vinculado con Cursado. Cada widget guarda su selección y muestra el nombre de
-esa materia como título. Debajo aparecen sus semanas sincronizadas con R2,
-ordenadas de mayor a menor. Tocá una semana para leer su contenido e imágenes,
-o el título para cambiar la materia.
+esa materia en una única placa. Al tocarla abre la última semana sincronizada
+y permite recorrer, desde la barra superior, las demás semanas en orden
+descendente.
 
-El botón ↻ actualiza las semanas; Android también solicita actualizaciones
-periódicas (cada 30 minutos, sujeto a sus restricciones de batería). El lector
-consulta la versión remota al abrir y permite actualizarla con ↻. Si no hay
-conexión, conserva la lista y permite leer el contenido y las imágenes ya
-consultados. El lector del widget es de solo lectura; la edición se realiza en
-Cursado.
+El lector reproduce las placas, posiciones, ramas, textos e imágenes de la
+Síntesis de Cursado. Las placas permiten entrar en una rama y **Leer** abre el
+contenido de la sección actual; la flecha vuelve por la misma jerarquía. No hay
+acciones de creación, movimiento, edición ni eliminación. El botón ↻ actualiza
+las semanas y el contenido, y Android también solicita actualizaciones
+periódicas (cada 30 minutos, sujeto a sus restricciones de batería). Sin
+conexión se conserva el contenido y las imágenes ya consultados.
 
 Esta función requiere actualizar tanto el APK como el servidor de Cursado:
 usa los endpoints autenticados con el token del proveedor

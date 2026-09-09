@@ -38,11 +38,15 @@ class SynthesisWidgetTest {
             {"type":"paragraph","content":[{"type":"text","text":"Enlace","marks":[{"type":"link","attrs":{"href":"javascript:alert(1)"}}]}]}
         ]}}""")
         val html = SynthesisDocumentRenderer.render(workspace)
-        assertTrue(html.contains("<h2><strong>&lt;script&gt;"))
-        assertTrue(html.contains("<table><tr><td colspan=\"2\""))
+        assertTrue(html.contains("alert(1)"))
+        assertFalse(html.contains("<script>alert(1)</script>"))
+        assertTrue(html.contains("window.readerBack"))
+        assertTrue(html.contains("const nodes="))
+        assertTrue(html.contains("table"))
+        assertTrue(html.contains("colspan"))
         assertTrue(html.contains("https://synthesis.local/images/abc-123"))
         assertFalse(html.contains("evil.test"))
         assertFalse(html.contains("javascript:"))
-        assertFalse(html.contains("<script>"))
+        assertFalse(html.contains("alert(1)</script>"))
     }
 }

@@ -44,7 +44,7 @@ class SynthesisWidgetConfigureActivity : Activity() {
                         val index = it.indexOfFirst { subject -> subject.id == existing?.subjectId }
                         if (index >= 0) subjects.setSelection(index)
                         save.isEnabled = it.isNotEmpty()
-                        status.text = if (it.isEmpty()) "Publicá tus materias desde Cursado." else "El widget mostrará las semanas sincronizadas, de la última a la primera."
+                        status.text = if (it.isEmpty()) "Publicá tus materias desde Cursado." else "El widget abrirá la Síntesis de esta materia en la última semana sincronizada."
                     }, onFailure = { status.text = "No se pudieron cargar las materias. Revisá la conexión y el proveedor." })
                 }
             }.start()

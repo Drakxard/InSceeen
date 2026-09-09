@@ -76,8 +76,6 @@
                 <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
             </intent-filter>
         </activity>
-        <service android:name=".SynthesisWeeksService" android:exported="false"
-            android:permission="android.permission.BIND_REMOTEVIEWS" />
         <activity
             android:name=".DriveExplorerActivity"
             android:exported="false" />
