@@ -17,19 +17,18 @@
 </head>
 <body>
   <main id="board" aria-label="Elementos de Síntesis"></main>
-  <div id="readControls"><button id="cancelRead" hidden>Cancelar</button><button id="selectAll" hidden>Todos</button><button id="read">Leer</button></div>
+  <div id="readControls"><button id="read">Leer</button></div>
   <article id="sheet" hidden></article><div id="empty" hidden></div>
   <script>
-    'use strict';const nodes=__INSCREEN_SYNTHESIS_NODES__;let parent=null,sheet=false,selecting=false;const selected=new Set();
-    const board=document.getElementById('board'),readControls=document.getElementById('readControls'),read=document.getElementById('read'),cancelRead=document.getElementById('cancelRead'),selectAll=document.getElementById('selectAll'),article=document.getElementById('sheet'),empty=document.getElementById('empty');
+    'use strict';const nodes=__INSCREEN_SYNTHESIS_NODES__;let parent=null,sheet=false;
+    const board=document.getElementById('board'),readControls=document.getElementById('readControls'),read=document.getElementById('read'),article=document.getElementById('sheet'),empty=document.getElementById('empty');
     function children(id){return nodes.filter(n=>n.parent===id)}
-    function updateReadControls(list){read.hidden=!list.length;cancelRead.hidden=!selecting;selectAll.hidden=!selecting;read.textContent=selecting?'Leer ('+selected.size+')':'Leer';read.disabled=selecting&&!selected.size;selectAll.textContent=list.length&&list.every(n=>selected.has(n.index))?'Ninguno':'Todos'}
-    function render(){sheet=false;article.hidden=true;board.hidden=false;board.replaceChildren();const list=children(parent);selected.clear();selecting=false;updateReadControls(list);empty.hidden=list.length>0;empty.textContent=nodes.length?'No hay más subtemas en esta sección.':'No hay contenido cargado para esta semana.';list.forEach(n=>{const wrap=document.createElement('div');wrap.className='node';wrap.style.setProperty('--s',n.scale);wrap.style.left=(n.x*100)+'%';wrap.style.top=(Math.max(.22,n.y)*100)+'vh';const b=document.createElement('button');b.className='plaque';b.textContent=n.name;b.setAttribute('aria-label','Abrir '+n.name);b.onclick=()=>{if(selecting){selected.has(n.index)?selected.delete(n.index):selected.add(n.index);wrap.classList.toggle('selected',selected.has(n.index));updateReadControls(list);return}if(children(n.index).length){parent=n.index;render()}else showSheet([n])};wrap.appendChild(b);board.appendChild(wrap)});const max=Math.max(1.5,...list.map(n=>n.y+.35));board.style.paddingBottom=(max*100)+'vh'}
+    function branch(node){return [node,...children(node.index).flatMap(branch)]}
+    function render(){sheet=false;article.hidden=true;board.hidden=false;board.replaceChildren();const list=children(parent);read.hidden=!list.length;empty.hidden=list.length>0;empty.textContent=nodes.length?'No hay más subtemas en esta sección.':'No hay contenido cargado para esta semana.';list.forEach(n=>{const wrap=document.createElement('div');wrap.className='node';wrap.style.setProperty('--s',n.scale);wrap.style.left=(n.x*100)+'%';wrap.style.top=(Math.max(.22,n.y)*100)+'vh';const b=document.createElement('button');b.className='plaque';b.textContent=n.name;b.setAttribute('aria-label','Abrir '+n.name);b.onclick=()=>{if(children(n.index).length){parent=n.index;render()}else showSheet([n])};wrap.appendChild(b);board.appendChild(wrap)});const max=Math.max(1.5,...list.map(n=>n.y+.35));board.style.paddingBottom=(max*100)+'vh'}
     function showSheet(list){if(!list.length)return;sheet=true;board.hidden=true;readControls.hidden=true;article.hidden=false;article.innerHTML=list.map(n=>'<section><h1>'+escapeHtml(n.name)+'</h1>'+(n.body||'<p>Sin contenido.</p>')+'</section>').join('');article.scrollTop=0}
     function escapeHtml(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
-    read.onclick=()=>{const list=children(parent);if(!selecting){selecting=true;document.querySelectorAll('.node').forEach(e=>e.classList.add('selecting'));updateReadControls(list);return}showSheet(list.filter(n=>selected.has(n.index)))};
-    cancelRead.onclick=()=>render();selectAll.onclick=()=>{const list=children(parent),all=list.every(n=>selected.has(n.index));selected.clear();if(!all)list.forEach(n=>selected.add(n.index));document.querySelectorAll('.node').forEach((e,i)=>e.classList.toggle('selected',selected.has(list[i].index)));updateReadControls(list)};
-    window.readerBack=function(){if(sheet){readControls.hidden=false;render();return true}if(selecting){render();return true}if(parent!==null){parent=nodes[parent].parent;render();return true}Reader.close();return true};render();
+    read.onclick=()=>showSheet(children(parent).flatMap(branch));
+    window.readerBack=function(){if(sheet){readControls.hidden=false;render();return true}if(parent!==null){parent=nodes[parent].parent;render();return true}Reader.close();return true};render();
   </script>
 </body>
 </html>

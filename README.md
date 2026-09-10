@@ -179,9 +179,8 @@ y permite recorrer, desde la barra superior, las demás semanas en orden
 descendente.
 
 El lector reproduce las placas, posiciones, ramas, textos e imágenes de la
-Síntesis de Cursado. Las placas permiten entrar en una rama y **Leer** está
-disponible en cada vista con nodos: permite seleccionar elementos individuales
-o todos los visibles y leerlos juntos. Al cerrar el contenido se restaura la
+Síntesis de Cursado. Las placas permiten entrar en una rama y **Leer** abre de
+inmediato los elementos visibles y todo su contenido descendiente. Al cerrar el contenido se restaura la
 vista exacta desde la cual se abrió; la flecha vuelve por la misma jerarquía. No hay
 acciones de creación, movimiento, edición ni eliminación. El botón ↻ actualiza
 las semanas y el contenido, y Android también solicita actualizaciones
