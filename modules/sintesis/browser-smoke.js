@@ -110,6 +110,31 @@ async function main() {
   if (result.copied !== 'Modelos con Ecuaciones Diferenciales No Lineales, TAP' || result.nodes !== 3 || !result.plaque.includes('synthesis_plaque')) throw new Error(`Estado inesperado: ${JSON.stringify(result)}`);
   await send('Page.reload'); await delay(500);
   if (await evaluate(`Object.keys(JSON.parse(localStorage.getItem('inscreen.sintesis.tree.v1')).nodes).length`) !== 3) throw new Error('El árbol no persistió al reabrir');
+  const checkZoom = async (viewportSelector, contentSelector) => {
+    const result = await evaluate(`(()=>{
+      const viewport=document.querySelector('${viewportSelector}'),content=document.querySelector('${contentSelector}');
+      viewport.hidden=false;
+      content.hidden=false;
+      content.innerHTML='<img style="width:100%;height:100px" alt="Zoom"><table style="width:100%"><tr><td>Tabla</td></tr></table><p>Texto de prueba</p>';
+      const img=content.querySelector('img'),table=content.querySelector('table');
+      const before=[img.getBoundingClientRect().width,table.getBoundingClientRect().width,img.getBoundingClientRect().height];
+      const touch=(type,gap)=>viewport.dispatchEvent(new TouchEvent(type,{bubbles:true,cancelable:true,touches:[new Touch({identifier:1,target:viewport,clientX:200-gap/2,clientY:250}),new Touch({identifier:2,target:viewport,clientX:200+gap/2,clientY:250})]}));
+      touch('touchstart',100);touch('touchmove',200);
+      const after=[img.getBoundingClientRect().width,table.getBoundingClientRect().width,img.getBoundingClientRect().height];
+      viewport.dispatchEvent(new TouchEvent('touchend',{touches:[]}));
+      viewport.scrollLeft=100;
+      return {ratios:after.map((v,i)=>v/before[i]),pan:viewport.scrollLeft};
+    })()`);
+    if (!result || result.ratios.some(ratio => Math.abs(ratio-2)>.03) || result.pan<50) {
+      throw new Error(`El pellizco no escala imagen y tabla o no permite desplazar: ${JSON.stringify(result)}`);
+    }
+  };
+  await checkZoom('#sheetView','#sheetContent');
+  const reader = fs.readFileSync(path.join(__dirname,'reader.html'),'utf8')
+    .replaceAll('__INSCREEN_SYNTHESIS_FONT_SIZE__','16')
+    .replace('__INSCREEN_SYNTHESIS_NODES__','[]');
+  await evaluate(`document.open();document.write(${JSON.stringify(reader)});document.close()`);
+  await checkZoom('#sheet','#sheetBody');
   socket.close();
   console.log('Síntesis browser smoke: OK');
 }

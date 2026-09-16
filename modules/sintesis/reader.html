@@ -28,7 +28,25 @@
     function showSheet(list){if(!list.length)return;sheet=true;board.hidden=true;readControls.hidden=true;article.hidden=false;sheetBody.innerHTML=list.map(n=>'<section><h1>'+escapeHtml(n.name)+'</h1>'+(n.body||'<p>Sin contenido.</p>')+'</section>').join('');article.scrollTop=0}
     function escapeHtml(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
     read.onclick=()=>showSheet(children(parent).flatMap(branch));
-    function distance(t){return Math.hypot(t[0].clientX-t[1].clientX,t[0].clientY-t[1].clientY)}article.addEventListener('touchstart',e=>{if(e.touches.length===2)pinch={distance:distance(e.touches),zoom}},{passive:true});article.addEventListener('touchmove',e=>{if(!pinch||e.touches.length!==2)return;e.preventDefault();zoom=Math.max(.75,Math.min(3,pinch.zoom*distance(e.touches)/Math.max(1,pinch.distance)));article.style.setProperty('--sheet-zoom',zoom)},{passive:false});article.addEventListener('touchend',e=>{if(e.touches.length<2)pinch=null});article.addEventListener('touchcancel',()=>{pinch=null});
+    function distance(t){return Math.hypot(t[0].clientX-t[1].clientX,t[0].clientY-t[1].clientY)}
+    article.addEventListener('touchstart',e=>{
+      if(e.touches.length!==2)return;
+      e.preventDefault();
+      sheetBody.style.width=sheetBody.offsetWidth+'px';
+      pinch={distance:distance(e.touches),zoom};
+    },{passive:false});
+    article.addEventListener('touchmove',e=>{
+      if(!pinch||e.touches.length!==2)return;
+      e.preventDefault();
+      const previous=zoom,rect=article.getBoundingClientRect(),style=getComputedStyle(article);
+      const x=(e.touches[0].clientX+e.touches[1].clientX)/2-rect.left-parseFloat(style.paddingLeft);
+      const y=(e.touches[0].clientY+e.touches[1].clientY)/2-rect.top-parseFloat(style.paddingTop);
+      zoom=Math.max(.75,Math.min(3,pinch.zoom*distance(e.touches)/Math.max(1,pinch.distance)));
+      const ratio=zoom/previous,left=(article.scrollLeft+x)*ratio-x,top=(article.scrollTop+y)*ratio-y;
+      article.style.setProperty('--sheet-zoom',zoom);
+      article.scrollLeft=left;article.scrollTop=top;
+    },{passive:false});
+    article.addEventListener('touchend',e=>{if(e.touches.length<2)pinch=null});article.addEventListener('touchcancel',()=>{pinch=null});
     window.readerBack=function(){if(sheet){readControls.hidden=false;render();return true}if(parent!==null){parent=nodes[parent].parent;render();return true}Reader.close();return true};render();
   </script>
 </body>

@@ -27,13 +27,30 @@
 
   let pinch = null;
   elements.sheetView.addEventListener('touchstart', event => {
-    if (event.touches.length === 2) pinch = { distance: touchDistance(event.touches), zoom: sheetZoom };
-  }, { passive: true });
+    if (event.touches.length !== 2) return;
+    event.preventDefault();
+    const content = sheetEditor || elements.sheetContent;
+    // Freeze the unscaled layout: responsive widths otherwise cancel image zoom.
+    content.style.width = `${content.offsetWidth}px`;
+    content.style.maxWidth = 'none';
+    content.style.marginLeft = '17px';
+    content.style.marginRight = '0';
+    pinch = { distance: touchDistance(event.touches), zoom: sheetZoom };
+  }, { passive: false });
   elements.sheetView.addEventListener('touchmove', event => {
     if (!pinch || event.touches.length !== 2) return;
     event.preventDefault();
+    const previousZoom = sheetZoom;
+    const rect = elements.sheetView.getBoundingClientRect();
+    const x = (event.touches[0].clientX + event.touches[1].clientX) / 2 - rect.left;
+    const y = (event.touches[0].clientY + event.touches[1].clientY) / 2 - rect.top;
     sheetZoom = Math.max(.75, Math.min(3, pinch.zoom * touchDistance(event.touches) / Math.max(1, pinch.distance)));
+    const ratio = sheetZoom / previousZoom;
+    const left = (elements.sheetView.scrollLeft + x) * ratio - x;
+    const top = (elements.sheetView.scrollTop + y - 82) * ratio - y + 82;
     elements.sheetView.style.setProperty('--sheet-zoom', sheetZoom);
+    elements.sheetView.scrollLeft = left;
+    elements.sheetView.scrollTop = top;
   }, { passive: false });
   elements.sheetView.addEventListener('touchend', event => { if (event.touches.length < 2) pinch = null; });
   elements.sheetView.addEventListener('touchcancel', () => { pinch = null; });
@@ -140,6 +157,9 @@
       if (tap) onTap(event);
     };
     element.addEventListener('pointerdown', event => {
+      if (press && event.pointerId !== press.id) {
+        clearTimeout(press.timer); press.moved = true; return;
+      }
       if (event.button !== 0 || press) return;
       press = { id: event.pointerId, x: event.clientX, y: event.clientY, held: false, moved: false };
       press.timer = setTimeout(() => {
