@@ -19,6 +19,24 @@
   let sheetEditor = null;
   let editorSaveTimer = 0;
   let toastTimer = 0;
+  let sheetZoom = 1;
+
+  function touchDistance(touches) {
+    return Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
+  }
+
+  let pinch = null;
+  elements.sheetView.addEventListener('touchstart', event => {
+    if (event.touches.length === 2) pinch = { distance: touchDistance(event.touches), zoom: sheetZoom };
+  }, { passive: true });
+  elements.sheetView.addEventListener('touchmove', event => {
+    if (!pinch || event.touches.length !== 2) return;
+    event.preventDefault();
+    sheetZoom = Math.max(.75, Math.min(3, pinch.zoom * touchDistance(event.touches) / Math.max(1, pinch.distance)));
+    elements.sheetView.style.setProperty('--sheet-zoom', sheetZoom);
+  }, { passive: false });
+  elements.sheetView.addEventListener('touchend', event => { if (event.touches.length < 2) pinch = null; });
+  elements.sheetView.addEventListener('touchcancel', () => { pinch = null; });
 
   function loadState() {
     let parsed = null;

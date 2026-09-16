@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="es">
 <head>
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes,viewport-fit=cover">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https://synthesis.local; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
   <style>
     *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden}body{color:#fff4dc;background:#a65d3b url('https://synthesis.local/assets/background') center/cover no-repeat;font-family:Georgia,'Times New Roman',serif}
@@ -10,7 +10,7 @@
     #readControls{position:fixed;z-index:8;top:12px;right:12px;display:flex;gap:7px}#readControls[hidden]{display:none}#readControls button{min-width:48px;height:44px;padding:0 14px;border:1px solid rgba(255,244,220,.65);border-radius:999px;color:#fff4dc;background:rgba(53,19,8,.82);font:600 14px system-ui,sans-serif}#readControls button[hidden]{display:none}
     .node.selecting .plaque{outline:3px solid transparent;outline-offset:-7px}.node.selected .plaque{outline-color:#ffe39a;background-color:rgba(255,227,154,.16)}.node.selecting::after{content:'○';position:absolute;right:7%;top:5%;font:700 25px/1 system-ui;color:#fff4dc;text-shadow:0 1px 4px #1e0903}.node.selected::after{content:'●';color:#ffe39a}
     #empty{position:absolute;top:40%;left:50%;width:min(88vw,440px);padding:20px;transform:translateX(-50%);border-radius:14px;background:rgba(53,19,8,.85);text-align:center;font:16px/1.5 system-ui,sans-serif}
-    #sheet{position:absolute;inset:0;overflow:auto;padding:24px max(17px,calc((100vw - 920px)/2)) 60px;color:#281811;background:#f8f2e7;font:__INSCREEN_SYNTHESIS_FONT_SIZE__px/1.65 system-ui,sans-serif;overflow-wrap:anywhere}
+    #sheet{position:absolute;inset:0;overflow:auto;padding:24px max(17px,calc((100vw - 920px)/2)) 60px;color:#281811;background:#f8f2e7;font:__INSCREEN_SYNTHESIS_FONT_SIZE__px/1.65 system-ui,sans-serif;overflow-wrap:anywhere;touch-action:pan-x pan-y}#sheetBody{zoom:var(--sheet-zoom,1)}
     #sheet h1,#sheet h2,#sheet h3,#sheet h4,#sheet h5,#sheet h6{margin:1.3em 0 .55em;color:#6b311b;line-height:1.18}#sheet h1:first-child,#sheet h2:first-child{margin-top:0}#sheet img{max-width:100%;height:auto}#sheet table{width:100%;border-collapse:collapse;display:block;overflow-x:auto}#sheet td,#sheet th{min-width:40px;padding:8px;border:1px solid #ad9982}#sheet blockquote{padding-left:14px;border-left:3px solid #ad9982}#sheet pre{overflow:auto;padding:14px;border-radius:10px;color:#f8eee2;background:#2e221d;white-space:pre-wrap}#sheet code{padding:.1em .28em;border-radius:4px;background:#e8ded0}#sheet pre code{padding:0;background:transparent}#sheet a{color:#943c1c}
     @media(min-width:641px){.node{width:calc(164px * var(--s));height:calc(150px * var(--s))}}
   </style>
@@ -18,16 +18,17 @@
 <body>
   <main id="board" aria-label="Elementos de Síntesis"></main>
   <div id="readControls"><button id="read">Leer</button></div>
-  <article id="sheet" hidden></article><div id="empty" hidden></div>
+  <article id="sheet" hidden><div id="sheetBody"></div></article><div id="empty" hidden></div>
   <script>
     'use strict';const nodes=__INSCREEN_SYNTHESIS_NODES__;let parent=null,sheet=false;
-    const board=document.getElementById('board'),readControls=document.getElementById('readControls'),read=document.getElementById('read'),article=document.getElementById('sheet'),empty=document.getElementById('empty');
+    const board=document.getElementById('board'),readControls=document.getElementById('readControls'),read=document.getElementById('read'),article=document.getElementById('sheet'),sheetBody=document.getElementById('sheetBody'),empty=document.getElementById('empty');let zoom=1,pinch=null;
     function children(id){return nodes.filter(n=>n.parent===id)}
     function branch(node){return [node,...children(node.index).flatMap(branch)]}
     function render(){sheet=false;article.hidden=true;board.hidden=false;board.replaceChildren();const list=children(parent);read.hidden=!list.length;empty.hidden=list.length>0;empty.textContent=nodes.length?'No hay más subtemas en esta sección.':'No hay contenido cargado para esta semana.';list.forEach(n=>{const wrap=document.createElement('div');wrap.className='node';wrap.style.setProperty('--s',n.scale);wrap.style.left=(n.x*100)+'%';wrap.style.top=(Math.max(.22,n.y)*100)+'vh';const b=document.createElement('button');b.className='plaque';b.textContent=n.name;b.setAttribute('aria-label','Abrir '+n.name);b.onclick=()=>{if(children(n.index).length){parent=n.index;render()}else showSheet([n])};wrap.appendChild(b);board.appendChild(wrap)});const max=Math.max(1.5,...list.map(n=>n.y+.35));board.style.paddingBottom=(max*100)+'vh'}
-    function showSheet(list){if(!list.length)return;sheet=true;board.hidden=true;readControls.hidden=true;article.hidden=false;article.innerHTML=list.map(n=>'<section><h1>'+escapeHtml(n.name)+'</h1>'+(n.body||'<p>Sin contenido.</p>')+'</section>').join('');article.scrollTop=0}
+    function showSheet(list){if(!list.length)return;sheet=true;board.hidden=true;readControls.hidden=true;article.hidden=false;sheetBody.innerHTML=list.map(n=>'<section><h1>'+escapeHtml(n.name)+'</h1>'+(n.body||'<p>Sin contenido.</p>')+'</section>').join('');article.scrollTop=0}
     function escapeHtml(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
     read.onclick=()=>showSheet(children(parent).flatMap(branch));
+    function distance(t){return Math.hypot(t[0].clientX-t[1].clientX,t[0].clientY-t[1].clientY)}article.addEventListener('touchstart',e=>{if(e.touches.length===2)pinch={distance:distance(e.touches),zoom}},{passive:true});article.addEventListener('touchmove',e=>{if(!pinch||e.touches.length!==2)return;e.preventDefault();zoom=Math.max(.75,Math.min(3,pinch.zoom*distance(e.touches)/Math.max(1,pinch.distance)));article.style.setProperty('--sheet-zoom',zoom)},{passive:false});article.addEventListener('touchend',e=>{if(e.touches.length<2)pinch=null});article.addEventListener('touchcancel',()=>{pinch=null});
     window.readerBack=function(){if(sheet){readControls.hidden=false;render();return true}if(parent!==null){parent=nodes[parent].parent;render();return true}Reader.close();return true};render();
   </script>
 </body>
