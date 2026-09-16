@@ -46,6 +46,7 @@
         </activity>
         <activity
             android:name=".ModuleHostActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden"
             android:exported="false" />
         <activity
             android:name=".SubjectNotesCaptureActivity"
@@ -68,6 +69,7 @@
             android:noHistory="true" />
         <activity
             android:name=".SynthesisWidgetResolveActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden"
             android:excludeFromRecents="true"
             android:exported="false" />
         <activity android:name=".SynthesisWidgetConfigureActivity"
