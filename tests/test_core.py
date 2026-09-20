@@ -125,8 +125,8 @@ class CoreTests(unittest.TestCase):
     def test_visual_and_text_models_are_separate(self) -> None:
         self.assertEqual(QWEN_MODEL, "qwen/qwen3.6-27b")
         self.assertEqual(TEXT_MODEL, "llama-3.3-70b-versatile")
-        self.assertFalse(hasattr(AppConfig(), "vision_model"))
-        self.assertFalse(hasattr(AppConfig(), "text_model"))
+        self.assertEqual(AppConfig().vision_model, QWEN_MODEL)
+        self.assertEqual(AppConfig().text_model, TEXT_MODEL)
         self.assertEqual(model_request_options(TEXT_MODEL, "text"), {})
 
     def test_text_worker_sends_llama_model(self) -> None:
@@ -247,13 +247,13 @@ class CoreTests(unittest.TestCase):
         listener._on_press(pipe)
         self.assertEqual(events, ["dismiss", "dismiss"])
 
-    def test_escape_does_not_dismiss(self) -> None:
+    def test_escape_dismisses(self) -> None:
         listener = HotkeyListener("-")
         events = []
         listener.dismiss_requested.connect(lambda: events.append("dismiss"))
         listener._on_press(keyboard.Key.esc)
         listener._on_release(keyboard.Key.esc)
-        self.assertEqual(events, [])
+        self.assertEqual(events, ["dismiss"])
 
     def test_ctrl_shift_p_does_not_request_pairing(self) -> None:
         listener = HotkeyListener("-")

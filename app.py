@@ -15,7 +15,7 @@ import sys
 import threading
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -50,6 +50,8 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
+    QComboBox,
+    QFormLayout,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -83,6 +85,42 @@ MAX_IMAGE_BYTES = 20 * 1024 * 1024
 DWMWA_EXTENDED_FRAME_BOUNDS = 9
 RATE_LIMIT_MARKER = "__INSCREEN_RATE_LIMIT__"
 LOGGER = logging.getLogger("inscreen")
+MODEL_FIELDS = {"vision_model": "Imagen / OCR", "text_model": "Texto", "audio_model": "Transcripción de audio"}
+MODEL_FAILURE_MARKER = "__INSCREEN_MODEL__:"
+
+
+def is_model_failure(exc: Exception) -> bool:
+    status = getattr(exc, "status_code", None)
+    if status in (401, 429) or (isinstance(status, int) and status >= 500):
+        return False
+    body = getattr(exc, "body", {})
+    if isinstance(body, dict):
+        error = body.get("error", body)
+        code = str(error.get("code", "")) if isinstance(error, dict) else ""
+        if code in {"model_decommissioned", "model_not_found", "model_not_available", "model_permission_denied", "model_access_denied", "model_permission_blocked_org", "model_permission_blocked_project"}:
+            return True
+    message = str(exc).lower()
+    return status in (400, 403, 404) and "model" in message and any(
+        phrase in message for phrase in ("decommissioned", "deprecated", "does not exist", "not found", "do not have access", "does not have access", "no access", "not permitted", "access denied")
+    )
+
+
+def encode_model_failure(exc: Exception, role: str, model: str) -> str:
+    if not is_model_failure(exc):
+        return str(exc)
+    return MODEL_FAILURE_MARKER + json.dumps({"role": role, "model": model, "detail": str(exc)})
+
+
+def decode_model_failure(content: str) -> dict | None:
+    if not content.startswith(MODEL_FAILURE_MARKER):
+        return None
+    try:
+        value = json.loads(content[len(MODEL_FAILURE_MARKER):])
+        if isinstance(value, dict) and all(isinstance(value.get(key), str) for key in ("role", "model", "detail")):
+            return value
+    except (ValueError, TypeError):
+        pass
+    return None
 RUNTIME_IDENTITY_FILES = (
     "state.json",
     "ca-key.pem",
@@ -143,6 +181,8 @@ LATEX_OUTPUT_CONTRACT = r"""CONTRATO DE SALIDA OBLIGATORIO (tiene prioridad sobr
 
 @dataclass
 class AppConfig:
+    vision_model: str = QWEN_MODEL
+    text_model: str = TEXT_MODEL
     audio_model: str = "whisper-large-v3-turbo"
     hotkey: str = "-"
     language: str = "es"
@@ -175,10 +215,18 @@ def load_config() -> AppConfig:
     config.vision_wait_seconds = min(30.0, max(2.0, float(config.vision_wait_seconds)))
     config.overlay_width_ratio = min(0.95, max(0.35, float(config.overlay_width_ratio)))
     config.send_image = bool(config.send_image)
+    for field in MODEL_FIELDS:
+        value = getattr(config, field)
+        setattr(config, field, value.strip() if isinstance(value, str) and value.strip()
+                else getattr(AppConfig(), field))
     return config
 
 
 def save_send_image_preference(enabled: bool, path: Path | None = None) -> None:
+    save_preferences({"send_image": bool(enabled)}, path)
+
+
+def save_preferences(values: dict, path: Path | None = None) -> None:
     target = path or (APP_DIR / "config.json")
     raw: dict = {}
     if target.exists():
@@ -186,7 +234,7 @@ def save_send_image_preference(enabled: bool, path: Path | None = None) -> None:
             loaded = json.load(handle)
         if isinstance(loaded, dict):
             raw = loaded
-    raw["send_image"] = bool(enabled)
+    raw.update(values)
     temporary = target.with_suffix(target.suffix + ".tmp")
     with temporary.open("w", encoding="utf-8") as handle:
         json.dump(raw, handle, ensure_ascii=False, indent=2)
@@ -822,7 +870,7 @@ class HotkeyListener(QObject):
 
     @staticmethod
     def _is_dismiss(key: object) -> bool:
-        return getattr(key, "char", None) == "|"
+        return key == keyboard.Key.esc or getattr(key, "char", None) == "|"
 
     def _matches(self, key: object) -> bool:
         if self.hotkey == "-":
@@ -846,7 +894,7 @@ class VisionWorker(QObject):
         super().__init__()
         self.session_id = session_id
         self.image_data_url = image_data_url
-        self.config = config
+        self.config = replace(config)
         self.api_key = api_key
         self._cancelled = threading.Event()
 
@@ -865,7 +913,7 @@ class VisionWorker(QObject):
                     max_retries=0,
                 )
                 response = client.chat.completions.create(
-                    model=QWEN_MODEL,
+                    model=self.config.vision_model,
                     messages=[
                         {
                             "role": "user",
@@ -877,7 +925,7 @@ class VisionWorker(QObject):
                     ],
                     temperature=0.0,
                     max_tokens=1800,
-                    **model_request_options(QWEN_MODEL, "vision"),
+                    **model_request_options(self.config.vision_model, "vision"),
                 )
                 return (response.choices[0].message.content or "").strip()
 
@@ -907,7 +955,7 @@ class VisionWorker(QObject):
                 exc,
             )
             LOGGER.exception("Vision: detalle del fallo")
-            self.completed.emit(self.session_id, False, str(exc))
+            self.completed.emit(self.session_id, False, encode_model_failure(exc, "vision", self.config.vision_model))
 
 
 class AudioTranscriptionWorker(QObject):
@@ -925,7 +973,7 @@ class AudioTranscriptionWorker(QObject):
         self.session_id = session_id
         self.audio_path = audio_path
         self.mime_type = mime_type
-        self.config = config
+        self.config = replace(config)
         self.api_key = api_key
         self._cancelled = threading.Event()
 
@@ -933,6 +981,7 @@ class AudioTranscriptionWorker(QObject):
         self._cancelled.set()
 
     def run(self) -> None:
+        retain_audio = False
         started = time.monotonic()
         LOGGER.info("Audio: inicio de transcripción")
         try:
@@ -964,15 +1013,17 @@ class AudioTranscriptionWorker(QObject):
             LOGGER.info("Audio: transcripción lista en %.2fs", time.monotonic() - started)
             self.completed.emit(self.session_id, True, content)
         except Exception as exc:
+            retain_audio = is_model_failure(exc) and not self._cancelled.is_set()
             LOGGER.warning(
                 "Audio: fallo después de %.2fs: %s",
                 time.monotonic() - started,
                 exc,
             )
             LOGGER.exception("Audio: detalle del fallo")
-            self.completed.emit(self.session_id, False, str(exc))
+            self.completed.emit(self.session_id, False, encode_model_failure(exc, "audio", self.config.audio_model))
         finally:
-            self.audio_path.unlink(missing_ok=True)
+            if not retain_audio:
+                self.audio_path.unlink(missing_ok=True)
 
 
 class MultimodalAnswerWorker(QObject):
@@ -994,7 +1045,7 @@ class MultimodalAnswerWorker(QObject):
         self.prompt = prompt
         self.image_data_url = image_data_url
         self.question = question
-        self.config = config
+        self.config = replace(config)
         self.api_key = api_key
         self._cancelled = threading.Event()
 
@@ -1015,7 +1066,7 @@ class MultimodalAnswerWorker(QObject):
                     max_retries=0,
                 )
                 stream = client.chat.completions.create(
-                    model=QWEN_MODEL,
+                    model=self.config.vision_model,
                     messages=[
                         {
                             "role": "user",
@@ -1037,7 +1088,7 @@ class MultimodalAnswerWorker(QObject):
                     temperature=0.6,
                     max_tokens=1200,
                     stream=True,
-                    **model_request_options(QWEN_MODEL, "multimodal"),
+                    **model_request_options(self.config.vision_model, "multimodal"),
                 )
                 for chunk in stream:
                     if self._cancelled.is_set():
@@ -1077,7 +1128,7 @@ class MultimodalAnswerWorker(QObject):
                 exc,
             )
             LOGGER.exception("Respuesta multimodal: detalle del fallo")
-            self.completed.emit(self.session_id, False, str(exc))
+            self.completed.emit(self.session_id, False, encode_model_failure(exc, "multimodal", self.config.vision_model))
 
 
 class AnswerWorker(QObject):
@@ -1099,7 +1150,7 @@ class AnswerWorker(QObject):
         self.prompt = prompt
         self.material = material
         self.question = question
-        self.config = config
+        self.config = replace(config)
         self.api_key = api_key
         self._cancelled = threading.Event()
 
@@ -1120,7 +1171,7 @@ class AnswerWorker(QObject):
                     max_retries=0,
                 )
                 stream = client.chat.completions.create(
-                    model=TEXT_MODEL,
+                    model=self.config.text_model,
                     messages=[
                         {
                             "role": "user",
@@ -1134,7 +1185,7 @@ class AnswerWorker(QObject):
                     temperature=0.1,
                     max_tokens=1200,
                     stream=True,
-                    **model_request_options(TEXT_MODEL, "text"),
+                    **model_request_options(self.config.text_model, "text"),
                 )
                 for chunk in stream:
                     if self._cancelled.is_set():
@@ -1171,7 +1222,7 @@ class AnswerWorker(QObject):
                 exc,
             )
             LOGGER.exception("Respuesta: detalle del fallo")
-            self.completed.emit(self.session_id, False, str(exc))
+            self.completed.emit(self.session_id, False, encode_model_failure(exc, "text", self.config.text_model))
 
 
 class MathRenderBridge(QObject):
@@ -1786,8 +1837,118 @@ class PairingWindow(QDialog):
         self.setStyleSheet("QDialog { background: white; }")
 
 
+class ModelCatalogWorker(QObject):
+    completed = Signal(str, bool, str)
+
+    def __init__(self, session_id: str, api_key: str) -> None:
+        super().__init__()
+        self.session_id = session_id
+        self.api_key = api_key
+
+    def run(self) -> None:
+        try:
+            with OpenAI(api_key=self.api_key, base_url=GROQ_BASE_URL, timeout=15, max_retries=0) as client:
+                models = sorted({model.id for model in client.models.list() if getattr(model, "active", True) is not False})
+            self.completed.emit(self.session_id, True, json.dumps(models))
+        except Exception as exc:
+            self.completed.emit(self.session_id, False, str(exc))
+
+
+class ModelSettingsDialog(QDialog):
+    saved = Signal(object)
+
+    def __init__(self, controller, field: str | None = None, detail: str = "") -> None:
+        super().__init__()
+        self.controller = controller
+        self.request_id = ""
+        self.setWindowTitle("Cambiar modelo" if field else "Configuración de modelos")
+        self.setMinimumWidth(560)
+        self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+        layout = QVBoxLayout(self)
+        if detail:
+            label = QLabel(detail)
+            label.setWordWrap(True)
+            label.setTextFormat(Qt.PlainText)
+            layout.addWidget(label)
+        form = QFormLayout()
+        self.fields = {}
+        for name, title in MODEL_FIELDS.items():
+            if field and name != field:
+                continue
+            combo = QComboBox()
+            combo.setEditable(True)
+            combo.setInsertPolicy(QComboBox.NoInsert)
+            combo.setEditText(getattr(controller.config, name))
+            combo.completer().setFilterMode(Qt.MatchContains)
+            combo.completer().setCaseSensitivity(Qt.CaseInsensitive)
+            self.fields[name] = combo
+            form.addRow(title, combo)
+        layout.addLayout(form)
+        hint = QLabel("Escribe para buscar o introducir un identificador. El catálogo no garantiza acceso ni compatibilidad.\n"
+                      "Qwen 3.6/3.8 27B: imagen y texto; Llama 3.3 70B: texto; Whisper: transcripción.\n"
+                      "Otros modelos: capacidades sin verificar.")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+        self.status = QLabel()
+        self.status.setWordWrap(True)
+        self.status.setTextFormat(Qt.PlainText)
+        layout.addWidget(self.status)
+        buttons = QHBoxLayout()
+        refresh = QPushButton("Actualizar modelos")
+        refresh.clicked.connect(self.refresh)
+        save = QPushButton("Guardar y reintentar" if field else "Guardar")
+        save.clicked.connect(self.save)
+        cancel = QPushButton("Cancelar")
+        cancel.clicked.connect(self.reject)
+        for button in (refresh, save, cancel):
+            buttons.addWidget(button)
+        layout.addLayout(buttons)
+
+    def refresh(self) -> None:
+        self.request_id = uuid.uuid4().hex
+        if not self.controller.api_key:
+            self.status.setText("Falta GROQ_API_KEY. Puedes introducir el modelo manualmente.")
+            return
+        self.status.setText("Buscando modelos…")
+        self.controller.start_worker(ModelCatalogWorker(self.request_id, self.controller.api_key), self.loaded)
+
+    def loaded(self, request_id: str, success: bool, content: str) -> None:
+        if request_id != self.request_id or not self.isVisible():
+            return
+        if not success:
+            self.status.setText("No se pudo consultar el catálogo. Puedes introducir el modelo manualmente.\n" + content)
+            return
+        models = json.loads(content)
+        for combo in self.fields.values():
+            current = combo.currentText()
+            combo.clear()
+            combo.addItems(models)
+            combo.setEditText(current)
+        self.status.setText(f"{len(models)} modelos encontrados." if models else "Catálogo vacío. Puedes introducir el modelo manualmente.")
+
+    def save(self) -> None:
+        values = {name: combo.currentText().strip() for name, combo in self.fields.items()}
+        if not all(values.values()):
+            self.status.setText("El identificador del modelo no puede estar vacío.")
+            return
+        try:
+            save_preferences(values)
+        except Exception as exc:
+            self.status.setText(f"No se pudo guardar la configuración: {exc}")
+            return
+        for name, value in values.items():
+            setattr(self.controller.config, name, value)
+        self.accept()
+        self.saved.emit(values)
+
+    def done(self, result: int) -> None:
+        self.request_id = ""
+        super().done(result)
+
+
 class ApplicationTray(QObject):
     primary_activated = Signal()
+    settings_requested = Signal()
 
     def __init__(self, app: QApplication, quit_callback) -> None:
         super().__init__()
@@ -1800,11 +1961,14 @@ class ApplicationTray(QObject):
         self.status_action = QAction("Iniciando", self.menu)
         self.status_action.setEnabled(False)
         self.open_log_action = QAction("Abrir registro de errores", self.menu)
+        self.settings_action = QAction("Configuración", self.menu)
+        self.settings_action.triggered.connect(self.settings_requested.emit)
         self.quit_action = QAction("Salir", self.menu)
         self.open_log_action.triggered.connect(self.open_log)
         self.quit_action.triggered.connect(quit_callback)
         self.menu.addAction(self.status_action)
         self.menu.addSeparator()
+        self.menu.addAction(self.settings_action)
         self.menu.addAction(self.open_log_action)
         self.menu.addAction(self.quit_action)
         self.tray.setContextMenu(self.menu)
@@ -1854,6 +2018,10 @@ class AppController(QObject):
         )
         self.hotkey = HotkeyListener(config.hotkey)
         self.active_jobs: list[tuple[QThread, QObject]] = []
+        self.worker_attempts = {}
+        self.settings_dialog = None
+        self.recovery_dialog = None
+        self.retained_audio = None
 
         self.session_id: str | None = None
         self.image_data_url = ""
@@ -1883,7 +2051,7 @@ class AppController(QObject):
         self.tray = ApplicationTray(app, self.quit_requested.emit)
 
         self.hotkey.pressed.connect(self.handle_hotkey)
-        self.hotkey.dismiss_requested.connect(self.cancel_and_hide)
+        self.hotkey.dismiss_requested.connect(self.handle_dismiss)
         self.hotkey.quit_requested.connect(self.quit_requested.emit)
         self.overlay.question_submitted.connect(self.handle_keyboard_question)
         self.overlay.send_image_changed.connect(self.handle_send_image_changed)
@@ -1891,6 +2059,114 @@ class AppController(QObject):
         self.media_controller.playback_state_changed.connect(self.handle_windows_media_state)
         self.media_controller.command_completed.connect(self.handle_windows_media_command)
         self.tray.primary_activated.connect(self.handle_tray_primary)
+        self.tray.settings_requested.connect(self.show_settings)
+
+    def show_settings(self) -> None:
+        if self.recovery_dialog and self.recovery_dialog.isVisible():
+            self.recovery_dialog.raise_()
+            self.recovery_dialog.activateWindow()
+            return
+        if self.settings_dialog and self.settings_dialog.isVisible():
+            self.settings_dialog.raise_()
+            self.settings_dialog.activateWindow()
+            return
+        self.settings_dialog = ModelSettingsDialog(self)
+        self.settings_dialog.show()
+        self.settings_dialog.refresh()
+
+    def handle_dismiss(self) -> None:
+        dialog = getattr(self, "settings_dialog", None)
+        if dialog and dialog.isVisible():
+            dialog.reject()
+        self.cancel_and_hide()
+
+    def clear_retained_audio(self) -> None:
+        path = getattr(self, "retained_audio", None)
+        if path:
+            path.unlink(missing_ok=True)
+            self.retained_audio = None
+
+    def recover_model(self, worker, handler, failure: dict, session_id: str) -> None:
+        if self.settings_dialog and self.settings_dialog.isVisible():
+            self.settings_dialog.reject()
+        self.state = "modelo_no_disponible"
+        self.answer_mode_before_recovery = self.answer_mode
+        self.answer_mode = "model_recovery"
+        self.rate_limit_waiting = False
+        self.update_tray_status()
+        self.overlay.show_error("MODELO NO DISPONIBLE", failure["detail"])
+        role = failure["role"]
+        field = "audio_model" if role == "audio" else "text_model" if role == "text" else "vision_model"
+        config = replace(worker.config)
+        if role == "audio":
+            self.retained_audio = worker.audio_path
+            retry = AudioTranscriptionWorker(session_id, worker.audio_path, worker.mime_type, config, worker.api_key)
+        elif role == "vision":
+            retry = VisionWorker(session_id, worker.image_data_url, config, worker.api_key)
+        elif role == "multimodal":
+            retry = MultimodalAnswerWorker(session_id, worker.prompt, worker.image_data_url, worker.question, config, worker.api_key)
+        else:
+            retry = AnswerWorker(session_id, worker.prompt, worker.material, worker.question, config, worker.api_key)
+        dialog = ModelSettingsDialog(self, field, f"El modelo {failure['model']} no está disponible. Selecciona un reemplazo.")
+        self.recovery_dialog = dialog
+
+        def retry_selected(values):
+            if self.session_id != session_id or self.recovery_dialog is not dialog:
+                return
+            self.recovery_dialog = None
+            setattr(retry.config, field, values[field])
+            self.answer_mode = self.answer_mode_before_recovery
+            self.state = "transcribiendo" if role in ("audio", "vision") else "respondiendo"
+            self.update_tray_status()
+            if role in ("text", "multimodal"):
+                self.overlay.begin_answer()
+                retry.delta.connect(self.handle_answer_delta)
+            else:
+                self.overlay.show_status("REINTENTANDO…")
+            self.start_worker(retry, handler)
+            if role == "vision":
+                attempt = retry.session_id
+                QTimer.singleShot(int(retry.config.vision_wait_seconds * 1000),
+                                  lambda: self.handle_attempt_ocr_timeout(session_id, attempt))
+
+        dialog.saved.connect(retry_selected)
+        dialog.rejected.connect(self.cancel_and_hide)
+        dialog.show()
+        dialog.activateWindow()
+        dialog.refresh()
+
+    @Slot(str, bool, str)
+    def dispatch_worker_result(self, attempt: str, success: bool, content: str) -> None:
+        context = self.worker_attempts.pop(attempt, None)
+        if context is None:
+            return
+        session_id, worker, handler = context
+        if isinstance(worker, ModelCatalogWorker):
+            handler(session_id, success, content)
+            return
+        failure = decode_model_failure(content) if not success else None
+        if session_id != self.session_id:
+            if isinstance(worker, AudioTranscriptionWorker):
+                worker.audio_path.unlink(missing_ok=True)
+            return
+        if failure:
+            self.recover_model(worker, handler, failure, session_id)
+            return
+        if isinstance(worker, AudioTranscriptionWorker):
+            self.clear_retained_audio()
+        handler(session_id, success, content)
+
+    def handle_attempt_ocr_timeout(self, session_id: str, attempt: str) -> None:
+        if attempt not in getattr(self, "worker_attempts", {}):
+            return
+        if self.rate_limit_waiting:
+            QTimer.singleShot(1000, lambda: self.handle_attempt_ocr_timeout(session_id, attempt))
+            return
+        self.handle_fallback_ocr_timeout(session_id)
+        if self.answer_mode == "fallback_failed":
+            context = self.worker_attempts.pop(attempt, None)
+            if context:
+                context[1].cancel()
 
     def initialize_mobile_server(self) -> None:
         if self.mobile_server is not None:
@@ -1929,8 +2205,8 @@ class AppController(QObject):
     def start(self) -> None:
         LOGGER.info(
             "Configuración: vision=%s texto=%s audio=%s espera_vision=%.1fs",
-            QWEN_MODEL,
-            TEXT_MODEL,
+            self.config.vision_model,
+            self.config.text_model,
             self.config.audio_model,
             self.config.vision_wait_seconds,
         )
@@ -1956,6 +2232,7 @@ class AppController(QObject):
 
     def shutdown(self) -> None:
         LOGGER.info("Aplicación: cierre solicitado")
+        self.cancel_and_hide()
         self.resume_media_if_needed()
         self.media_controller.stop_monitoring()
         self.hotkey.stop()
@@ -2002,6 +2279,7 @@ class AppController(QObject):
             "transcribiendo": "Procesando",
             "respondiendo": "Respondiendo",
             "resultado": "Listo",
+            "modelo_no_disponible": "Selecciona otro modelo",
         }
         tray.set_status(labels.get(self.state, "Listo"))
 
@@ -2069,6 +2347,10 @@ class AppController(QObject):
 
     def handle_hotkey(self) -> None:
         LOGGER.info("Hotkey '-' recibida en estado=%s", self.state)
+        if any(dialog and dialog.isVisible() for dialog in (
+            getattr(self, "settings_dialog", None), getattr(self, "recovery_dialog", None)
+        )):
+            return
         if self.state == "grabando":
             self.stop_cycle()
             return
@@ -2077,15 +2359,20 @@ class AppController(QObject):
         self.start_cycle()
 
     def cancel_and_hide(self) -> None:
+        dialog = getattr(self, "recovery_dialog", None)
+        self.recovery_dialog = None
+        if dialog and dialog.isVisible():
+            dialog.reject()
+        self.clear_retained_audio()
         cancelled_session = self.session_id
         LOGGER.info(
-            "Tecla '|' recibida: cancelando sesión=%s estado=%s",
+            "Cancelando sesión=%s estado=%s",
             (cancelled_session or "")[:8],
             self.state,
         )
         if cancelled_session:
             for _thread, worker in list(self.active_jobs):
-                if getattr(worker, "session_id", None) != cancelled_session:
+                if getattr(worker, "original_session_id", getattr(worker, "session_id", None)) != cancelled_session:
                     continue
                 cancel = getattr(worker, "cancel", None)
                 if callable(cancel):
@@ -2293,6 +2580,7 @@ class AppController(QObject):
             self.session_id == session_id
             and self.state == "transcribiendo"
             and not self.audio_done
+            and session_id not in self.session_subjects
         ):
             self.state = "resultado"
             self.update_tray_status()
@@ -2498,7 +2786,7 @@ class AppController(QObject):
         self.start_worker(worker, self.handle_vision_result)
         QTimer.singleShot(
             int(self.config.vision_wait_seconds * 1000),
-            lambda sid=self.session_id: self.handle_fallback_ocr_timeout(sid),
+            lambda sid=self.session_id, attempt=worker.session_id: self.handle_attempt_ocr_timeout(sid, attempt),
         )
 
     def handle_fallback_ocr_timeout(self, session_id: str) -> None:
@@ -2544,6 +2832,9 @@ class AppController(QObject):
         self.start_worker(worker, self.handle_answer_result)
 
     def handle_answer_delta(self, session_id: str, piece: str) -> None:
+        context = getattr(self, "worker_attempts", {}).get(session_id)
+        if context:
+            session_id = context[0]
         if session_id == self.session_id and self.state == "respondiendo":
             self.overlay.append_answer(piece)
 
@@ -2587,11 +2878,17 @@ class AppController(QObject):
             self.overlay.show_error("SERVIDOR MÓVIL", detail)
 
     def start_worker(self, worker: QObject, handler) -> None:
+        if not hasattr(self, "worker_attempts"):
+            self.worker_attempts = {}
+        original_session = worker.session_id
+        worker.original_session_id = original_session
+        worker.session_id = uuid.uuid4().hex
+        self.worker_attempts[worker.session_id] = (original_session, worker, handler)
         thread = QThread()
         worker.moveToThread(thread)
         self.active_jobs.append((thread, worker))
         thread.started.connect(worker.run)
-        worker.completed.connect(handler)
+        worker.completed.connect(self.dispatch_worker_result)
         countdown = getattr(worker, "countdown", None)
         if countdown is not None:
             countdown.connect(self.handle_rate_limit_countdown)
@@ -2602,6 +2899,9 @@ class AppController(QObject):
         thread.start()
 
     def handle_rate_limit_countdown(self, session_id: str, seconds: int) -> None:
+        context = getattr(self, "worker_attempts", {}).get(session_id)
+        if context:
+            session_id = context[0]
         if session_id != self.session_id:
             return
         self.rate_limit_waiting = seconds > 0

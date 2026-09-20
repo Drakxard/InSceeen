@@ -72,7 +72,7 @@ Si Windows no muestra el QR:
   un editor. Escribe la pregunta y pulsa Enter para enviarla.
 - Después de una respuesta, otro `-` inicia una consulta nueva y captura otra imagen.
   La imagen y la pregunta se envían juntas al modelo multimodal al pulsar Enter.
-- `|`: cancela la consulta en cualquier estado, descarta sus resultados pendientes,
+- `Esc` o `|`: cancela la consulta en cualquier estado, descarta sus resultados pendientes,
   oculta el panel y reanuda la música.
 - `Ctrl+Shift+Q`: cierra completamente InScreen.
 
@@ -484,3 +484,19 @@ respuesta.
 Groq admite el M4A/AAC generado por Android en su endpoint de transcripción. InScreen
 limita cada archivo a 24 MB para mantenerse debajo del límite de 25 MB del nivel
 gratuito.
+
+## Configuraci?n de modelos en Windows
+
+En el men? de la bandeja, **Configuraci?n** permite cambiar los modelos de imagen/OCR,
+texto y transcripci?n. **Actualizar modelos** consulta el cat?logo de Groq con la clave
+configurada; escribe en el campo para buscar o introducir un identificador manualmente.
+El cat?logo no garantiza que todos los modelos acepten im?genes ni que tu cuenta tenga acceso.
+Los cambios se guardan en `config.json` (`vision_model`, `text_model`, `audio_model`)
+y se aplican a las nuevas solicitudes, sin reiniciar. Los archivos antiguos siguen siendo v?lidos.
+
+Si Groq informa que un modelo fue retirado, no existe o no permite acceso, InScreen abre
+un selector. **Guardar y reintentar** conserva la captura y la pregunta originales;
+si fall? la transcripci?n, conserva temporalmente el audio para reintentarlo.
+Cancelar o pulsar Esc descarta la consulta y elimina ese audio temporal.
+Los errores de conexi?n, credenciales o l?mites de solicitudes no cambian el modelo.
+Esc oculta el panel y deja InScreen en la bandeja; `Ctrl+Shift+Q` cierra la aplicaci?n.
