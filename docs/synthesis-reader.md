@@ -27,8 +27,12 @@ las marcas y no se modifican los documentos originales ni los bloques de código
 
 Solo los H1 representan ramas en v0. Los H2–H6 se transportan dentro de un nodo
 `inscreenReaderContent`, que el renderizador nativo recorre sin crear otra rama.
-Cada H1 lleva un párrafo `[[INSCREEN-NODE-V1:<base64url>]]` con `{id, parentId}`.
-El lector retira ese párrafo y restaura las relaciones explícitas de v0, sin el
+Cada H1 lleva un párrafo con un enlace de etiqueta invisible (`U+2060`) y URL
+`https://synthesis.local/#INSCREEN-NODE-V1:<base64url>` con `{id, parentId}`.
+El payload vive en el atributo, por lo que tampoco aparece como texto al usar
+un lector anterior en caché. No se consulta esa URL. El lector retira ese párrafo
+y los antiguos marcadores textuales `[[INSCREEN-NODE-V1:…]]`, aunque estos no
+estén al principio o no puedan decodificarse. Restaura las relaciones de v0 sin el
 límite de tres niveles del renderizador nativo. «Leer» incluye el contenido propio
 del nivel abierto y todos sus descendientes; desde la raíz incluye todas las ramas.
 Cada apertura comienza arriba, sin desplazamiento horizontal ni zoom anterior.

@@ -43,22 +43,37 @@
       if(typeof value.latex!=='string'||typeof value.display!=='boolean')throw new Error('Fórmula inválida');
       return value;
     }
+    function takeNodeMetadata(content){
+      let metadata=null;
+      for(const paragraph of content.querySelectorAll('p')){
+        if(paragraph.closest('pre,code')||paragraph.querySelector('pre,code'))continue;
+        const legacy=paragraph.textContent.trim().match(/^\[\[INSCREEN-NODE-V1:([A-Za-z0-9_-]+)\]\]$/);
+        const link=paragraph.querySelector('a[href^="https://synthesis.local/#INSCREEN-NODE-V1:"]');
+        const payload=legacy?legacy[1]:link&&link.getAttribute('href').slice('https://synthesis.local/#INSCREEN-NODE-V1:'.length);
+        if(!payload)continue;
+        // These are reserved transport paragraphs, never user-visible content.
+        // Remove old textual metadata even if decoding fails on this WebView.
+        if(!legacy&&paragraph.textContent.replace(/\u2060/g,'').trim())continue;
+        paragraph.remove();
+        try{
+          const value=decodePayload(payload);
+          if(value&&typeof value.id==='string'&&(value.parentId===null||typeof value.parentId==='string'))metadata=value;
+        }catch{/* Retain the native hierarchy when metadata cannot be decoded. */}
+      }
+      return metadata;
+    }
     function restoreHierarchy(){
       const metadata=new Map(),indices=new Map();
       for(const node of nodes){
         const content=document.createElement('template');content.innerHTML=node.body||'';
-        const first=content.content.firstElementChild,match=first&&first.tagName==='P'&&first.textContent.match(/^\[\[INSCREEN-NODE-V1:([A-Za-z0-9_-]+)\]\]$/);
-        if(!match)continue;
-        try{
-          const value=decodePayload(match[1]);
-          if(typeof value.id!=='string'||!(value.parentId===null||typeof value.parentId==='string'))continue;
-          metadata.set(node.index,value);indices.set(value.id,node.index);first.remove();node.body=content.innerHTML;
-        }catch{/* Older cached documents retain their native hierarchy. */}
+        const value=takeNodeMetadata(content.content);node.body=content.innerHTML;
+        if(value){metadata.set(node.index,value);indices.set(value.id,node.index)}
       }
       for(const node of nodes){const value=metadata.get(node.index);if(value)node.parent=indices.get(value.parentId)??null}
     }
     function mathLabel(value){return value.replace(mathMarker,(raw,payload)=>{try{return decodeMath(payload).latex}catch{return raw}})}
     function renderSheetContent(){
+      takeNodeMetadata(sheetBody);
       // Walk text nodes only; code remains literal and payloads never become HTML.
       const walker=document.createTreeWalker(sheetBody,NodeFilter.SHOW_TEXT),texts=[];
       while(walker.nextNode())if(!walker.currentNode.parentElement.closest('pre,code,.synthesis-reader-math'))texts.push(walker.currentNode);
