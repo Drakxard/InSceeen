@@ -90,8 +90,8 @@ hasta ocupar como máximo el 85% de la pantalla y, si la respuesta es más larga
 una barra de desplazamiento verde.
 
 Las fórmulas se renderizan localmente con KaTeX: `\(m=2\)` se muestra en línea y
-`\[\frac{a+b}{c}\]` centrada. El texto sigue siendo breve, verde y sin Markdown;
-las fórmulas son blancas y no necesitan internet. La app del celular puede permanecer
+`\[\frac{a+b}{c}\]` centrada. El panel interpreta `**texto**` como negrita y `*texto*`
+como cursiva; las fórmulas son blancas y no necesitan internet. La app del celular puede permanecer
 conectada con la pantalla apagada durante una clase completa. Tener
 concedido el permiso no significa que el micrófono esté abierto: Android solo lo activa
 entre las dos pulsaciones y la app lo libera antes de subir el archivo.
@@ -109,10 +109,10 @@ se guardan allí.
 
 ## Configuración
 
-InScreen usa `qwen/qwen3.6-27b` cuando la consulta incluye una captura y para el OCR de
-respaldo. Las consultas sin imagen y la respuesta textual posterior al OCR usan
-`llama-3.3-70b-versatile`. Whisper permanece dedicado a convertir la voz en texto. Los
-modelos son internos y los campos antiguos `vision_model`/`text_model` se ignoran.
+InScreen usa `qwen/qwen3.8-27b` de forma predeterminada para consultas con captura, OCR
+y respuestas de texto. Whisper permanece dedicado a convertir la voz en texto. Los
+modelos se pueden cambiar desde la bandeja o mediante `vision_model`, `text_model` y
+`audio_model` en `config.json`.
 
 `config.json` permite ajustar las demás opciones:
 
@@ -145,6 +145,19 @@ que un prompt personalizado no puede habilitar `$`, HTML, Markdown ni bloques de
 `send_image` refleja el switch disponible al escribir y al grabar desde el celular. La
 aplicación actualiza este valor automáticamente: activado adjunta la captura y usa Qwen;
 desactivado envía solo la pregunta y usa Llama.
+
+En el modo de escritura, Enter envía la consulta. La respuesta permanece en su propio
+frame y el prompt aparece en otro frame debajo, con un indicador `>` de consola; al
+aparecer, desplaza la respuesta hacia arriba sin volver a renderizarla. Se envía `pregunta:` con
+el texto escrito y `contexto:` con la última respuesta (vacío en la primera consulta).
+Las consultas consecutivas usan la captura de esa sesión; Esc sale del modo de
+escritura, cierra el overlay y limpia el contexto.
+El panel toma el foco al abrirse. Al enviar, conserva la respuesta anterior y la
+consulta escrita mientras espera, sin mostrar pantallas intermedias ni fragmentos.
+Solo cuando llega la respuesta completa reemplaza el contenido y deja el cursor
+listo debajo. Si el editor pierde el foco, cualquier tecla imprimible durante la sesión
+lo recupera y comienza a escribir sin volver a pulsar `-`. Si falla, conserva la consulta
+para corregirla o reenviarla con Enter.
 
 Los puertos deben estar libres. `max_recording_seconds` limita cada pregunta, no el
 tiempo que la app puede permanecer conectada. `vision_wait_seconds` controla cuánto se

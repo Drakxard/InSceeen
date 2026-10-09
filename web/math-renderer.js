@@ -23,6 +23,67 @@
     return window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 16;
   }
 
+  function closingMarker(text, marker, start) {
+    let position = start;
+    while (position < text.length) {
+      position = text.indexOf(marker, position);
+      if (position < 0) return -1;
+      let slashes = 0;
+      for (let index = position - 1; index >= 0 && text[index] === "\\"; index -= 1) {
+        slashes += 1;
+      }
+      if (slashes % 2 === 0) return position;
+      position += marker.length;
+    }
+    return -1;
+  }
+
+  function appendFormattedText(parent, value) {
+    const text = String(value ?? "");
+    let plain = "";
+    const flush = () => {
+      if (plain) {
+        parent.appendChild(document.createTextNode(plain));
+        plain = "";
+      }
+    };
+
+    for (let index = 0; index < text.length;) {
+      const mathClose = text.startsWith("\\(", index) ? "\\)" :
+        (text.startsWith("\\[", index) ? "\\]" : null);
+      if (mathClose) {
+        const end = text.indexOf(mathClose, index + 2);
+        if (end >= 0) {
+          plain += text.slice(index, end + 2);
+          index = end + 2;
+          continue;
+        }
+      }
+      if (text[index] === "\\" && text[index + 1] === "*") {
+        plain += "*";
+        index += 2;
+        continue;
+      }
+      const marker = text.startsWith("**", index) ? "**" :
+        (text[index] === "*" ? "*" : null);
+      if (marker) {
+        const end = closingMarker(text, marker, index + marker.length);
+        const inner = end >= 0 ? text.slice(index + marker.length, end) : "";
+        if (end >= 0 && inner.trim()) {
+          flush();
+          const element = document.createElement(marker === "**" ? "strong" : "em");
+          appendFormattedText(element, inner);
+          parent.appendChild(element);
+          index = end + marker.length;
+          continue;
+        }
+      }
+      plain += text[index];
+      index += 1;
+    }
+    flush();
+  }
+
   window.inscreenSetFontSize = (pixels) => {
     const safeSize = Math.max(10, Math.min(72, Number(pixels) || 18));
     document.documentElement.style.setProperty("--inscreen-font-size", `${safeSize}px`);
@@ -37,9 +98,10 @@
 
     // La respuesta siempre entra como texto. KaTeX solo transforma los nodos
     // matemáticos que encuentra después, sin permitir HTML de la respuesta.
-    content.textContent = String(text ?? "");
+    const nextContent = document.createElement("div");
+    appendFormattedText(nextContent, text);
     try {
-      renderMathInElement(content, {
+      renderMathInElement(nextContent, {
         delimiters: [
           {left: "\\[", right: "\\]", display: true},
           {left: "\\(", right: "\\)", display: false}
@@ -51,6 +113,8 @@
     } catch (error) {
       console.warn("InScreen: KaTeX no pudo completar el render", error);
     }
+    // Prepare the complete answer offscreen; never empty the visible content.
+    content.replaceChildren(...nextContent.childNodes);
 
     requestAnimationFrame(() => requestAnimationFrame(() => {
       if (generation !== renderGeneration) {
@@ -76,6 +140,8 @@
     clientHeight: window.innerHeight,
     contentHeight: reportHeight(),
     katexNodes: content.querySelectorAll(".katex").length,
+    strongNodes: content.querySelectorAll("strong").length,
+    emphasisNodes: content.querySelectorAll("em").length,
     text: content.innerText
   });
 

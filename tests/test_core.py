@@ -88,6 +88,24 @@ class CoreTests(unittest.TestCase):
         self.assertIn("PREGUNTA DEL USUARIO:\n¿Qué muestra?", result)
         self.assertTrue(result.endswith(LATEX_OUTPUT_CONTRACT))
 
+    def test_previous_answer_is_a_separate_conversation_context(self) -> None:
+        result = build_multimodal_answer_input(
+            "Prompt propio",
+            "Dame un ejemplo",
+            "Un sustantivo nombra personas, lugares o cosas.",
+        )
+        self.assertIn(
+            "CONTEXTO DE LA CONVERSACION ANTERIOR:\n"
+            "Un sustantivo nombra personas, lugares o cosas.",
+            result,
+        )
+        self.assertIn("PREGUNTA DEL USUARIO:\nDame un ejemplo", result)
+        self.assertNotIn("pregunta: Dame un ejemplo", result)
+
+    def test_first_question_does_not_add_empty_conversation_context(self) -> None:
+        result = build_question_only_input("Prompt propio", "Pregunta", "")
+        self.assertNotIn("CONTEXTO DE LA CONVERSACION ANTERIOR", result)
+
     def test_question_only_input_explicitly_omits_image(self) -> None:
         result = build_question_only_input("Prompt propio", "Pregunta")
         self.assertIn("No se adjunta una imagen", result)
@@ -123,13 +141,13 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(audio_extension("audio/mp4"), ".m4a")
 
     def test_visual_and_text_models_are_separate(self) -> None:
-        self.assertEqual(QWEN_MODEL, "qwen/qwen3.6-27b")
-        self.assertEqual(TEXT_MODEL, "llama-3.3-70b-versatile")
+        self.assertEqual(QWEN_MODEL, "qwen/qwen3.8-27b")
+        self.assertEqual(TEXT_MODEL, "qwen/qwen3.8-27b")
         self.assertEqual(AppConfig().vision_model, QWEN_MODEL)
         self.assertEqual(AppConfig().text_model, TEXT_MODEL)
-        self.assertEqual(model_request_options(TEXT_MODEL, "text"), {})
+        self.assertEqual(model_request_options(TEXT_MODEL, "text"), {"reasoning_effort": "none"})
 
-    def test_text_worker_sends_llama_model(self) -> None:
+    def test_text_worker_sends_configured_model(self) -> None:
         client = Mock()
         client.chat.completions.create.return_value = [
             SimpleNamespace(
@@ -254,6 +272,25 @@ class CoreTests(unittest.TestCase):
         listener._on_press(keyboard.Key.esc)
         listener._on_release(keyboard.Key.esc)
         self.assertEqual(events, ["dismiss"])
+
+    def test_printable_key_is_reported_for_continuous_keyboard_session(self) -> None:
+        listener = HotkeyListener("-")
+        typed = []
+        listener.text_key_pressed.connect(typed.append)
+        listener._on_press(keyboard.KeyCode.from_char("a"))
+        listener._on_release(keyboard.KeyCode.from_char("a"))
+        listener._on_press(keyboard.KeyCode.from_char(" "))
+        self.assertEqual(typed, ["a", " "])
+
+    def test_shortcut_and_activation_hotkey_are_not_reported_as_text(self) -> None:
+        listener = HotkeyListener("-")
+        typed = []
+        listener.text_key_pressed.connect(typed.append)
+        listener._on_press(keyboard.Key.ctrl_l)
+        listener._on_press(keyboard.KeyCode.from_char("c"))
+        listener._on_release(keyboard.Key.ctrl_l)
+        listener._on_press(keyboard.KeyCode.from_char("-"))
+        self.assertEqual(typed, [])
 
     def test_ctrl_shift_p_does_not_request_pairing(self) -> None:
         listener = HotkeyListener("-")

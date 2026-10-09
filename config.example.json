@@ -1,6 +1,6 @@
 {
-  "vision_model": "qwen/qwen3.6-27b",
-  "text_model": "llama-3.3-70b-versatile",
+  "vision_model": "qwen/qwen3.8-27b",
+  "text_model": "qwen/qwen3.8-27b",
   "audio_model": "whisper-large-v3-turbo",
   "hotkey": "-",
   "language": "es",

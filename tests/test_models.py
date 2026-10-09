@@ -108,13 +108,16 @@ class ModelTests(unittest.TestCase):
 
     def test_catalog_uses_provider_and_returns_sorted_models(self):
         client = Mock()
-        client.models.list.return_value = [SimpleNamespace(id="z"), SimpleNamespace(id="a")]
+        client.models.list.return_value = [
+            SimpleNamespace(id="z", active=True, name="Z", input_modalities=["text"], output_modalities=["text"]),
+            SimpleNamespace(id="a", active=True, name="A", input_modalities=["text", "image"], output_modalities=["text"]),
+        ]
         factory = Mock()
         factory.return_value.__enter__ = Mock(return_value=client)
         factory.return_value.__exit__ = Mock(return_value=False)
         worker = ModelCatalogWorker("request", "key")
         results = []
-        worker.completed.connect(lambda sid, ok, value: results.append((ok, json.loads(value))))
+        worker.completed.connect(lambda sid, ok, value: results.append((ok, [item["id"] for item in json.loads(value)])))
         with patch("app.OpenAI", factory):
             worker.run()
         self.assertEqual(results, [(True, ["a", "z"])])
@@ -134,7 +137,7 @@ class ModelTests(unittest.TestCase):
         with patch("app.save_preferences") as save:
             dialog.save()
             self.assertEqual(save.call_args.args[0]["vision_model"], "manual-model")
-        dialog.loaded("new", True, '["late"]')
+        dialog.loaded("new", True, '[{"id":"late","input_modalities":["text"],"output_modalities":["text"]}]')
         self.assertEqual(dialog.fields["vision_model"].count(), 0)
 
     def test_dialog_escape_does_not_save(self):
@@ -147,6 +150,22 @@ class ModelTests(unittest.TestCase):
             save.assert_not_called()
         self.assertFalse(dialog.isVisible())
         self.assertNotEqual(controller.config.text_model, "unsaved")
+
+    def test_dialog_filters_catalog_by_model_modalities(self):
+        controller = self.controller()
+        dialog = ModelSettingsDialog(controller)
+        dialog.show()
+        dialog.request_id = "catalog"
+        models = [
+            {"id": "vision", "input_modalities": ["text", "image"], "output_modalities": ["text"]},
+            {"id": "text", "input_modalities": ["text"], "output_modalities": ["text"]},
+            {"id": "audio", "input_modalities": ["audio"], "output_modalities": ["transcription"]},
+        ]
+        dialog.loaded("catalog", True, json.dumps(models))
+        self.assertEqual([dialog.fields["vision_model"].itemText(i) for i in range(dialog.fields["vision_model"].count())], ["vision"])
+        self.assertEqual([dialog.fields["text_model"].itemText(i) for i in range(dialog.fields["text_model"].count())], ["vision", "text"])
+        self.assertEqual([dialog.fields["audio_model"].itemText(i) for i in range(dialog.fields["audio_model"].count())], ["audio"])
+        dialog.reject()
 
     def test_recovery_retries_original_question_and_ignores_old_attempt(self):
         controller = self.controller()

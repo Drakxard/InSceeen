@@ -79,8 +79,8 @@ else:
     RESOURCE_DIR = APP_DIR
 
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
-QWEN_MODEL = "qwen/qwen3.6-27b"
-TEXT_MODEL = "llama-3.3-70b-versatile"
+QWEN_MODEL = "qwen/qwen3.8-27b"
+TEXT_MODEL = "qwen/qwen3.8-27b"
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
 DWMWA_EXTENDED_FRAME_BOUNDS = 9
 RATE_LIMIT_MARKER = "__INSCREEN_RATE_LIMIT__"
@@ -175,7 +175,8 @@ LATEX_OUTPUT_CONTRACT = r"""CONTRATO DE SALIDA OBLIGATORIO (tiene prioridad sobr
 - Devuelve texto breve y fórmulas compatibles con KaTeX.
 - Encierra cada fórmula en línea entre \( y \).
 - Encierra cada fórmula centrada entre \[ y \].
-- No uses signos $, Markdown, HTML, bloques de código, paquetes, macros personalizadas ni documentos LaTeX completos.
+- Puedes usar **texto** para negrita y *texto* para cursiva.
+- No uses signos $, HTML, bloques de código, otro Markdown, paquetes, macros personalizadas ni documentos LaTeX completos.
 - Fuera de esos delimitadores escribe solamente texto normal.""".strip()
 
 
@@ -424,35 +425,50 @@ Reglas:
 - Conserva títulos, enunciados, definiciones, fórmulas, símbolos y el orden de lectura.
 - Devuelve solo la transcripción, sin análisis, solución ni encabezado.
 - Conserva las fórmulas en LaTeX compatible con KaTeX: usa \( ... \) en línea y \[ ... \] para una fórmula centrada.
-- No uses signos $, HTML, Markdown, bloques de código, paquetes ni documentos LaTeX completos.""".strip()
+- Puedes usar **texto** para negrita y *texto* para cursiva.
+- No uses signos $, HTML, bloques de código, otro Markdown, paquetes ni documentos LaTeX completos.""".strip()
 
 
-def build_answer_input(prompt: str, material: str, question: str) -> str:
+def conversation_context_block(context: str) -> str:
+    context = context.strip()
+    if not context:
+        return ""
+    return (
+        "CONTEXTO DE LA CONVERSACION ANTERIOR:\n"
+        f"{context}\n\n"
+        "Usa este texto solo como contexto para continuar la conversacion.\n\n"
+    )
+
+
+def build_answer_input(prompt: str, material: str, question: str, context: str = "") -> str:
     visual_context = material.strip() or "[No fue posible extraer el material de la ventana.]"
     return (
         f"{prompt.strip()}\n\n"
         f"MATERIAL CAPTURADO:\n{visual_context}\n\n"
+        f"{conversation_context_block(context)}"
         f"PREGUNTA DEL USUARIO:\n{question.strip()}\n\n"
         f"{LATEX_OUTPUT_CONTRACT}"
     )
 
 
-def build_multimodal_answer_input(prompt: str, question: str) -> str:
+def build_multimodal_answer_input(prompt: str, question: str, context: str = "") -> str:
     return (
         f"{prompt.strip()}\n\n"
         "CONTEXTO VISUAL:\n"
         "Analiza directamente la imagen adjunta. Usa el material principal visible "
         "para responder y evita describir barras, botones o controles irrelevantes.\n\n"
+        f"{conversation_context_block(context)}"
         f"PREGUNTA DEL USUARIO:\n{question.strip()}\n\n"
         f"{LATEX_OUTPUT_CONTRACT}"
     )
 
 
-def build_question_only_input(prompt: str, question: str) -> str:
+def build_question_only_input(prompt: str, question: str, context: str = "") -> str:
     return (
         f"{prompt.strip()}\n\n"
         "CONTEXTO:\n"
         "No se adjunta una imagen. Responde usando solamente la pregunta del usuario.\n\n"
+        f"{conversation_context_block(context)}"
         f"PREGUNTA DEL USUARIO:\n{question.strip()}\n\n"
         f"{LATEX_OUTPUT_CONTRACT}"
     )
@@ -811,6 +827,7 @@ def save_transcription(
 
 class HotkeyListener(QObject):
     pressed = Signal()
+    text_key_pressed = Signal(str)
     dismiss_requested = Signal()
     quit_requested = Signal()
 
@@ -842,7 +859,22 @@ class HotkeyListener(QObject):
                 self._dismiss_down = True
                 self.dismiss_requested.emit()
             return
-        if not self._matches(key) or self._hotkey_down:
+        if not self._matches(key):
+            char = getattr(key, "char", None)
+            blocked = any(
+                modifier in self._pressed_keys
+                for modifier in (
+                    keyboard.Key.ctrl_l,
+                    keyboard.Key.ctrl_r,
+                    keyboard.Key.alt_l,
+                    keyboard.Key.alt_r,
+                    keyboard.Key.cmd,
+                )
+            )
+            if char and not blocked:
+                self.text_key_pressed.emit(str(char))
+            return
+        if self._hotkey_down:
             return
         now = time.monotonic()
         if now - self._last_emit < 0.25:
@@ -1039,6 +1071,7 @@ class MultimodalAnswerWorker(QObject):
         question: str,
         config: AppConfig,
         api_key: str,
+        context: str = "",
     ) -> None:
         super().__init__()
         self.session_id = session_id
@@ -1047,6 +1080,7 @@ class MultimodalAnswerWorker(QObject):
         self.question = question
         self.config = replace(config)
         self.api_key = api_key
+        self.context = context
         self._cancelled = threading.Event()
 
     def cancel(self) -> None:
@@ -1076,6 +1110,7 @@ class MultimodalAnswerWorker(QObject):
                                     "text": build_multimodal_answer_input(
                                         self.prompt,
                                         self.question,
+                                        self.context,
                                     ),
                                 },
                                 {
@@ -1144,6 +1179,7 @@ class AnswerWorker(QObject):
         question: str,
         config: AppConfig,
         api_key: str,
+        context: str = "",
     ) -> None:
         super().__init__()
         self.session_id = session_id
@@ -1152,6 +1188,7 @@ class AnswerWorker(QObject):
         self.question = question
         self.config = replace(config)
         self.api_key = api_key
+        self.context = context
         self._cancelled = threading.Event()
 
     def cancel(self) -> None:
@@ -1176,9 +1213,9 @@ class AnswerWorker(QObject):
                         {
                             "role": "user",
                             "content": (
-                                build_answer_input(self.prompt, self.material, self.question)
+                                build_answer_input(self.prompt, self.material, self.question, self.context)
                                 if self.material is not None
-                                else build_question_only_input(self.prompt, self.question)
+                                else build_question_only_input(self.prompt, self.question, self.context)
                             ),
                         }
                     ],
@@ -1250,6 +1287,7 @@ class LocalMathPage(QWebEnginePage):
 
 class MathAnswerView(QWidget):
     content_height_changed = Signal(int)
+    rendered = Signal(str)
     RENDER_INTERVAL_MS = 75
 
     def __init__(self, font: QFont, parent=None, page_path: Path | None = None) -> None:
@@ -1377,6 +1415,7 @@ class MathAnswerView(QWidget):
         self.fallback.setPlainText(self.raw_text)
         self.stack.setCurrentWidget(self.fallback)
         self._report_fallback_height()
+        self.rendered.emit(self.raw_text)
         LOGGER.error("Overlay matemático: se usa visor de texto de respaldo: %s", reason)
 
     def set_text(self, value: str, *, immediate: bool = False) -> None:
@@ -1389,6 +1428,7 @@ class MathAnswerView(QWidget):
             previous_value = scrollbar.value()
             self.fallback.setPlainText(self.raw_text)
             self._report_fallback_height()
+            self.rendered.emit(self.raw_text)
             QTimer.singleShot(
                 0,
                 lambda bar=scrollbar, follow=was_at_bottom, position=previous_value: bar.setValue(
@@ -1410,7 +1450,10 @@ class MathAnswerView(QWidget):
         value = self._pending_text
         self._pending_text = None
         payload = json.dumps(value, ensure_ascii=False)
-        self.page.runJavaScript(f"window.inscreenSetContent({payload}, false);")
+        self.page.runJavaScript(
+            f"window.inscreenSetContent({payload}, false);",
+            lambda _result, rendered=value: self.rendered.emit(rendered),
+        )
 
     def _update_content_height(self, height: int) -> None:
         height = max(24, height)
@@ -1453,6 +1496,9 @@ class KeyboardQuestionEdit(QPlainTextEdit):
 
     def keyPressEvent(self, event) -> None:
         if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            if self.isReadOnly():
+                event.accept()
+                return
             question = self.toPlainText().strip()
             if question:
                 self.submitted.emit(question)
@@ -1463,6 +1509,7 @@ class KeyboardQuestionEdit(QPlainTextEdit):
 
 class TerminalOverlay(QWidget):
     question_submitted = Signal(str)
+    keyboard_ready = Signal()
     send_image_changed = Signal(bool)
 
     def __init__(self, font_size: int, width_ratio: float, send_image: bool = True) -> None:
@@ -1472,6 +1519,9 @@ class TerminalOverlay(QWidget):
         self.target_geometry = QGuiApplication.primaryScreen().availableGeometry()
         self.answer_text = ""
         self.input_active = False
+        self.pending_answer = ""
+        self._awaiting_presentation: str | None = None
+        self._keyboard_height = 0
         self.recording_active = False
         self.countdown_active = False
 
@@ -1503,9 +1553,12 @@ class TerminalOverlay(QWidget):
         answer_layout.setContentsMargins(16, 13, 16, 13)
         self.answer = MathAnswerView(terminal_font)
         self.answer.content_height_changed.connect(lambda _height: self._fit_and_show())
+        self.answer.rendered.connect(self._queue_keyboard_presentation_finish)
         self.question_input = KeyboardQuestionEdit()
         self.question_input.setFont(terminal_font)
-        self.question_input.setPlaceholderText("ESCRIBE TU PREGUNTA Y PRESIONA ENTER…")
+        self.question_input.setPlaceholderText("")
+        self.question_input.setAccessibleName("Escribe una consulta; Enter envía, Esc sale")
+        self.question_input.setCursorWidth(2)
         self.question_input.setFrameShape(QFrame.NoFrame)
         self.question_input.setLineWrapMode(QPlainTextEdit.WidgetWidth)
         self.question_input.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -1521,11 +1574,20 @@ class TerminalOverlay(QWidget):
         self.photo_switch.setToolTip("Enviar foto")
         self.photo_switch.setAccessibleName("Enviar foto")
         self.photo_switch.toggled.connect(self.send_image_changed.emit)
-        self.keyboard_input_panel = QWidget()
-        keyboard_input_layout = QHBoxLayout(self.keyboard_input_panel)
-        keyboard_input_layout.setContentsMargins(0, 0, 0, 0)
-        keyboard_input_layout.setSpacing(10)
-        keyboard_input_layout.addWidget(self.question_input, 1)
+        self.keyboard_prompt_frame = QFrame()
+        self.keyboard_prompt_frame.setObjectName("keyboardPromptFrame")
+        keyboard_input_layout = QVBoxLayout(self.keyboard_prompt_frame)
+        keyboard_input_layout.setContentsMargins(13, 7, 13, 7)
+        keyboard_input_layout.setSpacing(4)
+        self.keyboard_question_row = QWidget()
+        keyboard_question_layout = QHBoxLayout(self.keyboard_question_row)
+        keyboard_question_layout.setContentsMargins(0, 0, 0, 0)
+        self.prompt_marker = QLabel(">")
+        self.prompt_marker.setFont(terminal_font)
+        self.prompt_marker.setContentsMargins(0, 4, 0, 0)
+        keyboard_question_layout.addWidget(self.prompt_marker, 0, Qt.AlignTop)
+        keyboard_question_layout.addWidget(self.question_input, 1)
+        keyboard_input_layout.addWidget(self.keyboard_question_row, 0)
         self.countdown_panel = QWidget()
         countdown_layout = QHBoxLayout(self.countdown_panel)
         countdown_layout.setContentsMargins(0, 0, 0, 0)
@@ -1538,7 +1600,6 @@ class TerminalOverlay(QWidget):
         countdown_layout.addWidget(self.countdown_label)
         self.content_stack = QStackedWidget()
         self.content_stack.addWidget(self.answer)
-        self.content_stack.addWidget(self.keyboard_input_panel)
         self.content_stack.addWidget(self.countdown_panel)
         answer_layout.addWidget(self.content_stack)
         self.switch_row = QWidget()
@@ -1546,17 +1607,18 @@ class TerminalOverlay(QWidget):
         switch_layout.setContentsMargins(0, 0, 0, 0)
         switch_layout.addStretch(1)
         switch_layout.addWidget(self.photo_switch, 0, Qt.AlignRight | Qt.AlignVCenter)
-        answer_layout.addWidget(self.switch_row)
+        keyboard_input_layout.addWidget(self.switch_row)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(7)
         layout.addWidget(self.question_frame)
         layout.addWidget(self.answer_frame)
+        layout.addWidget(self.keyboard_prompt_frame)
 
         self.setStyleSheet(
             """
-            QFrame#questionFrame, QFrame#answerFrame {
+            QFrame#questionFrame, QFrame#answerFrame, QFrame#keyboardPromptFrame {
                 background: #000000;
                 border: 2px solid #d6d6d6;
                 border-radius: 7px;
@@ -1605,6 +1667,8 @@ class TerminalOverlay(QWidget):
             """
         )
         self.answer_frame.hide()
+        self.keyboard_prompt_frame.hide()
+        self.keyboard_question_row.hide()
         self.switch_row.hide()
 
     def set_target(self, captured_rect: QRect) -> None:
@@ -1614,6 +1678,11 @@ class TerminalOverlay(QWidget):
             self.target_geometry = screen.availableGeometry()
 
     def show_status(self, text: str, answer: str | None = None) -> None:
+        if self.input_active:
+            self.question_input.setReadOnly(True)
+            self.question_input.setToolTip("")
+            self.prompt_marker.setText(">")
+            return
         self._leave_input_mode()
         if answer:
             self.question_frame.hide()
@@ -1632,12 +1701,15 @@ class TerminalOverlay(QWidget):
         self.recording_active = True
         self.question.setText(text.upper())
         self.question_frame.show()
-        self.content_stack.hide()
+        self.answer_frame.hide()
+        self.keyboard_prompt_frame.show()
+        self.keyboard_question_row.hide()
         self.switch_row.show()
-        self.answer_frame.show()
         self._fit_and_show()
 
     def show_countdown(self, seconds: int) -> None:
+        if self.input_active:
+            return
         if seconds <= 0:
             self.end_countdown()
             return
@@ -1660,6 +1732,8 @@ class TerminalOverlay(QWidget):
         self.countdown_label.clear()
         self.content_stack.show()
         self.content_stack.setCurrentWidget(self.answer)
+        self.keyboard_question_row.hide()
+        self.answer.show()
         self._set_answer_display(self.answer_text or "…", immediate=True)
         self._fit_and_show()
 
@@ -1678,6 +1752,10 @@ class TerminalOverlay(QWidget):
         self._fit_and_show()
 
     def begin_answer(self, warning: str | None = None) -> None:
+        if self.input_active:
+            self.pending_answer = f"{warning}\n\n" if warning else ""
+            self.question_input.setReadOnly(True)
+            return
         self._leave_input_mode()
         self.question_frame.hide()
         self.answer_text = f"{warning}\n\n" if warning else ""
@@ -1686,25 +1764,91 @@ class TerminalOverlay(QWidget):
         self._fit_and_show()
 
     def show_input(self) -> None:
-        self.answer_text = ""
+        if self.input_active:
+            self._restore_keyboard_editor_focus()
+            return
         self.input_active = True
         self.recording_active = False
         self.countdown_active = False
         self.question_frame.hide()
-        self.answer_frame.show()
+        self.answer_frame.setVisible(bool(self.answer_text.strip()))
+        self.keyboard_prompt_frame.show()
         self.content_stack.show()
         self.switch_row.show()
-        self.content_stack.setCurrentWidget(self.keyboard_input_panel)
+        self.content_stack.setCurrentWidget(self.answer)
+        self.answer.setVisible(bool(self.answer_text.strip()))
+        self.keyboard_question_row.show()
         self.question_input.clear()
+        self.question_input.setReadOnly(False)
         self.setAttribute(Qt.WA_ShowWithoutActivating, False)
         self.setWindowFlag(Qt.WindowDoesNotAcceptFocus, False)
         self._fit_and_show()
         self.show()
         self.raise_()
         self.activateWindow()
-        QTimer.singleShot(0, self.question_input.setFocus)
+        QTimer.singleShot(0, self._focus_input)
+        QTimer.singleShot(100, self._focus_input)
+
+    def mark_keyboard_question_submitted(self) -> None:
+        if not self.input_active:
+            return
+        self.pending_answer = ""
+        self._awaiting_presentation = None
+        self.question_input.setReadOnly(True)
+        self.question_input.setToolTip("")
+        self.prompt_marker.setText(">")
+
+    def present_keyboard_answer(self, result: str) -> None:
+        if not self.input_active:
+            self.finish_answer(result)
+            return
+        self.answer_text = result
+        self.pending_answer = ""
+        self._awaiting_presentation = result.replace("\r\n", "\n")
+        self.answer.show()
+        self.answer.set_text(result, immediate=True)
+
+    def present_keyboard_error(self, title: str, detail: str) -> None:
+        if not self.input_active:
+            self.show_error(title, detail)
+            return
+        self.pending_answer = ""
+        self._awaiting_presentation = None
+        self.question_input.setToolTip(f"{title}: {detail}")
+        self.prompt_marker.setText("!")
+        self.question_input.setReadOnly(False)
+        self._restore_keyboard_editor_focus()
+
+    def _focus_input(self) -> None:
+        if not self.input_active or not self.isVisible():
+            return
+        if self.question_input.hasFocus() and self.isActiveWindow():
+            return
+        if sys.platform == "win32" and QGuiApplication.platformName() == "windows":
+            # The global hotkey runs outside Qt's activation path. Temporarily
+            # share the foreground input queue so Windows can focus this tool.
+            user32 = ctypes.WinDLL("user32", use_last_error=True)
+            user32.GetForegroundWindow.restype = ctypes.c_void_p
+            foreground = user32.GetForegroundWindow()
+            current_thread = ctypes.windll.kernel32.GetCurrentThreadId()
+            foreground_thread = user32.GetWindowThreadProcessId(ctypes.c_void_p(foreground), None)
+            attached = False
+            try:
+                if foreground_thread and foreground_thread != current_thread:
+                    attached = bool(user32.AttachThreadInput(current_thread, foreground_thread, True))
+                user32.SetForegroundWindow(ctypes.c_void_p(int(self.winId())))
+            finally:
+                if attached:
+                    user32.AttachThreadInput(current_thread, foreground_thread, False)
+        self.activateWindow()
+        if self.windowHandle():
+            self.windowHandle().requestActivate()
+        self.question_input.setFocus(Qt.ActiveWindowFocusReason)
 
     def append_answer(self, piece: str) -> None:
+        if self.input_active:
+            self.pending_answer += piece
+            return
         if self.countdown_active:
             self.end_countdown()
         self.answer_text += piece
@@ -1712,12 +1856,48 @@ class TerminalOverlay(QWidget):
         self._fit_and_show()
 
     def finish_answer(self, result: str) -> None:
+        if self.input_active:
+            self.present_keyboard_answer(result or self.pending_answer)
+            return
         if not self.answer_text.strip():
             self.answer_text = result
         self._set_answer_display(self.answer_text, immediate=True)
         self._fit_and_show()
 
+    def _queue_keyboard_presentation_finish(self, text: str) -> None:
+        if not self.input_active or self._awaiting_presentation != text:
+            return
+        QTimer.singleShot(50, lambda rendered=text: self._finish_keyboard_presentation(rendered))
+
+    def _finish_keyboard_presentation(self, text: str) -> None:
+        if not self.input_active or self._awaiting_presentation != text:
+            return
+        self._awaiting_presentation = None
+        self.answer_frame.show()
+        self.question_input.clear()
+        self.question_input.setReadOnly(False)
+        self.question_input.setToolTip("")
+        self.prompt_marker.setText(">")
+        self._fit_and_show()
+        self._restore_keyboard_editor_focus()
+        self.keyboard_ready.emit()
+
+    def _restore_keyboard_editor_focus(self) -> None:
+        if not self.input_active:
+            return
+        QTimer.singleShot(0, self._focus_input)
+        QTimer.singleShot(100, self._focus_input)
+
+    def accept_external_text_key(self, text: str) -> None:
+        if not self.input_active or self.question_input.isReadOnly() or not text:
+            return
+        self._focus_input()
+        self.question_input.insertPlainText(text)
+
     def show_error(self, title: str, detail: str) -> None:
+        if self.input_active:
+            self.present_keyboard_error(title, detail)
+            return
         self._leave_input_mode()
         self.question_frame.hide()
         self.answer_text = f"{title.upper()}\n\n{detail}"
@@ -1727,8 +1907,14 @@ class TerminalOverlay(QWidget):
 
     def leave_input_mode(self) -> None:
         self._leave_input_mode()
+        self.answer_text = ""
+        self.pending_answer = ""
 
     def _leave_input_mode(self) -> None:
+        self._awaiting_presentation = None
+        self._keyboard_height = 0
+        self.keyboard_prompt_frame.hide()
+        self.keyboard_question_row.hide()
         self.recording_active = False
         self.countdown_active = False
         self.countdown_label.clear()
@@ -1736,14 +1922,19 @@ class TerminalOverlay(QWidget):
         self.content_stack.show()
         if not self.input_active:
             self.content_stack.setCurrentWidget(self.answer)
+            self.answer.show()
             return
         self.input_active = False
         self.question_input.clearFocus()
         self.content_stack.setCurrentWidget(self.answer)
+        self.answer.show()
         self.setWindowFlag(Qt.WindowDoesNotAcceptFocus, True)
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
 
     def _set_answer_display(self, value: str, *, immediate: bool = False) -> None:
+        self.content_stack.setCurrentWidget(self.answer)
+        self.keyboard_question_row.hide()
+        self.answer.show()
         self.answer.set_text(value, immediate=immediate)
 
     def _fit_and_show(self) -> None:
@@ -1761,21 +1952,34 @@ class TerminalOverlay(QWidget):
         ) + 18
         question_limit = max(70, int(geometry.height() * 0.25))
         self.question_frame.setFixedHeight(max(42, min(question_height, question_limit)))
-        if not self.answer_frame.isHidden():
-            question_space = self.question_frame.height() + 7 if self.question_frame.isVisible() else 0
-            available = max(75, max_height - question_space)
-            if self.input_active:
+
+        prompt_height = 0
+        if not self.keyboard_prompt_frame.isHidden():
+            row_height = 0
+            if self.keyboard_question_row.isVisible():
                 input_height = self._text_height(
                     self.question_input.font(),
-                    self.question_input.toPlainText() or self.question_input.placeholderText(),
-                    content_width,
+                    self.question_input.toPlainText(),
+                    content_width - 24,
                 )
-                answer_height = input_height + 68
-            elif self.recording_active:
-                answer_height = 42
-            elif self.countdown_active:
+                input_height = max(34, min(input_height + 14, 150))
+                self.question_input.setFixedHeight(input_height)
+                row_height = input_height
+            switch_height = self.switch_row.sizeHint().height() if self.switch_row.isVisible() else 0
+            spacing = 4 if row_height and switch_height else 0
+            prompt_height = max(42, row_height + switch_height + spacing + 14)
+            self.keyboard_prompt_frame.setFixedHeight(prompt_height)
+
+        if not self.answer_frame.isHidden():
+            question_space = self.question_frame.height() + 7 if self.question_frame.isVisible() else 0
+            prompt_space = prompt_height + 7 if prompt_height else 0
+            available = max(68, max_height - question_space - prompt_space)
+            if self.countdown_active:
                 answer_height = 38
             else:
+                self.answer.setFixedHeight(
+                    min(self.answer.content_height, max(24, available - 30))
+                )
                 answer_height = self.answer.content_height + 30
             self.answer_frame.setFixedHeight(max(68, min(answer_height, available)))
 
@@ -1786,6 +1990,8 @@ class TerminalOverlay(QWidget):
             interactive_region = interactive_region.united(QRegion(self.question_frame.geometry()))
         if self.answer_frame.isVisible():
             interactive_region = interactive_region.united(QRegion(self.answer_frame.geometry()))
+        if self.keyboard_prompt_frame.isVisible():
+            interactive_region = interactive_region.united(QRegion(self.keyboard_prompt_frame.geometry()))
         self.setMask(interactive_region)
         x = geometry.left() + (geometry.width() - width) // 2
         y = geometry.bottom() - self.height() - 18
@@ -1848,7 +2054,19 @@ class ModelCatalogWorker(QObject):
     def run(self) -> None:
         try:
             with OpenAI(api_key=self.api_key, base_url=GROQ_BASE_URL, timeout=15, max_retries=0) as client:
-                models = sorted({model.id for model in client.models.list() if getattr(model, "active", True) is not False})
+                models = sorted(
+                    (
+                        {
+                            "id": model.id,
+                            "name": str(getattr(model, "name", "") or model.id),
+                            "input_modalities": list(getattr(model, "input_modalities", None) or []),
+                            "output_modalities": list(getattr(model, "output_modalities", None) or []),
+                        }
+                        for model in client.models.list()
+                        if getattr(model, "active", True) is not False
+                    ),
+                    key=lambda item: item["id"],
+                )
             self.completed.emit(self.session_id, True, json.dumps(models))
         except Exception as exc:
             self.completed.emit(self.session_id, False, str(exc))
@@ -1919,12 +2137,31 @@ class ModelSettingsDialog(QDialog):
             self.status.setText("No se pudo consultar el catálogo. Puedes introducir el modelo manualmente.\n" + content)
             return
         models = json.loads(content)
-        for combo in self.fields.values():
+        for field, combo in self.fields.items():
             current = combo.currentText()
             combo.clear()
-            combo.addItems(models)
+            compatible = []
+            for model in models:
+                if isinstance(model, str):
+                    compatible.append(model)
+                    continue
+                inputs = set(model.get("input_modalities") or [])
+                outputs = set(model.get("output_modalities") or [])
+                if field == "audio_model":
+                    accepted = "audio" in inputs and "transcription" in outputs
+                elif field == "vision_model":
+                    accepted = "image" in inputs and "text" in outputs
+                else:
+                    accepted = "text" in inputs and "text" in outputs
+                if accepted:
+                    compatible.append(model["id"])
+            combo.addItems(compatible)
             combo.setEditText(current)
-        self.status.setText(f"{len(models)} modelos encontrados." if models else "Catálogo vacío. Puedes introducir el modelo manualmente.")
+        available = sum(combo.count() for combo in self.fields.values())
+        self.status.setText(
+            f"{len(models)} modelos activos consultados; {available} opciones compatibles."
+            if models else "Catálogo vacío. Puedes introducir el modelo manualmente."
+        )
 
     def save(self) -> None:
         values = {name: combo.currentText().strip() for name, combo in self.fields.items()}
@@ -2031,6 +2268,7 @@ class AppController(QObject):
         self.vision_error = ""
         self.audio_done = False
         self.audio_text = ""
+        self.previous_response = ""
         self.audio_incomplete = False
         self.recording_acknowledged = False
         self.session_subjects: dict[str, str] = {}
@@ -2051,9 +2289,11 @@ class AppController(QObject):
         self.tray = ApplicationTray(app, self.quit_requested.emit)
 
         self.hotkey.pressed.connect(self.handle_hotkey)
+        self.hotkey.text_key_pressed.connect(self.handle_global_text_key)
         self.hotkey.dismiss_requested.connect(self.handle_dismiss)
         self.hotkey.quit_requested.connect(self.quit_requested.emit)
         self.overlay.question_submitted.connect(self.handle_keyboard_question)
+        self.overlay.keyboard_ready.connect(self.handle_keyboard_ready)
         self.overlay.send_image_changed.connect(self.handle_send_image_changed)
         self.media_controller.pause_completed.connect(self.handle_media_pause_completed)
         self.media_controller.playback_state_changed.connect(self.handle_windows_media_state)
@@ -2104,9 +2344,9 @@ class AppController(QObject):
         elif role == "vision":
             retry = VisionWorker(session_id, worker.image_data_url, config, worker.api_key)
         elif role == "multimodal":
-            retry = MultimodalAnswerWorker(session_id, worker.prompt, worker.image_data_url, worker.question, config, worker.api_key)
+            retry = MultimodalAnswerWorker(session_id, worker.prompt, worker.image_data_url, worker.question, config, worker.api_key, worker.context)
         else:
-            retry = AnswerWorker(session_id, worker.prompt, worker.material, worker.question, config, worker.api_key)
+            retry = AnswerWorker(session_id, worker.prompt, worker.material, worker.question, config, worker.api_key, worker.context)
         dialog = ModelSettingsDialog(self, field, f"El modelo {failure['model']} no está disponible. Selecciona un reemplazo.")
         self.recovery_dialog = dialog
 
@@ -2358,6 +2598,21 @@ class AppController(QObject):
             return
         self.start_cycle()
 
+    def handle_global_text_key(self, text: str) -> None:
+        if (
+            self.state != "escribiendo"
+            or self.question_source != "keyboard"
+            or not self.overlay.isVisible()
+            or not self.overlay.input_active
+            or self.overlay.question_input.hasFocus()
+        ):
+            return
+        self.overlay.accept_external_text_key(text)
+
+    def handle_keyboard_ready(self) -> None:
+        if self.question_source == "keyboard" and self.state == "resultado":
+            self._prepare_keyboard_request()
+
     def cancel_and_hide(self) -> None:
         dialog = getattr(self, "recovery_dialog", None)
         self.recovery_dialog = None
@@ -2383,6 +2638,7 @@ class AppController(QObject):
         self.resume_media_if_needed()
         self.session_id = None
         self.image_data_url = ""
+        self.previous_response = ""
         self.vision_done = False
         self.vision_text = ""
         self.vision_error = ""
@@ -2481,8 +2737,17 @@ class AppController(QObject):
         self._begin_keyboard_cycle(uuid.uuid4().hex, rect, image_data_url)
 
     def _begin_keyboard_cycle(self, session_id: str, rect: QRect, image_data_url: str) -> None:
-        self.session_id = session_id
+        self.capture_rect = rect
         self.image_data_url = image_data_url
+        self.question_source = "keyboard"
+        self.previous_response = ""
+        self._prepare_keyboard_request(session_id)
+        self.overlay.set_target(rect)
+        self.overlay.show_input()
+        LOGGER.info("Sesión %s: captura lista y entrada por teclado iniciada", session_id[:8])
+
+    def _prepare_keyboard_request(self, session_id: str | None = None) -> None:
+        self.session_id = session_id or uuid.uuid4().hex
         self.state = "escribiendo"
         self.update_tray_status()
         self.vision_done = False
@@ -2492,7 +2757,6 @@ class AppController(QObject):
         self.audio_text = ""
         self.audio_incomplete = False
         self.recording_acknowledged = False
-        self.question_source = "keyboard"
         self.answer_started = False
         self.answer_mode = ""
         self.fallback_started = False
@@ -2500,9 +2764,6 @@ class AppController(QObject):
         self.media_paused_by_cycle = False
         self.media_source_id = ""
         self.media_pause_cycle_id = None
-        self.overlay.set_target(rect)
-        self.overlay.show_input()
-        LOGGER.info("Sesión %s: captura lista y entrada por teclado iniciada", session_id[:8])
 
     def handle_recording_started(self, session_id: str) -> None:
         if self.session_id == session_id and self.state == "grabando":
@@ -2522,6 +2783,8 @@ class AppController(QObject):
         self._begin_keyboard_cycle(session_id, self.capture_rect, self.image_data_url)
 
     def handle_keyboard_question(self, question: str) -> None:
+        if self.state == "resultado" and self.question_source == "keyboard" and question.strip():
+            self._prepare_keyboard_request()
         if self.state != "escribiendo" or not self.session_id:
             return
         question = question.strip()
@@ -2531,7 +2794,7 @@ class AppController(QObject):
         self.audio_done = True
         self.state = "transcribiendo"
         self.update_tray_status()
-        self.overlay.show_status("ANALIZANDO IMAGEN…" if self.config.send_image else "PENSANDO…")
+        self.overlay.mark_keyboard_question_submitted()
         LOGGER.info(
             "Sesión %s: pregunta de teclado lista chars=%s",
             self.session_id[:8],
@@ -2673,15 +2936,21 @@ class AppController(QObject):
             self.update_tray_status()
             retry_delay = decode_rate_limit_failure(content)
             if retry_delay is not None:
-                self.overlay.show_error(
+                self._show_request_error(
                     "LÍMITE DE SOLICITUDES",
                     f"Qwen sigue ocupado. Vuelve a intentarlo en {retry_delay} segundos.",
                 )
             else:
-                self.overlay.show_error(
+                self._show_request_error(
                     "NO SE PUDO RESPONDER",
                     "Falló la respuesta visual y tampoco se pudo extraer el material por OCR.",
                 )
+
+    def _show_request_error(self, title: str, detail: str) -> None:
+        if self.question_source == "keyboard":
+            self.overlay.present_keyboard_error(title, detail)
+        else:
+            self.overlay.show_error(title, detail)
 
     def handle_audio_result(self, session_id: str, success: bool, content: str) -> None:
         LOGGER.info(
@@ -2731,7 +3000,10 @@ class AppController(QObject):
         self.fallback_started = False
         self.state = "respondiendo"
         self.update_tray_status()
-        self.overlay.begin_answer(warning)
+        if self.question_source == "keyboard":
+            self.overlay.mark_keyboard_question_submitted()
+        else:
+            self.overlay.begin_answer(warning)
         LOGGER.info(
             "Sesión %s: inicio de respuesta %s pregunta_chars=%s",
             (self.session_id or "")[:8],
@@ -2746,6 +3018,7 @@ class AppController(QObject):
                 self.audio_text,
                 self.config,
                 self.api_key or "",
+                context=getattr(self, "previous_response", "") if self.question_source == "keyboard" else "",
             )
         else:
             worker = AnswerWorker(
@@ -2755,6 +3028,7 @@ class AppController(QObject):
                 self.audio_text,
                 self.config,
                 self.api_key or "",
+                context=getattr(self, "previous_response", "") if self.question_source == "keyboard" else "",
             )
         worker.session_id = self.session_id
         worker.delta.connect(self.handle_answer_delta)
@@ -2771,7 +3045,8 @@ class AppController(QObject):
         self.vision_error = ""
         self.state = "transcribiendo"
         self.update_tray_status()
-        self.overlay.show_status("REINTENTANDO CON OCR…")
+        if self.question_source != "keyboard":
+            self.overlay.show_status("REINTENTANDO CON OCR…")
         LOGGER.warning(
             "Sesión %s: se activa OCR de respaldo tras fallo multimodal: %s",
             self.session_id[:8],
@@ -2803,7 +3078,7 @@ class AppController(QObject):
         self.state = "resultado"
         self.update_tray_status()
         LOGGER.warning("Sesión %s: OCR de respaldo agotó el tiempo", session_id[:8])
-        self.overlay.show_error(
+        self._show_request_error(
             "NO SE PUDO RESPONDER",
             "La respuesta visual falló y el OCR de respaldo excedió el tiempo disponible.",
         )
@@ -2814,7 +3089,8 @@ class AppController(QObject):
         self.answer_mode = "text_fallback"
         self.state = "respondiendo"
         self.update_tray_status()
-        self.overlay.begin_answer("⚠ Se utilizó OCR de respaldo.")
+        if self.question_source != "keyboard":
+            self.overlay.begin_answer("⚠ Se utilizó OCR de respaldo.")
         LOGGER.info(
             "Sesión %s: inicio de respuesta de respaldo material_chars=%s",
             self.session_id[:8],
@@ -2827,6 +3103,7 @@ class AppController(QObject):
             self.audio_text,
             self.config,
             self.api_key or "",
+            context=getattr(self, "previous_response", "") if self.question_source == "keyboard" else "",
         )
         worker.delta.connect(self.handle_answer_delta)
         self.start_worker(worker, self.handle_answer_result)
@@ -2835,7 +3112,11 @@ class AppController(QObject):
         context = getattr(self, "worker_attempts", {}).get(session_id)
         if context:
             session_id = context[0]
-        if session_id == self.session_id and self.state == "respondiendo":
+        if (
+            session_id == self.session_id
+            and self.state == "respondiendo"
+            and self.question_source != "keyboard"
+        ):
             self.overlay.append_answer(piece)
 
     def handle_answer_result(self, session_id: str, success: bool, content: str) -> None:
@@ -2849,26 +3130,29 @@ class AppController(QObject):
             return
         if success:
             self.rate_limit_waiting = False
+            self.previous_response = content
             self.state = "resultado"
             self.update_tray_status()
-            self.overlay.finish_answer(content)
+            if self.question_source == "keyboard":
+                self.overlay.present_keyboard_answer(content)
+            else:
+                self.overlay.finish_answer(content)
             return
         retry_delay = decode_rate_limit_failure(content)
         if retry_delay is not None:
             self.rate_limit_waiting = False
             self.state = "resultado"
             self.update_tray_status()
-            self.overlay.show_error(
-                "LÍMITE DE SOLICITUDES",
-                f"El modelo sigue ocupado. Vuelve a intentarlo en {retry_delay} segundos.",
-            )
+            title = "LÍMITE DE SOLICITUDES"
+            detail = f"El modelo sigue ocupado. Vuelve a intentarlo en {retry_delay} segundos."
+            self._show_request_error(title, detail)
             return
         if self.answer_mode == "multimodal" and not self.fallback_started:
             self.start_ocr_fallback(content)
             return
         self.state = "resultado"
         self.update_tray_status()
-        self.overlay.show_error("NO SE PUDO RESPONDER", content)
+        self._show_request_error("NO SE PUDO RESPONDER", content)
 
     def handle_server_error(self, detail: str) -> None:
         LOGGER.error("Servidor móvil: %s", detail)
@@ -2905,7 +3189,8 @@ class AppController(QObject):
         if session_id != self.session_id:
             return
         self.rate_limit_waiting = seconds > 0
-        self.overlay.show_countdown(seconds)
+        if self.question_source != "keyboard":
+            self.overlay.show_countdown(seconds)
 
     def cleanup_worker(self, thread: QThread, worker: QObject) -> None:
         self.active_jobs = [

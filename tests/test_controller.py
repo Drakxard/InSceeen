@@ -54,6 +54,85 @@ def bare_controller() -> AppController:
 
 
 class ControllerKeyboardTests(unittest.TestCase):
+    def test_printable_key_recovers_keyboard_prompt_without_hotkey(self) -> None:
+        controller = bare_controller()
+        controller.state = "escribiendo"
+        controller.question_source = "keyboard"
+        controller.overlay.isVisible.return_value = True
+        controller.overlay.input_active = True
+        controller.overlay.question_input.hasFocus.return_value = False
+
+        controller.handle_global_text_key("a")
+
+        controller.overlay.accept_external_text_key.assert_called_once_with("a")
+
+    def test_global_key_is_ignored_when_prompt_already_has_focus(self) -> None:
+        controller = bare_controller()
+        controller.state = "escribiendo"
+        controller.question_source = "keyboard"
+        controller.overlay.isVisible.return_value = True
+        controller.overlay.input_active = True
+        controller.overlay.question_input.hasFocus.return_value = True
+
+        controller.handle_global_text_key("a")
+
+        controller.overlay.accept_external_text_key.assert_not_called()
+
+    def test_keyboard_answer_prepares_next_request_only_after_render_confirmation(self) -> None:
+        controller = bare_controller()
+        controller.question_source = "keyboard"
+        controller.session_id = "first"
+        controller.state = "respondiendo"
+        controller.capture_rect = QRect(10, 20, 800, 600)
+        controller.image_data_url = "captured-image"
+        controller.audio_text = "Primera pregunta"
+        controller.audio_done = True
+        controller.answer_started = True
+
+        controller.handle_answer_result("first", True, "Primera respuesta")
+
+        controller.overlay.present_keyboard_answer.assert_called_once_with("Primera respuesta")
+        controller.overlay.show_input.assert_not_called()
+        self.assertEqual(controller.state, "resultado")
+        self.assertEqual(controller.session_id, "first")
+
+        controller.handle_keyboard_ready()
+
+        self.assertEqual(controller.state, "escribiendo")
+        self.assertNotEqual(controller.session_id, "first")
+        self.assertEqual(controller.image_data_url, "captured-image")
+        self.assertEqual(controller.audio_text, "")
+        self.assertFalse(controller.audio_done)
+        self.assertFalse(controller.answer_started)
+
+        controller.overlay.reset_mock()
+        controller.handle_answer_result("first", True, "Resultado tardío")
+        controller.overlay.finish_answer.assert_not_called()
+        controller.overlay.present_keyboard_answer.assert_not_called()
+
+    def test_phone_answer_does_not_open_keyboard(self) -> None:
+        controller = bare_controller()
+        controller.session_id = "phone"
+        controller.handle_answer_result("phone", True, "Respuesta")
+        self.assertEqual(controller.state, "resultado")
+        controller.overlay.show_input.assert_not_called()
+
+    def test_cancel_keyboard_session_prevents_late_answer_reopening_input(self) -> None:
+        controller = bare_controller()
+        controller.session_id = "cancelled"
+        controller.question_source = "keyboard"
+        controller.state = "respondiendo"
+        controller.clear_retained_audio = Mock()
+        controller.resume_media_if_needed = Mock()
+
+        controller.cancel_and_hide()
+        controller.handle_answer_result("cancelled", True, "Respuesta tardía")
+
+        self.assertIsNone(controller.session_id)
+        controller.overlay.leave_input_mode.assert_called_once_with()
+        controller.overlay.hide.assert_called_once_with()
+        controller.overlay.show_input.assert_not_called()
+
     def test_phone_media_transitions_apply_asymmetric_policy(self) -> None:
         controller = bare_controller()
         controller.phone_media_state = "playing"
@@ -199,7 +278,8 @@ class ControllerKeyboardTests(unittest.TestCase):
         self.assertEqual(controller.audio_text, "¿Qué significa esto?")
         self.assertEqual(controller.image_data_url, "data:image/png;base64,captured")
         self.assertEqual(controller.state, "transcribiendo")
-        controller.overlay.show_status.assert_called_once_with("ANALIZANDO IMAGEN…")
+        controller.overlay.mark_keyboard_question_submitted.assert_called_once_with()
+        controller.overlay.show_status.assert_not_called()
         controller.maybe_start_answer.assert_called_once_with()
 
     def test_enter_without_image_uses_text_status(self) -> None:
@@ -211,7 +291,71 @@ class ControllerKeyboardTests(unittest.TestCase):
 
         controller.handle_keyboard_question("Pregunta sin foto")
 
-        controller.overlay.show_status.assert_called_once_with("PENSANDO…")
+        controller.overlay.mark_keyboard_question_submitted.assert_called_once_with()
+        controller.overlay.show_status.assert_not_called()
+        controller.maybe_start_answer.assert_called_once_with()
+
+    def test_keyboard_answer_start_does_not_change_overlay_view(self) -> None:
+        controller = bare_controller()
+        controller.question_source = "keyboard"
+        controller.session_id = "keyboard"
+        controller.image_data_url = "data:image/png;base64,captured"
+        controller.audio_done = True
+        controller.audio_text = "pregunta: ejemplo\n\ncontexto: respuesta"
+        controller.start_worker = Mock()
+
+        with patch("app.MultimodalAnswerWorker") as worker_class:
+            controller.maybe_start_answer()
+
+        controller.overlay.begin_answer.assert_not_called()
+        controller.overlay.show_status.assert_not_called()
+        controller.overlay.mark_keyboard_question_submitted.assert_called_once_with()
+        controller.start_worker.assert_called_once()
+
+    def test_keyboard_stream_deltas_stay_offscreen(self) -> None:
+        controller = bare_controller()
+        controller.question_source = "keyboard"
+        controller.session_id = "keyboard"
+        controller.state = "respondiendo"
+        controller.handle_answer_delta("keyboard", "fragmento")
+        controller.overlay.append_answer.assert_not_called()
+
+    def test_followup_sends_only_latest_response_as_context(self) -> None:
+        controller = bare_controller()
+        controller.question_source = "keyboard"
+        controller.session_id = "first"
+        controller.previous_response = "Respuesta más antigua"
+        controller.handle_answer_result("first", True, "La respuesta anterior con **formato**.")
+        controller.maybe_start_answer = Mock()
+
+        controller.handle_keyboard_question("  Dame un ejemplo  ")
+
+        self.assertEqual(
+            controller.audio_text,
+            "Dame un ejemplo",
+        )
+        controller.maybe_start_answer.assert_called_once_with()
+
+    def test_cancel_clears_previous_response_context(self) -> None:
+        controller = bare_controller()
+        controller.previous_response = "Contexto anterior"
+        controller.clear_retained_audio = Mock()
+        controller.resume_media_if_needed = Mock()
+        controller.cancel_and_hide()
+        self.assertEqual(controller.previous_response, "")
+
+    def test_keyboard_retry_after_error_keeps_context_and_starts_new_attempt(self) -> None:
+        controller = bare_controller()
+        controller.state = "resultado"
+        controller.question_source = "keyboard"
+        controller.session_id = "failed"
+        controller.previous_response = "Respuesta previa"
+        controller.answer_started = True
+        controller.maybe_start_answer = Mock()
+        controller.handle_keyboard_question("Reintentar")
+        self.assertNotEqual(controller.session_id, "failed")
+        self.assertFalse(controller.answer_started)
+        self.assertEqual(controller.audio_text, "Reintentar")
         controller.maybe_start_answer.assert_called_once_with()
 
     @patch("app.MultimodalAnswerWorker")
@@ -234,6 +378,7 @@ class ControllerKeyboardTests(unittest.TestCase):
             "Consulta directa",
             controller.config,
             "test-key",
+            context="",
         )
         self.assertEqual(controller.answer_mode, "multimodal")
         controller.start_worker.assert_called_once_with(worker, controller.handle_answer_result)
@@ -258,6 +403,7 @@ class ControllerKeyboardTests(unittest.TestCase):
             "Consulta directa",
             controller.config,
             "test-key",
+            context="",
         )
         self.assertEqual(controller.answer_mode, "text_only")
         controller.start_worker.assert_called_once_with(worker, controller.handle_answer_result)
@@ -316,6 +462,17 @@ class ControllerKeyboardTests(unittest.TestCase):
 
         controller.start_ocr_fallback.assert_not_called()
         controller.overlay.show_error.assert_called_once()
+
+    def test_keyboard_rate_limit_preserves_continuous_console(self) -> None:
+        controller = bare_controller()
+        controller.question_source = "keyboard"
+        controller.session_id = "session-rate"
+        controller.answer_mode = "multimodal"
+
+        controller.handle_answer_result("session-rate", False, "__INSCREEN_RATE_LIMIT__:4")
+
+        controller.overlay.present_keyboard_error.assert_called_once()
+        controller.overlay.show_error.assert_not_called()
 
     @patch("app.VisionWorker")
     def test_multimodal_failure_starts_ocr_fallback(self, vision_worker) -> None:
