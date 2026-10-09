@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="es">
 <head>
+  <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes,viewport-fit=cover">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https://synthesis.local; font-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
   <!-- Built by scripts/build-synthesis-reader.mjs; edit scripts/synthesis-reader.template.html. -->
@@ -28,15 +29,33 @@
     const board=document.getElementById('board'),readControls=document.getElementById('readControls'),read=document.getElementById('read'),article=document.getElementById('sheet'),sheetBody=document.getElementById('sheetBody'),empty=document.getElementById('empty');let zoom=1,pinch=null;
     function children(id){return nodes.filter(n=>n.parent===id)}
     function branch(node){return [node,...children(node.index).flatMap(branch)]}
+    function currentBranch(){const node=nodes.find(n=>n.index===parent);return node?branch(node):children(null).flatMap(branch)}
     function render(){sheet=false;article.hidden=true;board.hidden=false;board.replaceChildren();const list=children(parent);read.hidden=!list.length;empty.hidden=list.length>0;empty.textContent=nodes.length?'No hay más subtemas en esta sección.':'No hay contenido cargado para esta semana.';list.forEach(n=>{const wrap=document.createElement('div');wrap.className='node';wrap.style.setProperty('--s',n.scale);wrap.style.left=(n.x*100)+'%';wrap.style.top=(Math.max(.22,n.y)*100)+'vh';const b=document.createElement('button');b.className='plaque';b.textContent=mathLabel(n.name);b.setAttribute('aria-label','Abrir '+mathLabel(n.name));b.onclick=()=>{if(children(n.index).length){parent=n.index;render()}else showSheet([n])};wrap.appendChild(b);board.appendChild(wrap)});const max=Math.max(1.5,...list.map(n=>n.y+.35));board.style.paddingBottom=(max*100)+'vh'}
-    function showSheet(list){if(!list.length)return;sheet=true;board.hidden=true;readControls.hidden=true;article.hidden=false;sheetBody.innerHTML=list.map(n=>'<section><h1>'+escapeHtml(n.name)+'</h1>'+(n.body||'<p>Sin contenido.</p>')+'</section>').join('');renderSheetContent();article.scrollTop=0}
+    function showSheet(list){if(!list.length)return;sheet=true;board.hidden=true;readControls.hidden=true;article.hidden=false;zoom=1;pinch=null;article.style.setProperty('--sheet-zoom',1);sheetBody.style.removeProperty('width');sheetBody.innerHTML=list.map(n=>'<section><h1>'+escapeHtml(n.name)+'</h1>'+(n.body||'<p>Sin contenido.</p>')+'</section>').join('');renderSheetContent();article.scrollTop=0;article.scrollLeft=0}
     const mathMarker=/\[\[INSCREEN-MATH-V1:([A-Za-z0-9_-]+)\]\]/g;
-    function decodeMath(payload){
+    function decodePayload(payload){
       const base64=payload.replace(/-/g,'+').replace(/_/g,'/');
       const binary=atob(base64+'='.repeat((4-base64.length%4)%4));
-      const value=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(Uint8Array.from(binary,c=>c.charCodeAt(0))));
-      if(typeof value.latex!=='string'||typeof value.display!=='boolean')throw new Error('F?rmula inv?lida');
+      return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(Uint8Array.from(binary,c=>c.charCodeAt(0))));
+    }
+    function decodeMath(payload){
+      const value=decodePayload(payload);
+      if(typeof value.latex!=='string'||typeof value.display!=='boolean')throw new Error('Fórmula inválida');
       return value;
+    }
+    function restoreHierarchy(){
+      const metadata=new Map(),indices=new Map();
+      for(const node of nodes){
+        const content=document.createElement('template');content.innerHTML=node.body||'';
+        const first=content.content.firstElementChild,match=first&&first.tagName==='P'&&first.textContent.match(/^\[\[INSCREEN-NODE-V1:([A-Za-z0-9_-]+)\]\]$/);
+        if(!match)continue;
+        try{
+          const value=decodePayload(match[1]);
+          if(typeof value.id!=='string'||!(value.parentId===null||typeof value.parentId==='string'))continue;
+          metadata.set(node.index,value);indices.set(value.id,node.index);first.remove();node.body=content.innerHTML;
+        }catch{/* Older cached documents retain their native hierarchy. */}
+      }
+      for(const node of nodes){const value=metadata.get(node.index);if(value)node.parent=indices.get(value.parentId)??null}
     }
     function mathLabel(value){return value.replace(mathMarker,(raw,payload)=>{try{return decodeMath(payload).latex}catch{return raw}})}
     function renderSheetContent(){
@@ -69,7 +88,7 @@
       }
     }
     function escapeHtml(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
-    read.onclick=()=>showSheet(children(parent).flatMap(branch));
+    read.onclick=()=>showSheet(currentBranch());
     function distance(t){return Math.hypot(t[0].clientX-t[1].clientX,t[0].clientY-t[1].clientY)}
     article.addEventListener('touchstart',e=>{
       if(e.touches.length!==2)return;
@@ -89,7 +108,7 @@
       article.scrollLeft=left;article.scrollTop=top;
     },{passive:false});
     article.addEventListener('touchend',e=>{if(e.touches.length<2)pinch=null});article.addEventListener('touchcancel',()=>{pinch=null});
-    window.readerBack=function(){if(sheet){readControls.hidden=false;render();return true}if(parent!==null){parent=nodes[parent].parent;render();return true}Reader.close();return true};render();
+    window.readerBack=function(){if(sheet){readControls.hidden=false;render();return true}if(parent!==null){parent=nodes[parent].parent;render();return true}Reader.close();return true};restoreHierarchy();render();
   </script>
 </body>
 </html>

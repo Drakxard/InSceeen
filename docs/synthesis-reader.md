@@ -25,6 +25,14 @@ JSON UTF-8 con `{latex: string, display: boolean}`. Así sobrevive al conversor
 nativo existente, que ignora nodos matemáticos pero conserva texto. Se mantienen
 las marcas y no se modifican los documentos originales ni los bloques de código.
 
+Solo los H1 representan ramas en v0. Los H2–H6 se transportan dentro de un nodo
+`inscreenReaderContent`, que el renderizador nativo recorre sin crear otra rama.
+Cada H1 lleva un párrafo `[[INSCREEN-NODE-V1:<base64url>]]` con `{id, parentId}`.
+El lector retira ese párrafo y restaura las relaciones explícitas de v0, sin el
+límite de tres niveles del renderizador nativo. «Leer» incluye el contenido propio
+del nivel abierto y todos sus descendientes; desde la raíz incluye todas las ramas.
+Cada apertura comienza arriba, sin desplazamiento horizontal ni zoom anterior.
+
 El lector procesa únicamente nodos de texto fuera de `pre` y `code`, decodifica
 los marcadores y llama a KaTeX con `throwOnError: false`, `trust: false` y
 `strict: 'ignore'`. Un fallo conserva el LaTeX; datos inválidos quedan literales.
