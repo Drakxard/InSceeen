@@ -23,6 +23,7 @@ internal class WorkspaceLibraryView(context: Context, private val scan: () -> Un
     private val updatingWeb = AtomicBoolean(false)
     private val bootingWeb = AtomicBoolean(false)
     private val inventories = ConcurrentHashMap<String, JSONObject>()
+    private val pendingPdfs = ConcurrentHashMap<String, Boolean>()
     private var closed = false
     var atHome = true
         private set
@@ -137,11 +138,14 @@ internal class WorkspaceLibraryView(context: Context, private val scan: () -> Un
         evaluate("window.dispatchEvent(new CustomEvent('cursado-native-back',{cancelable:true}))")
         return true
     }
-    fun close() { closed = true; removeJavascriptInterface("CursadoNative"); destroy() }
+    fun close() { closed = true; pendingPdfs.clear(); removeJavascriptInterface("CursadoNative"); destroy() }
     private inner class Bridge {
+        @JavascriptInterface fun cancelPdf(requestId: String) { pendingPdfs.remove(requestId) }
         @JavascriptInterface fun openPdf(id: String, revision: String, requestId: String) {
             if (!requestId.matches(Regex("[a-zA-Z0-9-]{1,100}"))) return
+            pendingPdfs[requestId] = true
             fun result(error: String? = null) {
+                pendingPdfs.remove(requestId)
                 val detail = JSONObject().put("requestId", requestId)
                 if (error != null) detail.put("error", error)
                 post { evaluate("window.dispatchEvent(new CustomEvent('cursado-native-pdf-result',{detail:$detail}))") }
@@ -160,7 +164,7 @@ internal class WorkspaceLibraryView(context: Context, private val scan: () -> Un
                     val session = File(sessions, "${java.util.UUID.randomUUID()}.json")
                     session.writeText(JSONObject().put("path", saved.absolutePath).put("fileId", id).put("manifest", inventory).toString())
                     post {
-                        if (closed) { session.delete(); return@post }
+                        if (closed || pendingPdfs.remove(requestId) != true) { session.delete(); return@post }
                         try {
                             context.startActivity(android.content.Intent(context, WorkspacePdfActivity::class.java).putExtra("session", session.absolutePath))
                             result()
