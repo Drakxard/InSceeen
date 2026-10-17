@@ -249,12 +249,12 @@ class MainActivity : ComponentActivity() {
                         exitDialog?.isShowing != true &&
                         PagerGesturePolicy.beginsAtHorizontalEdge(event.x, root.width.toFloat(), edgeWidth)
                     ) EdgeGesture(event.x, event.y) else null
-                    if (edgeGesture != null) return true
                 }
-                MotionEvent.ACTION_MOVE -> if (edgeGesture != null) return true
+                MotionEvent.ACTION_POINTER_DOWN -> edgeGesture = null
                 MotionEvent.ACTION_UP -> edgeGesture?.let { gesture ->
+                    edgeGesture = null
                     val threshold = EDGE_SWIPE_THRESHOLD_DP * resources.displayMetrics.density
-                    PagerGesturePolicy.targetPage(
+                    val target = PagerGesturePolicy.targetPage(
                         pager.currentItem,
                         pager.adapter?.itemCount ?: 0,
                         gesture.x,
@@ -263,14 +263,15 @@ class MainActivity : ComponentActivity() {
                         event.y,
                         threshold,
                         libraryHome = pager.currentItem == 0 && libraryView?.atHome == true,
-                    )?.let { pager.setCurrentItem(it, true) }
-                    edgeGesture = null
-                    return true
+                    )
+                    if (target != null) {
+                        val cancel = MotionEvent.obtain(event).apply { action = MotionEvent.ACTION_CANCEL }
+                        try { super.dispatchTouchEvent(cancel) } finally { cancel.recycle() }
+                        pager.setCurrentItem(target, true)
+                        return true
+                    }
                 }
-                MotionEvent.ACTION_CANCEL -> if (edgeGesture != null) {
-                    edgeGesture = null
-                    return true
-                }
+                MotionEvent.ACTION_CANCEL -> edgeGesture = null
             }
         }
         return super.dispatchTouchEvent(event)
