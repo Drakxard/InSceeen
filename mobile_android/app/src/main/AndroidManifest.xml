@@ -42,12 +42,14 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="inscreen" android:host="pair" />
                 <data android:scheme="inscreen" android:host="provider-pair" />
+                <data android:scheme="inscreen" android:host="workspace-pair" />
             </intent-filter>
         </activity>
         <activity
             android:name=".ModuleHostActivity"
             android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden"
             android:exported="false" />
+        <activity android:name=".WorkspaceHtmlActivity" android:exported="false" />
         <activity
             android:name=".SubjectNotesCaptureActivity"
             android:exported="false" />

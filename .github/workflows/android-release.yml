@@ -35,6 +35,9 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Prepare offline library readers
+        uses: ./.github/actions/prepare-library
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 

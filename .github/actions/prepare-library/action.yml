@@ -1,0 +1,43 @@
+name: Prepare Cursado library readers
+description: Bundle the shared board renderer and offline PDF reader from a pinned Cursado revision.
+runs:
+  using: composite
+  steps:
+    - name: Read pinned source revision
+      id: source
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      run: echo "ref=$(cat .github/cursado-reader-ref)" >> "$GITHUB_OUTPUT"
+    - uses: actions/checkout@v4
+      with:
+        repository: Drakxard/cursado
+        ref: ${{ steps.source.outputs.ref }}
+        path: .cursado-reader
+        persist-credentials: false
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+        cache: npm
+        cache-dependency-path: |
+          .cursado-reader/package-lock.json
+          .cursado-reader/pizarraproyecto-main/package-lock.json
+    - name: Install reader dependencies
+      shell: bash
+      working-directory: ${{ github.workspace }}/.cursado-reader
+      run: |
+        npm ci --no-audit --no-fund
+        npm --prefix pizarraproyecto-main ci --no-audit --no-fund
+    - name: Package offline readers
+      shell: bash
+      working-directory: ${{ github.workspace }}/.cursado-reader
+      run: node scripts/prepare-workspace-library.mjs ../modules/library
+    - name: Install browser for shared reader checks
+      shell: bash
+      working-directory: ${{ github.workspace }}/.cursado-reader
+      run: npx playwright install --with-deps chromium
+    - name: Check shared mobile UI and offline PDF.js
+      shell: bash
+      working-directory: ${{ github.workspace }}/.cursado-reader
+      env:
+        INSCREEN_LIBRARY_ASSETS: ../modules/library
+      run: node --test tests/workspace-library.browser.mjs

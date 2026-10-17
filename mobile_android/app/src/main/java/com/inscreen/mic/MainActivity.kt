@@ -76,6 +76,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var updateButton: ImageButton
     private val webViews = mutableListOf<WebView>()
     private var queueWebView: WebView? = null
+    private var libraryView: WorkspaceLibraryView? = null
     private var pendingModuleSubjectId: String? = null
     private var scannerView: View? = null
     private var cameraProvider: ProcessCameraProvider? = null
@@ -186,6 +187,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        libraryView?.refresh()
         if (webViews.isNotEmpty()) {
             val quoted = JSONObject.quote(AprioriStore.load(this))
             webViews.forEach { it.evaluateJavascript("window.InScreenApplyState($quoted)", null) }
@@ -211,6 +213,8 @@ class MainActivity : ComponentActivity() {
         exitDialog = null
         webViews.forEach(WebView::destroy)
         queueWebView = null
+        libraryView?.close()
+        libraryView = null
         cameraProvider?.unbindAll()
         super.onDestroy()
     }
@@ -222,6 +226,7 @@ class MainActivity : ComponentActivity() {
             closeScanner()
             return
         }
+        if (pager.currentItem == 0 && libraryView?.back() == true) return
         showExitDialog()
     }
 
@@ -290,7 +295,7 @@ class MainActivity : ComponentActivity() {
         override fun onBindViewHolder(holder: PageHolder, position: Int) {
             holder.container.removeAllViews()
             val page = when (position) {
-                0 -> createAprioriWebView("dock")
+                0 -> WorkspaceLibraryView(this@MainActivity, { openScanner() }, { pager.setCurrentItem(1, true) }).also { libraryView = it }
                 1 -> createAprioriWebView("queue")
                 else -> createConnectionPage()
             }
@@ -1261,9 +1266,43 @@ class MainActivity : ComponentActivity() {
 
     private fun handleScannedLink(link: String?) {
         if (link.isNullOrBlank()) return
-        if (runCatching { SubjectExportLink.fromLink(link) }.isSuccess) handleSubjectExportLink(link)
+        if (runCatching { WorkspaceLink.parse(link) }.isSuccess) handleWorkspaceLink(link)
+        else if (runCatching { SubjectExportLink.fromLink(link) }.isSuccess) handleSubjectExportLink(link)
         else if (runCatching { ProviderPairLink.fromLink(link) }.isSuccess) handleProviderPairLink(link)
         else handlePairLink(link)
+    }
+
+    private fun handleWorkspaceLink(link: String) {
+        if (pairingInProgress) return
+        val parsed = runCatching { WorkspaceLink.parse(link) }.getOrNull() ?: return
+        val current = runCatching { WorkspaceCredentialStore(this).load() }.getOrNull()
+        fun redeem() {
+            pairingInProgress = true
+            Toast.makeText(this, "Vinculando biblioteca…", Toast.LENGTH_SHORT).show()
+            thread(name = "workspace-library-pair") {
+                try {
+                    val next = WorkspaceLibraryStore.redeem(this, parsed)
+                    synchronized(WorkspaceLibraryStore.lock) {
+                        WorkspaceCredentialStore(this).save(next)
+                        if (current != null && (current.workspaceId != next.workspaceId || current.baseUrl != next.baseUrl)) WorkspaceLibraryStore(this, current).directory.deleteRecursively()
+                    }
+                    WorkspaceLibraryWorker.schedule(this)
+                    runOnUiThread {
+                        pairingInProgress = false
+                        pager.setCurrentItem(0, true)
+                        libraryView?.paired()
+                        Toast.makeText(this, "Biblioteca vinculada. Las descargas completas se hacen por Wi-Fi.", Toast.LENGTH_LONG).show()
+                    }
+                } catch (error: Exception) {
+                    runOnUiThread {
+                        pairingInProgress = false
+                        Toast.makeText(this, error.message ?: "No se pudo vincular la biblioteca.", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+        if (current == null) redeem()
+        else AlertDialog.Builder(this).setTitle("¿Vincular otra biblioteca?").setMessage("La biblioteca actual se reemplazará después de validar el nuevo vínculo. La pila y la conexión se conservan.").setNegativeButton("Cancelar", null).setPositiveButton("Vincular") { _, _ -> redeem() }.show()
     }
 
     private fun handleSubjectExportLink(link: String) {

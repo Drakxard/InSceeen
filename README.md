@@ -1,5 +1,14 @@
 # InScreen
 
+La primera pestaña ahora abre la biblioteca personal de Cursado (Pizarra/Estudio).
+La pila y la conexión de micrófono conservan sus funciones. Escaneá el QR del
+botón de sincronización del inicio de Cursado para vincularla; solo necesita R2.
+Las descargas completas se hacen por Wi-Fi y se pueden leer sin conexión.
+El visor PDF.js y los recursos de interfaz se preparan desde un commit fijo de
+Cursado mediante `.github/actions/prepare-library`, antes de compilar en GitHub
+Actions. No se compila Android localmente. Los detalles están en
+[la documentación de Cursado](https://github.com/Drakxard/cursado/blob/main/docs/biblioteca-inscreen.md).
+
 Asistente local para Windows que combina el material visible en la ventana activa con
 una pregunta hablada desde InScreen Mic para Android o escrita directamente en el overlay.
 

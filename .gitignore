@@ -1,4 +1,6 @@
 .env
+.cursado-reader/
+modules/library/
 config.json
 __pycache__/
 *.pyc
