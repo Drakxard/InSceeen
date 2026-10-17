@@ -1219,7 +1219,8 @@ class MainActivity : ComponentActivity() {
                     .addOnSuccessListener { codes ->
                         val link = codes.firstNotNullOfOrNull { it.rawValue }
                         if (link != null && accepted.compareAndSet(false, true)) {
-                            val valid = runCatching { PairConfig.fromLink(link) }.isSuccess ||
+                            val valid = runCatching { WorkspaceLink.parse(link) }.isSuccess ||
+                                runCatching { PairConfig.fromLink(link) }.isSuccess ||
                                 runCatching { ProviderPairLink.fromLink(link) }.isSuccess ||
                                 runCatching { SubjectExportLink.fromLink(link) }.isSuccess
                             if (valid) {
