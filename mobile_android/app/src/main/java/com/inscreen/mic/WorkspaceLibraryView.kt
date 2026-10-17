@@ -54,7 +54,7 @@ internal class WorkspaceLibraryView(context: Context, private val scan: () -> Un
                     val directory = packageDirectory ?: return empty()
                     if (uri.path.orEmpty().startsWith("/api/")) return empty()
                     val path = uri.path.orEmpty().trimStart('/').ifEmpty { "index.html" }
-                    val routes = setOf("estudio", "sintesis", "practice/viewer", "pizarra", "pizarra/")
+                    val routes = setOf("estudio", "sintesis", "practice/viewer", "native/pdf", "pizarra", "pizarra/")
                     val target = File(directory, if (path in routes) { if (path.startsWith("pizarra")) "pizarra/index.html" else "index.html" } else path).canonicalFile
                     if (!target.path.startsWith(directory.path + File.separator) || !target.isFile || target.name == "complete.json") return empty()
                     val mime = when (target.extension) {
@@ -134,11 +134,41 @@ internal class WorkspaceLibraryView(context: Context, private val scan: () -> Un
     }
     fun paired() { inventories.clear(); evaluate("window.LibraryReload?.()"); refresh() }
     fun back(): Boolean {
-        if (canGoBack()) goBack() else evaluate("window.dispatchEvent(new CustomEvent('cursado-native-back'))")
+        evaluate("window.dispatchEvent(new CustomEvent('cursado-native-back',{cancelable:true}))")
         return true
     }
     fun close() { closed = true; removeJavascriptInterface("CursadoNative"); destroy() }
     private inner class Bridge {
+        @JavascriptInterface fun openPdf(id: String, revision: String, requestId: String) {
+            if (!requestId.matches(Regex("[a-zA-Z0-9-]{1,100}"))) return
+            fun result(error: String? = null) {
+                val detail = JSONObject().put("requestId", requestId)
+                if (error != null) detail.put("error", error)
+                post { evaluate("window.dispatchEvent(new CustomEvent('cursado-native-pdf-result',{detail:$detail}))") }
+            }
+            thread(name = "workspace-native-pdf") {
+                try {
+                    val inventory = inventories[revision] ?: error("Actualizá la biblioteca.")
+                    val credentials = WorkspaceCredentialStore(context).load() ?: error("Vinculá la biblioteca.")
+                    require(credentials.workspaceId == inventory.getString("workspaceId"))
+                    val files = inventory.getJSONArray("files")
+                    val file = (0 until files.length()).map { files.getJSONObject(it) }.firstOrNull {
+                        it.getString("id") == id && it.getString("mime").substringBefore(';') == "application/pdf"
+                    } ?: error("El PDF no está en esta publicación.")
+                    val saved = WorkspaceLibraryStore(context, credentials).ensureFile(inventory, file)
+                    val sessions = File(context.cacheDir, "library-pdf").apply { mkdirs() }
+                    val session = File(sessions, "${java.util.UUID.randomUUID()}.json")
+                    session.writeText(JSONObject().put("path", saved.absolutePath).put("fileId", id).put("manifest", inventory).toString())
+                    post {
+                        if (closed) { session.delete(); return@post }
+                        try {
+                            context.startActivity(android.content.Intent(context, WorkspacePdfActivity::class.java).putExtra("session", session.absolutePath))
+                            result()
+                        } catch (error: Exception) { session.delete(); result(error.message ?: "No se pudo abrir el PDF.") }
+                    }
+                } catch (error: Exception) { result(error.message ?: "No se pudo abrir el PDF.") }
+            }
+        }
         @JavascriptInterface fun openExternal(url: String) {
             val uri = runCatching { java.net.URI(url) }.getOrNull() ?: return
             if (url.length > 10000 || uri.scheme !in listOf("https", "http") || uri.host.isNullOrBlank() || uri.rawUserInfo != null) return

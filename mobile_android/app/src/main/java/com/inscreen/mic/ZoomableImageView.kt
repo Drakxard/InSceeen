@@ -43,6 +43,11 @@ internal class ZoomableImageView(context: Context) : ImageView(context) {
         post(::resetZoom)
     }
 
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        resetZoom()
+    }
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
         scaler.onTouchEvent(event)
         gestures.onTouchEvent(event)

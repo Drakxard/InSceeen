@@ -6,6 +6,11 @@ Las tareas se leen de `progreso/importantes.json` en la publicación de Cursado.
 Si falta, la app indica sincronizar desde la web y actualizar los archivos del
 celular. Desde Inicio de Cursado, deslizar a la derecha vuelve a la pila de InScreen.
 La zona lateral para cambiar de pantalla abarca 40 dp desde cada borde.
+El menú de tres puntos aparece encima de Inicio, en una columna; para retroceder
+se usa el botón o gesto de Android. Los PDF se abren con PDFium mediante
+`PdfRenderer`, con desplazamiento vertical, zoom táctil, página recordada y acceso
+a las explicaciones guardadas de Verlo. El lector funciona con los archivos
+descargados sin conexión. El paquete Android no incluye PDF.js.
 Al actualizar el APK se activa la nueva interfaz incluida, aunque hubiera una
 copia antigua guardada; las actualizaciones web posteriores siguen disponibles.
 
@@ -392,7 +397,8 @@ El flujo canónico es:
 1. Incrementar `versionCode` y `versionName` en `mobile_android/app/build.gradle.kts`.
 2. Confirmar y subir ese cambio a `main`.
 3. Crear una etiqueta nueva con el formato exacto `v` + `versionName`.
-4. Subir la etiqueta; GitHub Actions ejecutará pruebas, lint, compilación firmada y creará
+4. Subir la etiqueta; GitHub Actions ejecutará pruebas, lint, compilación firmada,
+   pruebas de PDF reales y navegación en emulador Android API 29, y creará
    el Release con `InScreenMic.apk`.
 
 Para cada corrección se deben incrementar nuevamente ambas versiones. Nunca se reutiliza

@@ -7,7 +7,6 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.Button
 import android.widget.LinearLayout
 import java.io.ByteArrayInputStream
 import java.io.File
@@ -22,7 +21,6 @@ class WorkspaceHtmlActivity : Activity() {
         val root = File(filesDir, "workspace-library").canonicalFile
         if (!file.path.startsWith(root.path + File.separator) || !WorkspaceLibraryStore.validHash(file.name) || !file.isFile) { finish(); return }
         val layout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        layout.addView(Button(this).apply { text = "‹ Volver a la biblioteca"; setOnClickListener { finish() } })
         val web = WebView(this).apply {
             settings.javaScriptEnabled = true
             settings.allowFileAccess = false

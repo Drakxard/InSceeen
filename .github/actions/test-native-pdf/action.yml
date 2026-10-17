@@ -1,0 +1,19 @@
+name: Test native PDF reader on Android
+description: Render actual PDFs, recreate the viewer and exercise device Back in an emulator.
+runs:
+  using: composite
+  steps:
+    - name: Enable Android emulator acceleration
+      shell: bash
+      run: |
+        echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+        sudo udevadm control --reload-rules
+        sudo udevadm trigger --name-match=kvm
+    - name: Native PDF instrumented tests
+      uses: reactivecircus/android-emulator-runner@v2
+      with:
+        api-level: 29
+        arch: x86_64
+        target: default
+        disable-animations: true
+        script: cd mobile_android && ./gradlew --no-daemon connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.inscreen.mic.WorkspacePdfTest

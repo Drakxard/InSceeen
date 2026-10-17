@@ -66,6 +66,9 @@ jobs:
       - name: Test and build signed APK
         run: ./gradlew --no-daemon testDebugUnitTest lintDebug assembleRelease
 
+      - name: Verify native PDF reader on Android
+        uses: ./.github/actions/test-native-pdf
+
       - name: Preserve Android test and lint reports
         if: always()
         uses: actions/upload-artifact@v4

@@ -54,6 +54,7 @@
             android:name=".WorkspaceHtmlActivity"
             android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden"
             android:exported="false" />
+        <activity android:name=".WorkspacePdfActivity" android:exported="false" />
         <activity
             android:name=".SubjectNotesCaptureActivity"
             android:exported="false" />
