@@ -236,6 +236,7 @@ class MainActivity : ComponentActivity() {
                 MotionEvent.ACTION_DOWN -> {
                     val edgeWidth = EDGE_SWIPE_DP * resources.displayMetrics.density
                     edgeGesture = if (
+                        pager.currentItem != 0 &&
                         scannerView == null &&
                         exitDialog?.isShowing != true &&
                         PagerGesturePolicy.beginsAtHorizontalEdge(event.x, root.width.toFloat(), edgeWidth)
