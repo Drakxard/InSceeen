@@ -72,6 +72,13 @@ class WorkspacePdfTest {
         try {
             val intent = Intent(context, WorkspacePdfActivity::class.java).putExtra("session", session.absolutePath)
             ActivityScenario.launch<WorkspacePdfActivity>(intent).use { scenario ->
+                fun awaitState(expected: androidx.lifecycle.Lifecycle.State) {
+                    repeat(100) {
+                        if (scenario.state == expected) return
+                        Thread.sleep(100)
+                    }
+                    assertEquals(expected, scenario.state)
+                }
                 fun awaitPage() {
                     var found = false
                     repeat(100) {
@@ -84,9 +91,9 @@ class WorkspacePdfTest {
                 awaitPage()
                 scenario.recreate()
                 awaitPage()
+                awaitState(androidx.lifecycle.Lifecycle.State.RESUMED)
                 InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
-                InstrumentationRegistry.getInstrumentation().waitForIdleSync()
-                assertEquals(androidx.lifecycle.Lifecycle.State.DESTROYED, scenario.state)
+                awaitState(androidx.lifecycle.Lifecycle.State.DESTROYED)
             }
         } finally { session.delete(); file.delete() }
     }
