@@ -41,6 +41,7 @@ import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
@@ -166,6 +167,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         cleanupInstallersAfterUpgrade()
         buildUi()
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() = handleBackNavigation()
+        })
         registerUpdateReceiver()
         registerStateReceiver()
         registerAprioriReceiver()
@@ -222,6 +226,10 @@ class MainActivity : ComponentActivity() {
     @Deprecated("Deprecated in Java")
     @SuppressLint("MissingSuperCall")
     override fun onBackPressed() {
+        handleBackNavigation()
+    }
+
+    private fun handleBackNavigation() {
         if (scannerView != null) {
             closeScanner()
             return
