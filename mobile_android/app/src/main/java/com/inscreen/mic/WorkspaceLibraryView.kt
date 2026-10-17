@@ -24,6 +24,8 @@ internal class WorkspaceLibraryView(context: Context, private val scan: () -> Un
     private val bootingWeb = AtomicBoolean(false)
     private val inventories = ConcurrentHashMap<String, JSONObject>()
     private var closed = false
+    var atHome = true
+        private set
     private val webPackages = CursadoWebPackage(context)
     @Volatile private var packageDirectory: File? = null
     init {
@@ -35,6 +37,11 @@ internal class WorkspaceLibraryView(context: Context, private val scan: () -> Un
         settings.setSupportZoom(true)
         addJavascriptInterface(Bridge(), "CursadoNative")
         webViewClient = object : WebViewClient() {
+            override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
+                super.doUpdateVisitedHistory(view, url, isReload)
+                val uri = url?.let { android.net.Uri.parse(it) }
+                atHome = uri?.host == HOST && uri.path.orEmpty() in listOf("", "/", "/index.html")
+            }
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val external = request.url.scheme != "https" || request.url.host != HOST
                 if (external && request.hasGesture()) Bridge().openExternal(request.url.toString())

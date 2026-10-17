@@ -10,6 +10,14 @@ import java.io.InputStream
 import java.nio.file.Files
 
 class CursadoWebPackageTest {
+    @Test fun apkUpgradeReplacesOldUiAndLaterOtaUpdatesSurviveRestarts() {
+        val old = "a".repeat(64)
+        val upgraded = "b".repeat(64)
+        assertTrue(CursadoWebPackage.needsBundledInstall(upgraded, null, true))
+        assertTrue(CursadoWebPackage.needsBundledInstall(upgraded, old, true))
+        assertFalse(CursadoWebPackage.needsBundledInstall(upgraded, upgraded, true))
+        assertTrue(CursadoWebPackage.needsBundledInstall(upgraded, upgraded, false))
+    }
     private fun manifest(): JSONObject = JSONObject().put("version",1).put("bridgeVersion",1).put("revision","a".repeat(64)).put("files",JSONArray().apply {
         listOf("index.html","app.js","app.css","pizarra/index.html").forEach { put(JSONObject().put("path",it).put("size",10).put("hash","b".repeat(64))) }
     })

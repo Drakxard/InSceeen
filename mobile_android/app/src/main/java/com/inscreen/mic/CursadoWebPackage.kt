@@ -25,14 +25,22 @@ internal class CursadoWebPackage(private val context: Context) {
         }
         return null
     }
-    fun installed(): File {
-        activeDirectory()?.let { return it }
-        return synchronized(lock) {
-            activeDirectory() ?: run {
-                val manifest = JSONObject(context.assets.open("native-web/current.json").bufferedReader().use { it.readText() })
-                install(manifest) { path -> context.assets.open("native-web/releases/${manifest.getString("revision")}/$path") }
-            }
-        }
+    fun installed(): File = synchronized(lock) {
+        val manifest = JSONObject(context.assets.open("native-web/current.json").bufferedReader().use { it.readText() })
+        val revision = manifest.getString("revision")
+        val bundled = File(root, "bundled-revision")
+        val active = activeDirectory()
+        if (!needsBundledInstall(revision, bundled.takeIf { it.isFile }?.readText(), active != null)) return@synchronized active!!
+        val directory = try {
+            install(manifest) { path -> context.assets.open("native-web/releases/$revision/$path") }
+        } catch (error: Exception) { return@synchronized active ?: throw error }
+        // Mark only after verification and activation. A failed APK upgrade retries
+        // on next open; subsequent OTA updates survive normal app restarts.
+        val marker = AtomicFile(bundled)
+        val output = marker.startWrite()
+        try { output.write(revision.toByteArray()); marker.finishWrite(output) }
+        catch (error: Exception) { marker.failWrite(output); throw error }
+        directory
     }
 
     fun update(baseUrl: String, stillCurrent: () -> Boolean = { true }): Boolean = synchronized(lock) {
@@ -96,6 +104,8 @@ internal class CursadoWebPackage(private val context: Context) {
 
     companion object {
         private val lock = Any()
+        fun needsBundledInstall(bundledRevision: String, installedBundle: String?, hasActive: Boolean) =
+            !hasActive || installedBundle != bundledRevision
         fun copyVerified(item: JSONObject, input: InputStream, file: File) {
             val digest = MessageDigest.getInstance("SHA-256"); var size = 0L
             try {

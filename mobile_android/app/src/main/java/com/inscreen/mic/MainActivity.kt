@@ -236,7 +236,7 @@ class MainActivity : ComponentActivity() {
                 MotionEvent.ACTION_DOWN -> {
                     val edgeWidth = EDGE_SWIPE_DP * resources.displayMetrics.density
                     edgeGesture = if (
-                        pager.currentItem != 0 &&
+                        (pager.currentItem != 0 || libraryView?.atHome == true) &&
                         scannerView == null &&
                         exitDialog?.isShowing != true &&
                         PagerGesturePolicy.beginsAtHorizontalEdge(event.x, root.width.toFloat(), edgeWidth)
@@ -254,6 +254,7 @@ class MainActivity : ComponentActivity() {
                         event.x,
                         event.y,
                         threshold,
+                        libraryHome = pager.currentItem == 0 && libraryView?.atHome == true,
                     )?.let { pager.setCurrentItem(it, true) }
                     edgeGesture = null
                     return true
@@ -1452,12 +1453,13 @@ internal object PagerGesturePolicy {
         endX: Float,
         endY: Float,
         threshold: Float,
+        libraryHome: Boolean = false,
     ): Int? {
         if (pageCount <= 0 || currentPage !in 0 until pageCount || threshold <= 0f) return null
         val deltaX = endX - startX
         val deltaY = endY - startY
         if (kotlin.math.abs(deltaX) < threshold || kotlin.math.abs(deltaX) <= kotlin.math.abs(deltaY)) return null
-        val target = if (deltaX < 0f) currentPage + 1 else currentPage - 1
+        val target = if (libraryHome && currentPage == 0) 1 else if (deltaX < 0f) currentPage + 1 else currentPage - 1
         return target.takeIf { it in 0 until pageCount }
     }
 }

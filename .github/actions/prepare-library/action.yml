@@ -31,6 +31,10 @@ runs:
       shell: bash
       working-directory: ${{ github.workspace }}/.cursado-reader
       run: node scripts/build-native-web.mjs ../modules/native-web
+    - name: Check library publication and important tasks
+      shell: bash
+      working-directory: ${{ github.workspace }}/.cursado-reader
+      run: node --test --experimental-strip-types tests/workspace-library.test.mts tests/workspace-library-publisher.test.mts
     - name: Install browser for shared reader checks
       shell: bash
       working-directory: ${{ github.workspace }}/.cursado-reader

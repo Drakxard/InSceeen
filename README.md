@@ -1,5 +1,13 @@
 # InScreen
 
+En Estudio, deslizar hacia la derecha abre **Importantes** y hacia la izquierda
+muestra las pestañas; desde Importantes, deslizar a la izquierda vuelve a la rueda.
+Las tareas se leen de `progreso/importantes.json` en la publicación de Cursado.
+Si falta, la app indica sincronizar desde la web y actualizar los archivos del
+celular. Desde Inicio de Cursado, deslizar a la derecha vuelve a la pila de InScreen.
+Al actualizar el APK se activa la nueva interfaz incluida, aunque hubiera una
+copia antigua guardada; las actualizaciones web posteriores siguen disponibles.
+
 La primera pestaña ahora abre la biblioteca personal de Cursado (Pizarra/Estudio).
 La pila y la conexión de micrófono conservan sus funciones. Escaneá el QR del
 botón de sincronización del inicio de Cursado para vincularla; solo necesita R2.

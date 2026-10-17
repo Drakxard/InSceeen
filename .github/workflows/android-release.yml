@@ -66,6 +66,14 @@ jobs:
       - name: Test and build signed APK
         run: ./gradlew --no-daemon testDebugUnitTest lintDebug assembleRelease
 
+      - name: Preserve Android test and lint reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release-validation
+          if-no-files-found: ignore
+          path: mobile_android/app/build/reports/
+
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}

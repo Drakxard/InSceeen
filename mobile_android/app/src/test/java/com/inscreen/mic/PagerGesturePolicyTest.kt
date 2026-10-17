@@ -8,6 +8,12 @@ import org.junit.Test
 
 class PagerGesturePolicyTest {
     @Test
+    fun libraryHomeReturnsToPileWithRightSwipeButStudyKeepsItsOwnGestures() {
+        assertEquals(1, PagerGesturePolicy.targetPage(0, 3, 0f, 100f, 100f, 105f, 48f, libraryHome = true))
+        assertNull(PagerGesturePolicy.targetPage(0, 3, 0f, 100f, 100f, 105f, 48f))
+        assertNull(PagerGesturePolicy.targetPage(0, 3, 0f, 100f, 100f, 250f, 48f, libraryHome = true))
+    }
+    @Test
     fun acceptsOnlyTouchesStartingAtHorizontalEdges() {
         assertTrue(PagerGesturePolicy.beginsAtHorizontalEdge(0f, 360f, 20f))
         assertTrue(PagerGesturePolicy.beginsAtHorizontalEdge(20f, 360f, 20f))
