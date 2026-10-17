@@ -1,5 +1,5 @@
 name: Prepare Cursado library readers
-description: Bundle the shared board renderer and offline PDF reader from a pinned Cursado revision.
+description: Build the original Cursado components as an offline web package from a pinned source revision.
 runs:
   using: composite
   steps:
@@ -30,7 +30,7 @@ runs:
     - name: Package offline readers
       shell: bash
       working-directory: ${{ github.workspace }}/.cursado-reader
-      run: node scripts/prepare-workspace-library.mjs ../modules/library
+      run: node scripts/build-native-web.mjs ../modules/native-web
     - name: Install browser for shared reader checks
       shell: bash
       working-directory: ${{ github.workspace }}/.cursado-reader
@@ -39,5 +39,5 @@ runs:
       shell: bash
       working-directory: ${{ github.workspace }}/.cursado-reader
       env:
-        INSCREEN_LIBRARY_ASSETS: ../modules/library
-      run: node --test tests/workspace-library.browser.mjs
+        INSCREEN_NATIVE_WEB_ASSETS: ../modules/native-web
+      run: node --test tests/native-web.browser.mjs

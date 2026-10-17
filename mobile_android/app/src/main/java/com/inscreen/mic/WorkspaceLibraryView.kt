@@ -10,9 +10,9 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
-import androidx.webkit.WebViewAssetLoader
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
+import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
@@ -20,27 +20,46 @@ import kotlin.concurrent.thread
 @SuppressLint("SetJavaScriptEnabled", "ViewConstructor")
 internal class WorkspaceLibraryView(context: Context, private val scan: () -> Unit, private val home: () -> Unit) : WebView(context) {
     private val loading = AtomicBoolean(false)
+    private val updatingWeb = AtomicBoolean(false)
+    private val bootingWeb = AtomicBoolean(false)
     private val inventories = ConcurrentHashMap<String, JSONObject>()
     private var closed = false
-    private val loader = WebViewAssetLoader.Builder().setDomain(HOST).addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(context)).build()
+    private val webPackages = CursadoWebPackage(context)
+    @Volatile private var packageDirectory: File? = null
     init {
         setBackgroundColor(Color.rgb(238, 239, 240))
         settings.javaScriptEnabled = true
         settings.allowFileAccess = false
         settings.allowContentAccess = false
-        settings.domStorageEnabled = false
+        settings.domStorageEnabled = true
         settings.setSupportZoom(true)
-        addJavascriptInterface(Bridge(), "Library")
+        addJavascriptInterface(Bridge(), "CursadoNative")
         webViewClient = object : WebViewClient() {
-            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
-                request.isForMainFrame || request.url.scheme != "https" || request.url.host != HOST || !request.url.path.orEmpty().startsWith("/assets/library/pdfjs/web/viewer.html")
+            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                val external = request.url.scheme != "https" || request.url.host != HOST
+                if (external && request.hasGesture()) Bridge().openExternal(request.url.toString())
+                return external
+            }
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse {
                 val uri = request.url
                 if (uri.scheme != "https" || uri.host != HOST) return empty()
-                loader.shouldInterceptRequest(uri)?.let {
-                    if (uri.path.orEmpty().endsWith(".mjs")) it.mimeType = "text/javascript"
-                    if (uri.path.orEmpty().endsWith(".wasm")) it.mimeType = "application/wasm"
-                    return it
+                if (!uri.path.orEmpty().startsWith("/files/")) {
+                    val directory = packageDirectory ?: return empty()
+                    if (uri.path.orEmpty().startsWith("/api/")) return empty()
+                    val path = uri.path.orEmpty().trimStart('/').ifEmpty { "index.html" }
+                    val routes = setOf("estudio", "sintesis", "practice/viewer", "pizarra", "pizarra/")
+                    val target = File(directory, if (path in routes) { if (path.startsWith("pizarra")) "pizarra/index.html" else "index.html" } else path).canonicalFile
+                    if (!target.path.startsWith(directory.path + File.separator) || !target.isFile || target.name == "complete.json") return empty()
+                    val mime = when (target.extension) {
+                        "js", "mjs" -> "text/javascript"
+                        "css" -> "text/css"
+                        "html" -> "text/html"
+                        "json" -> "application/json"
+                        "wasm" -> "application/wasm"
+                        "svg" -> "image/svg+xml"
+                        else -> android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(target.extension) ?: "application/octet-stream"
+                    }
+                    return WebResourceResponse(mime, "UTF-8", 200, "OK", mapOf("X-Content-Type-Options" to "nosniff", "Cache-Control" to "no-cache"), target.inputStream())
                 }
                 val segments = uri.pathSegments
                 if (segments.size != 3 || segments[0] != "files") return empty()
@@ -59,12 +78,41 @@ internal class WorkspaceLibraryView(context: Context, private val scan: () -> Un
                 }
             }
         }
-        loadUrl("https://$HOST/assets/library/index.html")
+        startWeb()
     }
     private fun empty() = WebResourceResponse("text/plain", "UTF-8", ByteArrayInputStream(ByteArray(0)))
     private fun evaluate(script: String) { if (!closed) evaluateJavascript(script, null) }
     private fun message(message: String) = evaluate("window.LibraryMessage?.(${JSONObject.quote(message)})")
+    private fun startWeb() {
+        if (!bootingWeb.compareAndSet(false, true)) return
+        thread(name = "cursado-web-start") {
+            try {
+                val directory = webPackages.installed().canonicalFile
+                post { if (!closed) { packageDirectory = directory; loadUrl("https://$HOST/"); refresh() } }
+            } catch (error: Exception) {
+                post { if (!closed) {
+                    loadDataWithBaseURL("https://$HOST/", "<p>No se pudo abrir Cursado.</p><button aria-label='Reintentar' onclick='CursadoNative.refresh()'>↻</button>", "text/html", "UTF-8", null)
+                    Toast.makeText(context, error.message, Toast.LENGTH_LONG).show()
+                } }
+            } finally { bootingWeb.set(false) }
+        }
+    }
+    private fun checkWebUpdate() {
+        if (!updatingWeb.compareAndSet(false, true)) return
+        thread(name = "cursado-web-update") {
+            try { runCatching { WorkspaceCredentialStore(context).load()?.let {
+                val baseUrl = it.baseUrl
+                webPackages.update(baseUrl) { WorkspaceCredentialStore(context).load()?.baseUrl == baseUrl }
+                packageDirectory?.let { directory -> webPackages.prune(directory) }
+            } } }
+            finally { updatingWeb.set(false) }
+        }
+    }
     fun refresh() {
+        if (packageDirectory == null) { startWeb(); return }
+        val nextPackage = webPackages.installed().canonicalFile
+        if (nextPackage != packageDirectory) { packageDirectory = nextPackage; loadUrl("https://$HOST/") }
+        checkWebUpdate()
         val credentials = runCatching { WorkspaceCredentialStore(context).load() }.getOrElse { post { message("No se pudo abrir el vínculo. Volvé a vincular la biblioteca.") }; return } ?: return
         WorkspaceLibraryWorker.schedule(context)
         if (!loading.compareAndSet(false, true)) return
@@ -79,17 +127,23 @@ internal class WorkspaceLibraryView(context: Context, private val scan: () -> Un
     }
     fun paired() { inventories.clear(); evaluate("window.LibraryReload?.()"); refresh() }
     fun back(): Boolean {
-        evaluate("window.LibraryBack?.()")
+        if (canGoBack()) goBack() else evaluate("window.dispatchEvent(new CustomEvent('cursado-native-back'))")
         return true
     }
-    fun close() { closed = true; removeJavascriptInterface("Library"); destroy() }
+    fun close() { closed = true; removeJavascriptInterface("CursadoNative"); destroy() }
     private inner class Bridge {
+        @JavascriptInterface fun openExternal(url: String) {
+            val uri = runCatching { java.net.URI(url) }.getOrNull() ?: return
+            if (url.length > 10000 || uri.scheme !in listOf("https", "http") || uri.host.isNullOrBlank() || uri.rawUserInfo != null) return
+            post { runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))) } }
+        }
         @JavascriptInterface fun home() { post { this@WorkspaceLibraryView.home() } }
         @JavascriptInterface fun openHtml(id: String, revision: String) {
             thread(name = "workspace-library-html") {
                 try {
                     val inventory = inventories[revision] ?: error("Actualizá la biblioteca.")
                     val credentials = WorkspaceCredentialStore(context).load() ?: error("Vinculá la biblioteca.")
+                    require(credentials.workspaceId == inventory.getString("workspaceId"))
                     val files = inventory.getJSONArray("files")
                     val file = (0 until files.length()).map { files.getJSONObject(it) }.first { it.getString("id") == id && it.getString("mime") == "text/html" }
                     val saved = WorkspaceLibraryStore(context, credentials).ensureFile(inventory, file)
@@ -99,11 +153,11 @@ internal class WorkspaceLibraryView(context: Context, private val scan: () -> Un
         }
         @JavascriptInterface fun snapshot(): String = try {
             val credentials = WorkspaceCredentialStore(context).load()
-            if (credentials == null) JSONObject().put("linked", false).toString()
+            if (credentials == null) JSONObject().put("bridgeVersion", 1).put("linked", false).toString()
             else {
                 val store = WorkspaceLibraryStore(context, credentials)
                 val manifest = store.visible()
-                val result = JSONObject().put("linked", true).put("name", credentials.name).put("online", store.online()).put("wifi", store.wifi())
+                val result = JSONObject().put("bridgeVersion", 1).put("linked", true).put("name", credentials.name).put("online", store.online()).put("wifi", store.wifi())
                 if (manifest != null) {
                     inventories[manifest.getString("revision")] = manifest
                     val available = JSONObject()
@@ -113,7 +167,7 @@ internal class WorkspaceLibraryView(context: Context, private val scan: () -> Un
                 }
                 result.toString()
             }
-        } catch (error: Exception) { JSONObject().put("linked", false).put("error", error.message).toString() }
+        } catch (error: Exception) { JSONObject().put("bridgeVersion", 1).put("linked", false).put("error", error.message).toString() }
         @JavascriptInterface fun pair() { post { scan() } }
         @JavascriptInterface fun refresh() { post { this@WorkspaceLibraryView.refresh() } }
         @JavascriptInterface fun download(id: String, revision: String) {

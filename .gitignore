@@ -1,6 +1,7 @@
 .env
 .cursado-reader/
 modules/library/
+modules/native-web/
 config.json
 __pycache__/
 *.pyc
