@@ -1,10 +1,11 @@
 # InScreen
 
-En Estudio, deslizar hacia la derecha abre **Importantes** y hacia la izquierda
-muestra las pestañas; desde Importantes, deslizar a la izquierda vuelve a la rueda.
+En Estudio, deslizar hacia la izquierda abre **Importantes** y hacia la derecha
+muestra las pestañas; desde Importantes, deslizar a la derecha vuelve a la rueda.
 Las tareas se leen de `progreso/importantes.json` en la publicación de Cursado.
 Si falta, la app indica sincronizar desde la web y actualizar los archivos del
 celular. Desde Inicio de Cursado, deslizar a la derecha vuelve a la pila de InScreen.
+La zona lateral para cambiar de pantalla abarca 40 dp desde cada borde.
 Al actualizar el APK se activa la nueva interfaz incluida, aunque hubiera una
 copia antigua guardada; las actualizaciones web posteriores siguen disponibles.
 

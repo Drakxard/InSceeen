@@ -1421,7 +1421,7 @@ class MainActivity : ComponentActivity() {
                 .putExtra(EXTRA_OPEN_MODULE_SUBJECT, subjectId)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
 
-        private const val EDGE_SWIPE_DP = 20f
+        private const val EDGE_SWIPE_DP = 40f
         private const val EDGE_SWIPE_THRESHOLD_DP = 48f
         private const val REQUEST_PERMISSIONS = 100
         private const val REQUEST_CAMERA = 101
