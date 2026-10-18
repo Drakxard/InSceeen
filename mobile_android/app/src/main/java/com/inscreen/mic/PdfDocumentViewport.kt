@@ -17,6 +17,7 @@ internal class PdfDocumentViewport(context: Context, val pages: RecyclerView) : 
     var onDocumentWidthChanged: (() -> Unit)? = null
     private var pinching = false
     private var doubleTapped = false
+    private var pendingHorizontal: Int? = null
     private val scaler = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(detector: ScaleGestureDetector): Boolean {
             zoomAt(zoom * detector.scaleFactor, detector.focusX, detector.focusY)
@@ -48,6 +49,14 @@ internal class PdfDocumentViewport(context: Context, val pages: RecyclerView) : 
         onDocumentWidthChanged?.invoke()
     }
 
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        super.onLayout(changed, left, top, right, bottom)
+        pendingHorizontal?.let { horizontal ->
+            scrollTo(horizontal.coerceIn(0, (documentWidth - width).coerceAtLeast(0)), 0)
+            pendingHorizontal = null
+        }
+    }
+
     fun zoomAt(value: Float, focusX: Float, focusY: Float) {
         if (width == 0) return
         val next = value.coerceIn(1f, 5f)
@@ -60,9 +69,9 @@ internal class PdfDocumentViewport(context: Context, val pages: RecyclerView) : 
         val vertical = (focusY - (focusY - top) * factor).toInt()
         pages.stopScroll()
         zoom = next
+        pendingHorizontal = horizontal
         resize(width)
         if (position >= 0) manager.scrollToPositionWithOffset(position, vertical)
-        post { scrollTo(horizontal.coerceIn(0, (documentWidth - width).coerceAtLeast(0)), 0) }
     }
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
@@ -76,6 +85,7 @@ internal class PdfDocumentViewport(context: Context, val pages: RecyclerView) : 
             pages.stopScroll()
             val cancel = MotionEvent.obtain(event)
             cancel.action = MotionEvent.ACTION_CANCEL
+            gestures.onTouchEvent(cancel)
             super.dispatchTouchEvent(cancel)
             cancel.recycle()
         }

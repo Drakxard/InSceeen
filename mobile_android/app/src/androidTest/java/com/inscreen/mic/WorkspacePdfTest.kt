@@ -98,6 +98,19 @@ class WorkspacePdfTest {
                     }
                     assertTrue("Debe mostrar la primera página sin WebView ni red", found)
                 }
+                fun awaitDocumentLayout() {
+                    repeat(100) {
+                        var ready = false
+                        scenario.onActivity {
+                            val reader = viewport(it.window.decorView)!!
+                            ready = !reader.isLayoutRequested && !reader.pages.isLayoutRequested &&
+                                reader.pages.width == reader.documentWidth
+                        }
+                        if (ready) return
+                        Thread.sleep(50)
+                    }
+                    fail("El documento debe terminar de ajustar su ancho después del zoom")
+                }
                 awaitPage()
                 // Zoom resizes the document itself; scrolling to another page must
                 // retain the same width and horizontal offset, including after recycling.
@@ -105,7 +118,7 @@ class WorkspacePdfTest {
                     val reader = viewport(it.window.decorView)!!
                     reader.zoomAt(2f, reader.width / 2f, reader.height / 2f)
                 }
-                InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+                awaitDocumentLayout()
                 scenario.onActivity {
                     val reader = viewport(it.window.decorView)!!
                     assertEquals(reader.width * 2, reader.pages.width)
@@ -115,7 +128,7 @@ class WorkspacePdfTest {
                     assertFalse(page.getChildAt(0) is ZoomableImageView)
                     (reader.pages.layoutManager as LinearLayoutManager).scrollToPositionWithOffset(1, 0)
                 }
-                InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+                awaitDocumentLayout()
                 scenario.onActivity {
                     val reader = viewport(it.window.decorView)!!
                     assertEquals(2f, reader.zoom)
@@ -123,14 +136,14 @@ class WorkspacePdfTest {
                     assertTrue(reader.scrollX > 0)
                     reader.zoomAt(1f, reader.width / 2f, 0f)
                 }
-                InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+                awaitDocumentLayout()
                 scenario.onActivity {
                     val reader = viewport(it.window.decorView)!!
                     assertEquals(reader.width, reader.pages.width)
                     assertEquals(0, reader.scrollX)
                     reader.pages.scrollToPosition(0)
                 }
-                InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+                awaitDocumentLayout()
                 scenario.recreate()
                 awaitPage()
                 awaitState(androidx.lifecycle.Lifecycle.State.RESUMED)
