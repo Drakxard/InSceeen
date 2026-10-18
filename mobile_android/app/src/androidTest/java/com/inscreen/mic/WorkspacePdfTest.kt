@@ -7,6 +7,8 @@ import android.graphics.pdf.PdfDocument
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
+import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -57,8 +59,16 @@ class WorkspacePdfTest {
             assertTrue(rejected)
         } finally { file.delete() }
     }
-    private fun hasPage(view: View): Boolean = (view is ZoomableImageView && view.contentDescription == "Página 1" && view.drawable != null) ||
+    private fun hasPage(view: View): Boolean = (view is ImageView && view.contentDescription == "Página 1" && view.drawable != null) ||
         (view is ViewGroup && (0 until view.childCount).any { hasPage(view.getChildAt(it)) })
+
+    private fun viewport(view: View): PdfDocumentViewport? {
+        if (view is PdfDocumentViewport) return view
+        if (view is ViewGroup) for (index in 0 until view.childCount) {
+            viewport(view.getChildAt(index))?.let { return it }
+        }
+        return null
+    }
 
     @Test fun opensPrivatePdfRestoresAfterRecreationAndClosesWithDeviceBack() {
         val bytes = pdf()
@@ -89,6 +99,38 @@ class WorkspacePdfTest {
                     assertTrue("Debe mostrar la primera página sin WebView ni red", found)
                 }
                 awaitPage()
+                // Zoom resizes the document itself; scrolling to another page must
+                // retain the same width and horizontal offset, including after recycling.
+                scenario.onActivity {
+                    val reader = viewport(it.window.decorView)!!
+                    reader.zoomAt(2f, reader.width / 2f, reader.height / 2f)
+                }
+                InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+                scenario.onActivity {
+                    val reader = viewport(it.window.decorView)!!
+                    assertEquals(reader.width * 2, reader.pages.width)
+                    assertTrue(reader.scrollX > 0)
+                    val page = reader.pages.getChildAt(0) as ViewGroup
+                    assertTrue(page.getChildAt(0) is ImageView)
+                    assertFalse(page.getChildAt(0) is ZoomableImageView)
+                    (reader.pages.layoutManager as LinearLayoutManager).scrollToPositionWithOffset(1, 0)
+                }
+                InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+                scenario.onActivity {
+                    val reader = viewport(it.window.decorView)!!
+                    assertEquals(2f, reader.zoom)
+                    assertEquals(reader.width * 2, reader.pages.width)
+                    assertTrue(reader.scrollX > 0)
+                    reader.zoomAt(1f, reader.width / 2f, 0f)
+                }
+                InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+                scenario.onActivity {
+                    val reader = viewport(it.window.decorView)!!
+                    assertEquals(reader.width, reader.pages.width)
+                    assertEquals(0, reader.scrollX)
+                    reader.pages.scrollToPosition(0)
+                }
+                InstrumentationRegistry.getInstrumentation().waitForIdleSync()
                 scenario.recreate()
                 awaitPage()
                 awaitState(androidx.lifecycle.Lifecycle.State.RESUMED)

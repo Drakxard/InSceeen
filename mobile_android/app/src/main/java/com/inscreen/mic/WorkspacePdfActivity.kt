@@ -12,8 +12,13 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.FrameLayout
-import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.ImageView
+import android.graphics.drawable.GradientDrawable
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.view.ViewCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import org.json.JSONObject
@@ -32,25 +37,70 @@ class WorkspacePdfActivity : Activity() {
     @Volatile private var stopped = false
     private lateinit var pages: RecyclerView
     private lateinit var status: TextView
+    private lateinit var viewport: PdfDocumentViewport
+    private var maximized = false
     private var pdfHash = ""
     private val pageSizes = mutableMapOf<Int, Float>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val layout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.rgb(232, 234, 237)) }
-        val toolbar = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
-        status = TextView(this).apply { text = "Abriendo PDF…"; setTextColor(Color.BLACK); setPadding(20, 12, 20, 12) }
-        toolbar.addView(status, LinearLayout.LayoutParams(0, 56.dp, 1f))
-        val verlo = Button(this).apply { text = "Verlo"; visibility = View.GONE; contentDescription = "Explicaciones guardadas" }
-        toolbar.addView(verlo)
-        layout.addView(toolbar)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        val layout = FrameLayout(this).apply { setBackgroundColor(Color.rgb(232, 234, 237)) }
+        ViewCompat.setOnApplyWindowInsetsListener(layout) { view, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            insets
+        }
         pages = RecyclerView(this).apply {
             layoutManager = LinearLayoutManager(this@WorkspacePdfActivity)
             setItemViewCacheSize(0)
             recycledViewPool.setMaxRecycledViews(0, 2)
             contentDescription = "Páginas del PDF"
         }
-        layout.addView(pages, LinearLayout.LayoutParams(-1, 0, 1f))
+        viewport = PdfDocumentViewport(this, pages)
+        viewport.onDocumentWidthChanged = {
+            pages.adapter?.let { it.notifyItemRangeChanged(0, it.itemCount, "size") }
+        }
+        layout.addView(viewport, FrameLayout.LayoutParams(-1, -1))
+        fun control(caption: String, description: String) = Button(this).apply {
+            text = caption
+            textSize = 24f
+            setTextColor(Color.BLACK)
+            contentDescription = description
+            minWidth = 0; minimumWidth = 0
+            minHeight = 0; minimumHeight = 0
+            setPadding(0, 0, 0, 0)
+            background = GradientDrawable().apply { setColor(0xEFFFFFFF.toInt()); cornerRadius = 24.dp.toFloat() }
+            elevation = 3.dp.toFloat()
+        }
+        val back = control("←", "Volver").apply { setOnClickListener { finish() } }
+        layout.addView(back, FrameLayout.LayoutParams(48.dp, 48.dp, Gravity.TOP or Gravity.START).apply {
+            topMargin = 8.dp; marginStart = 8.dp
+        })
+        val maximize = control("⛶", "Maximizar PDF").apply {
+            setOnClickListener {
+                maximized = !maximized
+                val controller = WindowInsetsControllerCompat(window, window.decorView)
+                controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                if (maximized) controller.hide(WindowInsetsCompat.Type.systemBars())
+                else controller.show(WindowInsetsCompat.Type.systemBars())
+                contentDescription = if (maximized) "Salir de pantalla completa" else "Maximizar PDF"
+                text = if (maximized) "⊡" else "⛶"
+            }
+        }
+        layout.addView(maximize, FrameLayout.LayoutParams(48.dp, 48.dp, Gravity.TOP or Gravity.END).apply {
+            topMargin = 8.dp; marginEnd = 8.dp
+        })
+        status = TextView(this).apply {
+            text = "Abriendo PDF…"; textSize = 12f; setTextColor(Color.BLACK)
+            setPadding(10.dp, 4.dp, 10.dp, 4.dp)
+            background = GradientDrawable().apply { setColor(0xDFFFFFFF.toInt()); cornerRadius = 12.dp.toFloat() }
+        }
+        layout.addView(status, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = 8.dp })
+        val verlo = control("✦", "Explicaciones guardadas").apply { visibility = View.GONE }
+        layout.addView(verlo, FrameLayout.LayoutParams(48.dp, 48.dp, Gravity.BOTTOM or Gravity.END).apply {
+            bottomMargin = 8.dp; marginEnd = 8.dp
+        })
         setContentView(layout)
         worker.execute {
             try {
@@ -116,14 +166,14 @@ class WorkspacePdfActivity : Activity() {
             } catch (error: Exception) { showError(error.message ?: "No se pudo abrir Verlo.") }
         }
     }
-    private inner class PageHolder(val frame: FrameLayout, val image: ZoomableImageView, val label: TextView) : RecyclerView.ViewHolder(frame) {
+    private inner class PageHolder(val frame: FrameLayout, val image: ImageView, val label: TextView) : RecyclerView.ViewHolder(frame) {
         var request: Future<*>? = null
         var index = -1
     }
     private inner class PdfAdapter(private val count: Int) : RecyclerView.Adapter<PageHolder>() {
         override fun getItemCount() = count
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): PageHolder {
-            val image = ZoomableImageView(this@WorkspacePdfActivity).apply { setBackgroundColor(Color.WHITE) }
+            val image = ImageView(this@WorkspacePdfActivity).apply { setBackgroundColor(Color.WHITE); scaleType = ImageView.ScaleType.FIT_CENTER }
             val label = TextView(this@WorkspacePdfActivity).apply { gravity = Gravity.CENTER; setTextColor(Color.BLACK) }
             val frame = FrameLayout(this@WorkspacePdfActivity).apply {
                 layoutParams = RecyclerView.LayoutParams(-1, 500).apply { bottomMargin = 8.dp }
@@ -132,6 +182,14 @@ class WorkspacePdfActivity : Activity() {
             }
             return PageHolder(frame, image, label)
         }
+        private fun resize(holder: PageHolder, position: Int) {
+            val width = viewport.documentWidth.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
+            holder.frame.layoutParams = holder.frame.layoutParams.apply { height = (width * (pageSizes[position] ?: 1.414f)).toInt().coerceAtLeast(1) }
+        }
+        override fun onBindViewHolder(holder: PageHolder, position: Int, payloads: MutableList<Any>) {
+            if (payloads.isNotEmpty()) resize(holder, position)
+            else onBindViewHolder(holder, position)
+        }
         override fun onBindViewHolder(holder: PageHolder, position: Int) {
             holder.request?.cancel(false)
             holder.index = position
@@ -139,16 +197,16 @@ class WorkspacePdfActivity : Activity() {
             holder.image.contentDescription = "Página ${position + 1}"
             holder.label.text = "Página ${position + 1}…"
             holder.label.visibility = View.VISIBLE
-            val width = pages.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
+            val width = resources.displayMetrics.widthPixels
             fun display(bitmap: Bitmap) {
                 if (stopped || holder.index != position) return
                 val ratio = bitmap.height.toFloat() / bitmap.width
                 pageSizes[position] = ratio
-                holder.frame.layoutParams = holder.frame.layoutParams.apply { height = (width * ratio).toInt().coerceAtLeast(1) }
+                resize(holder, position)
                 holder.image.setImageBitmap(bitmap)
                 holder.label.visibility = View.GONE
             }
-            holder.frame.layoutParams = holder.frame.layoutParams.apply { height = (width * (pageSizes[position] ?: 1.414f)).toInt() }
+            resize(holder, position)
             cache.get(position)?.let { display(it); return }
             holder.request = worker.submit {
                 try {
