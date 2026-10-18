@@ -7,10 +7,11 @@ Si falta, la app indica sincronizar desde la web y actualizar los archivos del
 celular. Desde Inicio de Cursado, deslizar a la derecha vuelve a la pila de InScreen.
 La zona lateral para cambiar de pantalla abarca 40 dp desde cada borde.
 El menú de tres puntos aparece encima de Inicio, en una columna; para retroceder
-se usa el botón o gesto de Android. Los PDF se abren con PDFium mediante
-`PdfRenderer`, con desplazamiento vertical, zoom táctil, página recordada y acceso
+se usa el botón o gesto de Android. Los PDF se abren con AndroidPdfViewer y PDFium,
+con desplazamiento vertical continuo, zoom del documento, página recordada y acceso
 a las explicaciones guardadas de Verlo. El lector funciona con los archivos
-descargados sin conexión. El paquete Android no incluye PDF.js.
+descargados sin conexión. Arriba solo aparecen los botones flotantes de volver y
+maximizar. El paquete Android no incluye PDF.js.
 Al actualizar el APK se activa la nueva interfaz incluida, aunque hubiera una
 copia antigua guardada; las actualizaciones web posteriores siguen disponibles.
 
