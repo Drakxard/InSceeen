@@ -16,4 +16,4 @@ runs:
         arch: x86_64
         target: default
         disable-animations: true
-        script: cd mobile_android && ./gradlew --no-daemon connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.inscreen.mic.WorkspacePdfTest
+        script: cd mobile_android && ./gradlew --no-daemon connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.inscreen.mic.WorkspacePdfTest,com.inscreen.mic.CursadoWebUpdateTest

@@ -57,11 +57,7 @@ class WorkspacePdfActivity : Activity() {
             background = GradientDrawable().apply { setColor(0xEFFFFFFF.toInt()); cornerRadius = 24.dp.toFloat() }
             elevation = 3.dp.toFloat()
         }
-        val back = control("←", "Volver").apply { setOnClickListener { finish() } }
-        layout.addView(back, FrameLayout.LayoutParams(48.dp, 48.dp, Gravity.TOP or Gravity.START).apply {
-            topMargin = 8.dp; marginStart = 8.dp
-        })
-        val maximize = control("⛶", "Maximizar PDF").apply {
+        val maximize = control("[ ]", "Maximizar PDF").apply {
             setOnClickListener {
                 maximized = !maximized
                 val controller = WindowInsetsControllerCompat(window, window.decorView)
@@ -69,7 +65,7 @@ class WorkspacePdfActivity : Activity() {
                 if (maximized) controller.hide(WindowInsetsCompat.Type.systemBars())
                 else controller.show(WindowInsetsCompat.Type.systemBars())
                 contentDescription = if (maximized) "Salir de pantalla completa" else "Maximizar PDF"
-                text = if (maximized) "⊡" else "⛶"
+                text = if (maximized) "][" else "[ ]"
             }
         }
         layout.addView(maximize, FrameLayout.LayoutParams(48.dp, 48.dp, Gravity.TOP or Gravity.END).apply {
@@ -108,7 +104,7 @@ class WorkspacePdfActivity : Activity() {
                 }
                 val selected = savedInstanceState?.getInt("page") ?: getPreferences(MODE_PRIVATE).getInt(pdfHash, 0)
                 runOnUiThread {
-                    if (stopped) return@runOnUiThread
+                    if (stopped || isFinishing || isDestroyed) return@runOnUiThread
                     var restored = false
                     pdfView.fromFile(file)
                         .enableSwipe(true)
@@ -152,7 +148,7 @@ class WorkspacePdfActivity : Activity() {
     }
     private val Int.dp: Int get() = (this * resources.displayMetrics.density).toInt()
     private fun showError(message: String) = runOnUiThread {
-        if (!stopped) { status.text = message; status.visibility = View.VISIBLE }
+        if (!stopped && !isFinishing && !isDestroyed) { status.text = message; status.visibility = View.VISIBLE }
     }
     private fun openExplanation(inventory: JSONObject, id: String) {
         worker.execute {
@@ -162,7 +158,7 @@ class WorkspacePdfActivity : Activity() {
                 val files = inventory.getJSONArray("files")
                 val file = (0 until files.length()).map { files.getJSONObject(it) }.first { it.getString("id") == id && it.getString("mime") == "text/html" }
                 val saved = WorkspaceLibraryStore(this, credentials).ensureFile(inventory, file)
-                runOnUiThread { if (!stopped) startActivity(Intent(this, WorkspaceHtmlActivity::class.java).putExtra("path", saved.absolutePath)) }
+                runOnUiThread { if (!stopped && !isFinishing && !isDestroyed) startActivity(Intent(this, WorkspaceHtmlActivity::class.java).putExtra("path", saved.absolutePath)) }
             } catch (error: Exception) { showError(error.message ?: "No se pudo abrir Verlo.") }
         }
     }

@@ -16,6 +16,8 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
+import androidx.test.runner.lifecycle.Stage
 import com.github.barteksc.pdfviewer.PDFView
 import org.json.JSONArray
 import org.json.JSONObject
@@ -23,6 +25,9 @@ import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 @RunWith(AndroidJUnit4::class)
 class WorkspacePdfTest {
@@ -93,7 +98,7 @@ class WorkspacePdfTest {
                 val view = reader(it)
                 val root = view.parent as ViewGroup
                 val buttons = (0 until root.childCount).map { index -> root.getChildAt(index) }.filterIsInstance<Button>()
-                assertEquals(listOf("Volver", "Maximizar PDF"), buttons.filter { button -> button.visibility == View.VISIBLE }.map { button -> button.contentDescription.toString() })
+                assertEquals(listOf("Maximizar PDF"), buttons.filter { button -> button.visibility == View.VISIBLE }.map { button -> button.contentDescription.toString() })
                 val maximize = buttons.first { button -> button.contentDescription == "Maximizar PDF" }
                 maximize.performClick()
                 assertEquals("Salir de pantalla completa", maximize.contentDescription)
@@ -130,22 +135,65 @@ class WorkspacePdfTest {
         }
     }
 
-    @Test fun rejectsInvalidPdfAndFloatingBackClosesReader() = withSession("not a PDF".toByteArray()) { intent ->
+    @Test fun rejectsInvalidPdfAndDeviceBackClosesReader() = withSession("not a PDF".toByteArray()) { intent ->
         ActivityScenario.launch<WorkspacePdfActivity>(intent).use { scenario ->
             awaitState(scenario, "The reader must report an invalid PDF") {
                 val root = reader(it).parent as ViewGroup
                 (0 until root.childCount).map { index -> root.getChildAt(index) }.filterIsInstance<TextView>()
                     .any { label -> label.visibility == View.VISIBLE && label.text.contains("No se pudo abrir") }
             }
-            scenario.onActivity {
-                val root = reader(it).parent as ViewGroup
-                (0 until root.childCount).map { index -> root.getChildAt(index) }.first { view -> view.contentDescription == "Volver" }.performClick()
-            }
+            InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
             repeat(100) {
                 if (scenario.state == androidx.lifecycle.Lifecycle.State.DESTROYED) return@withSession
                 Thread.sleep(50)
             }
             assertEquals(androidx.lifecycle.Lifecycle.State.DESTROYED, scenario.state)
+        }
+    }
+
+    @Test fun repeatedDeviceBackReturnsToTheSameVisibleHost() = withSession(pdf()) { intent ->
+        val session = File(intent.getStringExtra("session")!!)
+        val sessionText = session.readText()
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java)).use { host ->
+            fun evaluate(script: String): String {
+                val done = CountDownLatch(1)
+                val result = AtomicReference("")
+                host.onActivity { activity ->
+                    find(activity.window.decorView, WorkspaceLibraryView::class.java)!!.evaluateJavascript(script) {
+                        result.set(it); done.countDown()
+                    }
+                }
+                assertTrue(done.await(5, TimeUnit.SECONDS))
+                return result.get()
+            }
+            for (poll in 0 until 150) {
+                if (evaluate("Boolean(document.body && document.body.innerText.trim())") == "true") break
+                Thread.sleep(100)
+            }
+            assertEquals("true", evaluate("window.pdfHostProbe='same-screen'; Boolean(document.body.innerText.trim())"))
+            repeat(3) { attempt ->
+                session.writeText(sessionText)
+                host.onActivity { it.startActivity(intent) }
+                var rendered = false
+                for (poll in 0 until 150) {
+                    instrumentation.runOnMainSync {
+                        val activity = ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.RESUMED)
+                            .filterIsInstance<WorkspacePdfActivity>().firstOrNull()
+                        rendered = activity != null && (attempt == 1 || reader(activity).tag == "rendered")
+                    }
+                    if (rendered) break
+                    Thread.sleep(100)
+                }
+                assertTrue("PDF must open before device Back", rendered)
+                instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+                for (poll in 0 until 100) {
+                    if (host.state == androidx.lifecycle.Lifecycle.State.RESUMED) break
+                    Thread.sleep(50)
+                }
+                assertEquals(androidx.lifecycle.Lifecycle.State.RESUMED, host.state)
+                assertEquals("true", evaluate("window.pdfHostProbe==='same-screen' && Boolean(document.body.innerText.trim()) && document.visibilityState==='visible'"))
+            }
         }
     }
 }

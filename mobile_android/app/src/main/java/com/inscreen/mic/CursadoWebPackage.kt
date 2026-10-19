@@ -10,9 +10,17 @@ import java.io.InputStream
 import java.security.MessageDigest
 
 /** A web release is installed completely before its pointer can become visible. */
-internal class CursadoWebPackage(private val context: Context) {
-    private val root = File(context.filesDir, "cursado-web").apply { mkdirs() }
-    private val client = OkHttpClient.Builder().followRedirects(false).build()
+internal class CursadoWebPackage(
+    private val root: File,
+    private val bundledManifest: () -> JSONObject,
+    private val bundledFile: (String, String) -> InputStream,
+    private val client: OkHttpClient = OkHttpClient.Builder().followRedirects(false).build(),
+) {
+    constructor(context: Context) : this(
+        File(context.filesDir, "cursado-web"),
+        { JSONObject(context.assets.open("native-web/current.json").bufferedReader().use { it.readText() }) },
+        { revision, path -> context.assets.open("native-web/releases/$revision/$path") },
+    )
 
     private fun activeDirectory(): File? {
         val pointer = File(root, "active")
@@ -25,14 +33,27 @@ internal class CursadoWebPackage(private val context: Context) {
         }
         return null
     }
-    fun installed(): File = synchronized(lock) {
-        val manifest = JSONObject(context.assets.open("native-web/current.json").bufferedReader().use { it.readText() })
+    // Called only by the startup worker. Resuming a PDF never switches this pointer.
+    fun installed(baseUrl: String? = null): File = synchronized(lock) {
+        root.mkdirs()
+        val manifest = bundledManifest()
         val revision = manifest.getString("revision")
         val bundled = File(root, "bundled-revision")
         val active = activeDirectory()
-        if (!needsBundledInstall(revision, bundled.takeIf { it.isFile }?.readText(), active != null)) return@synchronized active!!
+        if (!needsBundledInstall(revision, bundled.takeIf { it.isFile }?.readText(), active != null)) {
+            val pending = File(root, "pending.json")
+            if (pending.isFile) {
+                val prepared = runCatching { JSONObject(pending.readText()) }.getOrNull()
+                val next = prepared?.optString("revision").orEmpty()
+                if (prepared?.optString("baseUrl") == baseUrl && WorkspaceLibraryStore.validHash(next) && File(root, "$next/complete.json").isFile) {
+                    writePointer(next)
+                }
+                pending.delete()
+            }
+            return@synchronized activeDirectory()!!
+        }
         val directory = try {
-            install(manifest) { path -> context.assets.open("native-web/releases/$revision/$path") }
+            install(manifest) { path -> bundledFile(revision, path) }.also { writePointer(revision) }
         } catch (error: Exception) { return@synchronized active ?: throw error }
         // Mark only after verification and activation. A failed APK upgrade retries
         // on next open; subsequent OTA updates survive normal app restarts.
@@ -40,10 +61,11 @@ internal class CursadoWebPackage(private val context: Context) {
         val output = marker.startWrite()
         try { output.write(revision.toByteArray()); marker.finishWrite(output) }
         catch (error: Exception) { marker.failWrite(output); throw error }
+        File(root, "pending.json").delete()
         directory
     }
 
-    fun update(baseUrl: String, stillCurrent: () -> Boolean = { true }): Boolean = synchronized(lock) {
+    fun update(baseUrl: String, stillCurrent: () -> Boolean = { true }): Boolean = synchronized(downloadLock) {
         require(WorkspaceLink.validBase(baseUrl))
         val manifest = client.newCall(Request.Builder().url("$baseUrl/native-web/current.json").build()).execute().use { response ->
             check(response.isSuccessful) { "No se pudo actualizar Cursado." }
@@ -58,24 +80,37 @@ internal class CursadoWebPackage(private val context: Context) {
             JSONObject(bytes.toString(Charsets.UTF_8))
         }
         validate(manifest)
-        if (File(root, "active").takeIf { it.isFile }?.readText() == manifest.getString("revision")) return@synchronized false
-        install(manifest, stillCurrent) { path ->
+        val revision = manifest.getString("revision")
+        val unchanged = synchronized(lock) {
+            val pending = File(root, "pending.json").takeIf { it.isFile }?.let { runCatching { JSONObject(it.readText()) }.getOrNull() }
+            if (activeDirectory()?.name == revision) {
+                File(root, "pending.json").delete()
+                true
+            } else pending?.optString("revision") == revision && pending.optString("baseUrl") == baseUrl && File(root, "$revision/complete.json").isFile
+        }
+        if (unchanged) return@synchronized false
+        install(manifest) { path ->
             val url = "$baseUrl/native-web/releases/${manifest.getString("revision")}/$path"
             val response = client.newCall(Request.Builder().url(url).build()).execute()
             if (!response.isSuccessful) { response.close(); error("Descarga de interfaz interrumpida.") }
             val body = response.body ?: run { response.close(); error("Recurso vacío.") }
             object : java.io.FilterInputStream(body.byteStream()) { override fun close() { super.close(); response.close() } }
         }
+        synchronized(lock) {
+            check(stillCurrent()) { "La biblioteca cambió durante la actualización." }
+            WorkspaceLibraryStore.atomicJson(File(root, "pending.json"), JSONObject().put("revision", revision).put("baseUrl", baseUrl))
+        }
         true
     }
 
-    fun prune(pinned: File) = synchronized(lock) {
+    fun prune(pinned: File) = synchronized(downloadLock) { synchronized(lock) {
         val active = activeDirectory()?.canonicalFile
-        root.listFiles()?.filter { it.isDirectory && WorkspaceLibraryStore.validHash(it.name) && it.canonicalFile != active && it.canonicalFile != pinned.canonicalFile }?.forEach { it.deleteRecursively() }
+        val pending = File(root, "pending.json").takeIf { it.isFile }?.let { runCatching { JSONObject(it.readText()).getString("revision") }.getOrNull() }
+        root.listFiles()?.filter { it.isDirectory && WorkspaceLibraryStore.validHash(it.name) && it.name != pending && it.canonicalFile != active && it.canonicalFile != pinned.canonicalFile }?.forEach { it.deleteRecursively() }
         root.listFiles()?.filter { it.isDirectory && it.name.endsWith(".part") && WorkspaceLibraryStore.validHash(it.name.removeSuffix(".part")) }?.forEach { it.deleteRecursively() }
-    }
+    } }
 
-    private fun install(manifest: JSONObject, mayActivate: () -> Boolean = { true }, source: (String) -> InputStream): File {
+    private fun install(manifest: JSONObject, source: (String) -> InputStream): File {
         validate(manifest)
         val revision = manifest.getString("revision")
         val destination = File(root, revision)
@@ -95,15 +130,18 @@ internal class CursadoWebPackage(private val context: Context) {
                 check(staging.renameTo(destination))
             } finally { staging.deleteRecursively() }
         }
-        check(mayActivate()) { "La biblioteca cambió durante la actualización." }
+        return destination
+    }
+
+    private fun writePointer(revision: String) {
         val pointer = AtomicFile(File(root, "active")); val output = pointer.startWrite()
         try { output.write(revision.toByteArray()); pointer.finishWrite(output) }
         catch (error: Exception) { pointer.failWrite(output); throw error }
-        return destination
     }
 
     companion object {
         private val lock = Any()
+        private val downloadLock = Any()
         fun needsBundledInstall(bundledRevision: String, installedBundle: String?, hasActive: Boolean) =
             !hasActive || installedBundle != bundledRevision
         fun copyVerified(item: JSONObject, input: InputStream, file: File) {

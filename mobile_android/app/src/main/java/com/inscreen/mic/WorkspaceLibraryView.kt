@@ -22,9 +22,10 @@ internal class WorkspaceLibraryView(context: Context, private val scan: () -> Un
     private val loading = AtomicBoolean(false)
     private val updatingWeb = AtomicBoolean(false)
     private val bootingWeb = AtomicBoolean(false)
+    private val checkedWeb = AtomicBoolean(false)
     private val inventories = ConcurrentHashMap<String, JSONObject>()
     private val pendingPdfs = ConcurrentHashMap<String, Boolean>()
-    private var closed = false
+    @Volatile private var closed = false
     var atHome = true
         private set
     private val webPackages = CursadoWebPackage(context)
@@ -95,7 +96,7 @@ internal class WorkspaceLibraryView(context: Context, private val scan: () -> Un
         if (!bootingWeb.compareAndSet(false, true)) return
         thread(name = "cursado-web-start") {
             try {
-                val directory = webPackages.installed().canonicalFile
+                val directory = webPackages.installed(WorkspaceCredentialStore(context).load()?.baseUrl).canonicalFile
                 post { if (!closed) { packageDirectory = directory; loadUrl("https://$HOST/"); refresh() } }
             } catch (error: Exception) {
                 post { if (!closed) {
@@ -106,26 +107,26 @@ internal class WorkspaceLibraryView(context: Context, private val scan: () -> Un
         }
     }
     private fun checkWebUpdate() {
-        if (!updatingWeb.compareAndSet(false, true)) return
+        if (closed || !updatingWeb.compareAndSet(false, true)) return
         thread(name = "cursado-web-update") {
             try { runCatching { WorkspaceCredentialStore(context).load()?.let {
                 val baseUrl = it.baseUrl
-                webPackages.update(baseUrl) { WorkspaceCredentialStore(context).load()?.baseUrl == baseUrl }
+                val prepared = webPackages.update(baseUrl) { !closed && WorkspaceCredentialStore(context).load()?.baseUrl == baseUrl }
+                if (prepared) post { if (!closed) Toast.makeText(context, "Cursado actualizado. Se usará en la próxima apertura.", Toast.LENGTH_LONG).show() }
                 packageDirectory?.let { directory -> webPackages.prune(directory) }
             } } }
             finally { updatingWeb.set(false) }
         }
     }
     fun refresh() {
+        if (closed) return
         if (packageDirectory == null) { startWeb(); return }
-        val nextPackage = webPackages.installed().canonicalFile
-        if (nextPackage != packageDirectory) { packageDirectory = nextPackage; loadUrl("https://$HOST/") }
-        checkWebUpdate()
-        val credentials = runCatching { WorkspaceCredentialStore(context).load() }.getOrElse { post { message("No se pudo abrir el vínculo. Volvé a vincular la biblioteca.") }; return } ?: return
-        WorkspaceLibraryWorker.schedule(context)
+        if (checkedWeb.compareAndSet(false, true)) checkWebUpdate()
         if (!loading.compareAndSet(false, true)) return
         thread(name = "workspace-library-refresh") {
             try {
+                val credentials = WorkspaceCredentialStore(context).load() ?: return@thread
+                WorkspaceLibraryWorker.schedule(context)
                 val store = WorkspaceLibraryStore(context, credentials)
                 if (store.online()) store.sync(false)
                 post { evaluate("window.LibraryReload?.()") }
@@ -133,7 +134,7 @@ internal class WorkspaceLibraryView(context: Context, private val scan: () -> Un
             finally { loading.set(false) }
         }
     }
-    fun paired() { inventories.clear(); evaluate("window.LibraryReload?.()"); refresh() }
+    fun paired() { checkedWeb.set(false); inventories.clear(); evaluate("window.LibraryReload?.()"); refresh() }
     fun back(): Boolean {
         evaluate("window.dispatchEvent(new CustomEvent('cursado-native-back',{cancelable:true}))")
         return true
