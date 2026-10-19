@@ -18,6 +18,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
 import androidx.test.runner.lifecycle.Stage
+import androidx.viewpager2.widget.ViewPager2
 import com.github.barteksc.pdfviewer.PDFView
 import org.json.JSONArray
 import org.json.JSONObject
@@ -156,6 +157,7 @@ class WorkspacePdfTest {
         val sessionText = session.readText()
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java)).use { host ->
+            host.onActivity { find(it.window.decorView, ViewPager2::class.java)!!.setCurrentItem(0, false) }
             fun evaluate(script: String): String {
                 val done = CountDownLatch(1)
                 val result = AtomicReference("")
