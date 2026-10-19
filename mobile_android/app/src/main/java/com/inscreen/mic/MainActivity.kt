@@ -191,7 +191,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        libraryView?.refresh()
         if (webViews.isNotEmpty()) {
             val quoted = JSONObject.quote(AprioriStore.load(this))
             webViews.forEach { it.evaluateJavascript("window.InScreenApplyState($quoted)", null) }

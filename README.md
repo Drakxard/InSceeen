@@ -7,10 +7,11 @@ Si falta, la app indica sincronizar desde la web y actualizar los archivos del
 celular. Desde Inicio de Cursado, deslizar a la derecha vuelve a la pila de InScreen.
 La zona lateral para cambiar de pantalla abarca 40 dp desde cada borde.
 El menú de tres puntos aparece encima de Inicio, en una columna; para retroceder
-se usa el botón o gesto de Android. Los PDF se abren con PDFium mediante
-`PdfRenderer`, con desplazamiento vertical, zoom táctil, página recordada y acceso
+se usa el botón o gesto de Android. Los PDF se abren con AndroidPdfViewer y PDFium,
+con desplazamiento vertical continuo, zoom del documento, página recordada y acceso
 a las explicaciones guardadas de Verlo. El lector funciona con los archivos
-descargados sin conexión. El paquete Android no incluye PDF.js.
+descargados sin conexión. Arriba solo aparece el botón flotante `[ ]` para
+maximizar; se vuelve con el botón o gesto del dispositivo. El paquete Android no incluye PDF.js.
 Al actualizar el APK se activa la nueva interfaz incluida, aunque hubiera una
 copia antigua guardada; las actualizaciones web posteriores siguen disponibles.
 
@@ -27,6 +28,21 @@ paquete completo antes de activarlo al volver a abrir la app. GitHub Actions
 incluye una versión inicial desde un commit fijo de Cursado mediante
 `.github/actions/prepare-library`. No se compila Android localmente. Los detalles están en
 [la documentación de Cursado](https://github.com/Drakxard/cursado/blob/main/docs/biblioteca-inscreen.md).
+
+La comprobación de interfaz se hace una vez por apertura, en segundo plano. Una
+revisión nueva se descarga y verifica sin cambiar la pantalla actual; un aviso
+indica que quedó preparada para la próxima apertura. Volver desde un PDF no
+activa paquetes ni recarga la biblioteca. Si la descarga falla, se conserva la
+interfaz anterior y se reintenta en la siguiente apertura. El botón de actualizar
+archivos sigue sincronizando los documentos manualmente.
+
+Los accesos PDF de Pizarra, incluidos los fijados, abren directamente el lector
+nativo. Un toque abre; arrastrar o usar dos dedos conserva la navegación de la
+pizarra sin editarla. Los errores de apertura permiten reintentar.
+
+Las compilaciones verifican el APK resultante: revisión y hashes de los recursos
+de Cursado, clases del lector y biblioteca PDFium. El informe `reader-apk.json`
+queda junto con los informes de pruebas en los artefactos de GitHub Actions.
 
 Asistente local para Windows que combina el material visible en la ventana activa con
 una pregunta hablada desde InScreen Mic para Android o escrita directamente en el overlay.
