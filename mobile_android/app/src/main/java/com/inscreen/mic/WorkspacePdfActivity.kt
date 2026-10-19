@@ -33,6 +33,7 @@ class WorkspacePdfActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        maximized = savedInstanceState?.getBoolean("maximized") ?: false
         WindowCompat.setDecorFitsSystemWindows(window, false)
         val layout = FrameLayout(this).apply { setBackgroundColor(Color.rgb(232, 234, 237)) }
         ViewCompat.setOnApplyWindowInsetsListener(layout) { view, insets ->
@@ -57,7 +58,7 @@ class WorkspacePdfActivity : Activity() {
             background = GradientDrawable().apply { setColor(0xEFFFFFFF.toInt()); cornerRadius = 24.dp.toFloat() }
             elevation = 3.dp.toFloat()
         }
-        val maximize = control("[ ]", "Maximizar PDF").apply {
+        val maximize = control(if (maximized) "][" else "[ ]", if (maximized) "Salir de pantalla completa" else "Maximizar PDF").apply {
             setOnClickListener {
                 maximized = !maximized
                 val controller = WindowInsetsControllerCompat(window, window.decorView)
@@ -82,6 +83,10 @@ class WorkspacePdfActivity : Activity() {
             bottomMargin = 8.dp; marginEnd = 8.dp
         })
         setContentView(layout)
+        if (maximized) WindowInsetsControllerCompat(window, window.decorView).apply {
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            hide(WindowInsetsCompat.Type.systemBars())
+        }
         worker.execute {
             try {
                 val session = File(intent.getStringExtra("session") ?: error("Falta el PDF.")).canonicalFile
@@ -163,6 +168,7 @@ class WorkspacePdfActivity : Activity() {
         }
     }
     override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean("maximized", maximized)
         outState.putInt("page", pdfView.currentPage)
         outState.putFloat("zoom", pdfView.zoom)
         outState.putFloat("position", pdfView.positionOffset)
