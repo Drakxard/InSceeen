@@ -158,6 +158,21 @@ class WorkspacePdfTest {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java)).use { host ->
             host.onActivity { find(it.window.decorView, ViewPager2::class.java)!!.setCurrentItem(0, false) }
+            var booted = false
+            for (poll in 0 until 150) {
+                host.onActivity { booted = find(it.window.decorView, WorkspaceLibraryView::class.java)?.url != null }
+                if (booted) break
+                Thread.sleep(100)
+            }
+            assertTrue("The host must finish selecting its startup package", booted)
+            // Exercise Android lifecycle independently of the emulator's old system
+            // WebView. The production React screens are covered by browser tests.
+            host.onActivity {
+                find(it.window.decorView, WorkspaceLibraryView::class.java)!!.loadDataWithBaseURL(
+                    "https://workspace.inscreen.local/", "<button>Host de lectura</button><script>window.pdfHostProbe='same-screen'</script>",
+                    "text/html", "UTF-8", null,
+                )
+            }
             fun evaluate(script: String): String {
                 val done = CountDownLatch(1)
                 val result = AtomicReference("")
@@ -175,8 +190,8 @@ class WorkspacePdfTest {
             }
             assertEquals("true", evaluate("window.pdfHostProbe='same-screen'; Boolean(document.body.innerText.trim())"))
             repeat(3) { attempt ->
-                session.writeText(sessionText)
-                host.onActivity { it.startActivity(intent) }
+                val nextSession = File(session.parentFile, "repeat-$attempt.json").apply { writeText(sessionText) }
+                host.onActivity { it.startActivity(Intent(intent).putExtra("session", nextSession.absolutePath)) }
                 var rendered = false
                 for (poll in 0 until 150) {
                     instrumentation.runOnMainSync {
