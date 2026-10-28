@@ -19,6 +19,10 @@ La primera pestaña ahora abre la biblioteca personal de Cursado (Pizarra/Estudi
 La pila y la conexión de micrófono conservan sus funciones. Escaneá el QR del
 botón de sincronización del inicio de Cursado para vincularla; solo necesita R2.
 Las descargas completas se hacen por Wi-Fi y se pueden leer sin conexión.
+Los fallos de sincronización automática no muestran avisos ni interrumpen la
+copia local; el trabajo en segundo plano reintenta cuando hay conexión.
+El empaquetado aplica `scripts/cursado-native-dynamic.ts` al lector fijado de
+Cursado para cargar correctamente tanto módulos como componentes de Importantes.
 Inicio, Estudio, Síntesis y Pizarra usan los componentes originales de Cursado en
 modo de consulta. La app conecta automáticamente su carpeta sincronizada, sin
 solicitar la carpeta del navegador ni credenciales de la computadora. Conserva

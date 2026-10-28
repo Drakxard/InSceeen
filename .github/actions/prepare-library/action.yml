@@ -27,10 +27,16 @@ runs:
       run: |
         npm ci --no-audit --no-fund
         npm --prefix pizarraproyecto-main ci --no-audit --no-fund
+    - name: Check native dynamic loading
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      run: node --test tests/test_cursado_dynamic.mjs
     - name: Package offline readers
       shell: bash
       working-directory: ${{ github.workspace }}/.cursado-reader
-      run: node scripts/build-native-web.mjs ../modules/native-web
+      run: |
+        cp ../scripts/cursado-native-dynamic.ts native-web/dynamic.ts
+        node scripts/build-native-web.mjs ../modules/native-web
     - name: Check library publication and important tasks
       shell: bash
       working-directory: ${{ github.workspace }}/.cursado-reader

@@ -130,7 +130,10 @@ internal class WorkspaceLibraryView(context: Context, private val scan: () -> Un
                 val store = WorkspaceLibraryStore(context, credentials)
                 if (store.online()) store.sync(false)
                 post { evaluate("window.LibraryReload?.()") }
-            } catch (error: Exception) { post { message(error.message ?: "Sin conexión; se conserva la copia descargada.") } }
+            } catch (_: Exception) {
+                // Background refresh must leave the offline library usable and quiet.
+                // The scheduled worker retries when connectivity is available.
+            }
             finally { loading.set(false) }
         }
     }
